@@ -1,0 +1,335 @@
+# Requisitos y trazabilidad académica
+
+## 1. Alcance de este documento
+
+Este documento separa cuatro cosas que no deben confundirse:
+
+- los requisitos completos del PDF del Trabajo Práctico Integrador;
+- los conceptos que los respaldan en el material teórico;
+- la aclaración posterior del profesor sobre temas aún no vistos;
+- el alcance reducido de esta primera etapa de implementación.
+
+En esta etapa se prepara un circuito ejecutable PostgreSQL 16 -> FastAPI -> front. No se implementan todavía el esquema del negocio, CRUD, triggers, carga masiva ni reportes.
+
+## 2. Fuentes revisadas
+
+Se pudieron abrir y leer los 16 PDF de `material/` (214 páginas en total). Ninguno está cifrado ni dañado. Las páginas 10 a 12 del material de modelo E-R extendido no tienen capa de texto; se revisaron visualmente y muestran ejemplos de jerarquía total exclusiva, total con solapamiento y parcial con solapamiento.
+
+| Fuente | Aporte principal al proyecto |
+|---|---|
+| `TPI_Bodegas_del_Atuel.pdf` | Escenario, RN-01 a RN-15, entidades mínimas, nueve etapas, mínimos cuantitativos, consultas, rúbrica y estructura de entrega. |
+| `Programa BD 2026.pdf` | Contenidos curriculares: SGBD, MER/ERE, modelo relacional, normalización, integridad, SQL, transacciones, índices, vistas y seguridad. |
+| `BASE-DE-DATOS.pdf` | Persistencia, integridad, consistencia, seguridad, concurrencia y arquitectura cliente-servidor de tres capas. |
+| `BD - MODELO CONCEPTUAL 2026.pdf` | Entidades fuertes y débiles, atributos, dominios, relaciones, cardinalidad y tipos de clave. |
+| `Modelo-Entidad-Relacion-Extendido-Modelando-la-Complejidad-Real.pdf` | Especialización, generalización, herencia, totalidad/parcialidad y exclusividad/solapamiento. |
+| `BD - MODELO RELACIONAL.pdf` | Paso de MER a relaciones, entidad débil, atributos compuestos y multivaluados, N:M y alternativas de mapeo de jerarquías. |
+| `Normalización de BD.pdf` | Dependencias funcionales, parciales y transitivas; objetivos de 1FN, 2FN y 3FN. |
+| `Metodologia Normalizacion hasta 3FN.pdf` | Método ordenado: atomicidad, claves candidatas, atributos primos, dependencias, descomposición y claves resultantes. |
+| `Reglas de integridad.pdf` | Integridad de entidad, referencial, de dominio y de usuario; PK, UNIQUE, FK, CHECK, NOT NULL, DEFAULT y acciones referenciales. |
+| `Lenguajes BD (1).pdf` | DDL y DML, creación y modificación de objetos y administración básica. |
+| `JOIN,GROUP BY, HAVING, SUBCONSULTAS (1).pdf` | Joins, agrupaciones, conjuntos y subconsultas escalares, correlacionadas, de existencia y cuantificadas. |
+| `Funciones, Procedimientos y Triggers.pdf` | Funciones, procedimientos, triggers, automatización, integridad y auditoría en PostgreSQL. |
+| `Introduccion a vistas PostgreSQL (1).pdf` | Vistas estándar y materializadas, simplificación, seguridad y necesidad de refresco. |
+| `Indices-en-PostgreSQL.pdf` | Costos y beneficios de índices, selectividad, índices parciales/compuestos y B-tree, Hash, GiST, GIN y BRIN. |
+| `Bases de Datos - Esquemas, Roles y Permisos.pdf` | Esquemas, roles, granularidad de permisos y principio de menor privilegio. |
+| `Roles de usuarios - SQL.pdf` | `CREATE ROLE`, `GRANT`, `REVOKE`, pertenencia, modificación y eliminación de roles. |
+
+### Cautelas detectadas en el material
+
+Los apuntes son una guía docente, pero algunos ejemplos tienen simplificaciones o inconsistencias que no deben copiarse sin análisis:
+
+- El ejemplo de 3FN de `Normalización de BD.pdf` alterna las dependencias entre ciudad y código postal y repite una dependencia como directa y transitiva. Para Bodegas del Atuel se derivarán las dependencias funcionales desde el dominio y las claves candidatas reales.
+- El material de vistas sugiere una mejora de rendimiento para vistas en general. En PostgreSQL una vista estándar no materializa ni cachea resultados por sí misma; una mejora deberá demostrarse y, si corresponde, asociarse a una vista materializada, índices o una consulta mejor planteada.
+- El material de funciones y triggers contiene ejemplos con erratas y afirmaciones simplificadas. La sintaxis se validará contra PostgreSQL 16 y mediante pruebas ejecutables.
+- El material conceptual a veces describe la cardinalidad máxima sin separar claramente la participación mínima. El DER del proyecto deberá expresar ambos límites en cada extremo.
+- El mismo material primero presenta un atributo en una relación como señal de una entidad faltante y luego admite atributos descriptivos en relaciones. Para composición, renglones y demás asociaciones con datos propios se justificará explícitamente si corresponde una relación asociativa y cómo se transforma en tabla.
+- En PostgreSQL 16, un `UNIQUE` admite varios valores `NULL` por defecto y un `CHECK` no rechaza el resultado lógico desconocido. Cuando el atributo sea obligatorio se combinará la regla con `NOT NULL`; si los nulos deben considerarse iguales se evaluará `NULLS NOT DISTINCT`.
+- `RESTRICT` y `NO ACTION` no son intercambiables en todos los casos: una comprobación `NO ACTION` sólo puede diferirse si la restricción fue declarada diferible y se difiere efectivamente.
+- Los ejemplos que usan `SERIAL` son válidos, pero se compararán con `GENERATED ... AS IDENTITY`, disponible y más explícito en PostgreSQL 16.
+
+Las tres últimas precisiones son validaciones técnicas externas al material de cátedra, contrastadas con el [manual de constraints de PostgreSQL 16](https://www.postgresql.org/docs/16/ddl-constraints.html) y el [manual de columnas identity](https://www.postgresql.org/docs/16/ddl-identity-columns.html); no se atribuyen a los PDF.
+
+## 3. Requisitos completos de la consigna
+
+### 3.1 Tecnologías y arquitectura
+
+- PostgreSQL 14 o superior en el PDF; este proyecto fija PostgreSQL 16.
+- SQL directo mediante driver nativo. ORM y query builders que oculten SQL están prohibidos.
+- API REST JSON documentada con OpenAPI/Swagger o colección Postman.
+- Front que consuma únicamente la API.
+- Docker y Docker Compose; un solo comando debe levantar base, API y front.
+- Git en GitHub o GitLab, con participación de todos los integrantes.
+- Trabajo grupal de tres a cuatro integrantes, con roles de Datos, API, Front/Integración e Infraestructura que rotan por etapa. El rol organiza, pero todos deben poder explicar y modificar cualquier parte en vivo durante la defensa.
+- Se recomienda una rama por etapa y revisión cruzada antes de integrar.
+- Datos masivos reproducibles mediante Python, Faker/random o equivalente, con semilla fija y catálogos reales.
+- Secretos fuera del repositorio y rol de API distinto del propietario.
+- Totales, descuentos y stock resueltos en PostgreSQL, no en API ni front.
+- No se exige diseño visual sofisticado ni autenticación compleja; la autenticación es un extra opcional.
+
+Decisiones fijadas adicionalmente para este proyecto: Python + FastAPI, Psycopg 3 con pool, HTML/CSS/JavaScript y PostgreSQL 16.
+
+### 3.2 Modelado y normalización
+
+El modelo futuro debe incluir, como mínimo: localidad, sala de venta, empleado, finca, parcela débil, cepa, lote de uva, análisis de calidad, bodega, vino, composición vino-cepa, maridaje, vino-maridaje, cliente y sus tres subtipos, permiso de exportación, comprobante y renglón, transportista y cobertura, ingreso y renglón, transferencia y renglón, stock por sala, stock del depósito y auditoría de precio.
+
+Los atributos e identificadores siguientes son la guía mínima del PDF; todavía deben analizarse sus claves candidatas y justificarse las decisiones finales:
+
+| Entidad o relación | Identificador/atributos guía |
+|---|---|
+| Localidad | Código postal; nombre, provincia y encargado regional. |
+| Sala de venta | ID; calle, número, día de cierre y localidad. |
+| Empleado | CUIT; nombre, fecha de ingreso, salario y sala. |
+| Finca | ID; nombre, superficie, departamento y provincia. |
+| Parcela | Clave débil `(finca, nro_parcela)`; superficie, año de plantación y cepa. |
+| Cepa | ID; nombre y tipo tinta/blanca. |
+| Lote de uva | Número de lote; parcela, campaña, fecha, kg y bodega destino; una cosecha por parcela/campaña. |
+| Análisis de calidad | ID; lote, fecha, Brix, pH y acidez total. |
+| Bodega | CUIT; razón social y domicilio. |
+| Vino | Código; nombre, tipo, añada, volumen, graduación, precio y bodega. |
+| Composición | Clave vino-cepa y porcentaje; N:M con atributo y suma 100 % por vino. |
+| Maridaje / vino-maridaje | Maridaje: ID, nombre y temperatura; asociación N:M identificada por vino-maridaje. |
+| Cliente | ID; nombre/razón social, tipo y número de documento, dirección, localidad, alta y descuento; supertipo de tres subtipos. |
+| Socio, distribuidor y exportador | Datos propios; distribuidor con zona/habilitación y exportador con país principal. |
+| Permiso de exportación | Código y exportador; emisión y vencimiento. |
+| Comprobante | Número; fecha, cliente, sala, subtotal, descuento y total. |
+| Renglón de comprobante | Clave `(comprobante, vino)`; cantidad, precio unitario, descuento y subtotal. |
+| Transportista / cobertura | Código, razón social, CUIT, email, teléfono y domicilio; cobertura N:M con localidad. |
+| Ingreso / renglón | Código, fecha, estado, transportista y bodega; renglón con vino y cantidad. |
+| Transferencia / renglón | Número, sala, fecha y estado; renglón con vino y cantidad. |
+| Stock de sala | Clave `(sala, vino)` y cantidad no negativa. |
+| Stock de depósito | Vino y cantidad no negativa para un único depósito central. |
+| Auditoría de precio | ID; vino, precios anterior/nuevo, fecha-hora y usuario. |
+
+La entrega de modelado exige:
+
+- DER en imagen o PDF y su archivo fuente, con entidades, atributos, identificadores y cardinalidades mínima/máxima;
+- representación de la entidad débil `Parcela`, la jerarquía de clientes y las relaciones N:M con atributos;
+- esquema relacional con PK y FK;
+- claves naturales frente a subrogadas justificadas caso por caso;
+- dependencias funcionales relevantes y demostración de 1FN, 2FN y 3FN;
+- diccionario de datos coherente con el DDL que indique, para cada tabla y columna, tipo, nulabilidad, restricciones y descripción;
+- decisiones sobre atributos derivados y acciones `ON DELETE`/`ON UPDATE`;
+- DDL reproducible desde una base vacía, comenzando por `db/migrations/001_esquema.sql`.
+
+### 3.3 Reglas de negocio mínimas
+
+Las quince reglas del PDF deben conservar trazabilidad hacia un mecanismo PostgreSQL y una prueba:
+
+| Regla | Resumen | Mecanismo orientativo del PDF |
+|---|---|---|
+| RN-01 | Precio único en la red y positivo. | Atributo en vino + `CHECK`. |
+| RN-02 | Sala en una localidad; un encargado regional por localidad. | FK + diseño en 3FN. |
+| RN-03 | Empleado en una sola sala. | FK `NOT NULL`. |
+| RN-04 | Una cepa por parcela y una cosecha máxima por campaña. | FK + `UNIQUE`. |
+| RN-05 | El corte de un vino suma 100 %. | Constraint trigger diferido. |
+| RN-06 | Descuento según tipo de cliente. | Función + `CHECK`. |
+| RN-07 | Permisos múltiples del exportador y vencimiento posterior. | Tabla + `CHECK` entre columnas. |
+| RN-08 | Total derivado de renglones y descuento. | Función + trigger. |
+| RN-09 | Venta limitada por stock de sala; stock no negativo. | Trigger + `CHECK`. |
+| RN-10 | Ingreso: flujo de estados sin retroceso e impacto único. | `ENUM` + trigger + procedimiento. |
+| RN-11 | Transferencia: mismo flujo; fecha actual inmutable. | Triggers + procedimiento. |
+| RN-12 | Documento no editable fuera de confección. | Trigger en renglones. |
+| RN-13 | Todo cambio de precio queda auditado. | Trigger `AFTER UPDATE`. |
+| RN-14 | No borrar vino, bodega o transportista con movimientos. | FK `ON DELETE RESTRICT`. |
+| RN-15 | Cantidades, superficies, kilos y precios positivos; graduación 5 a 20. | `CHECK`. |
+
+### 3.4 Mínimos cuantitativos de integridad y lógica
+
+- PK en todas las tablas y FK en todas las relaciones, con acciones referenciales justificadas.
+- `NOT NULL` en atributos obligatorios.
+- Cuatro `UNIQUE` adicionales a las PK.
+- Ocho `CHECK`, incluido al menos uno entre columnas.
+- Tres `DEFAULT`.
+- Un `ENUM` y un `DOMAIN`.
+- Cuatro funciones: total de comprobante, stock de sala, descuento de cliente y antigüedad.
+- Dos procedimientos para procesar ingresos y transferencias.
+- Seis triggers con propósitos distintos, incluidos `BEFORE`, `AFTER` y constraint trigger diferido.
+- Tres vistas, una opcionalmente materializada.
+- Tres roles: propietario, API lectura/escritura y reportes de solo lectura.
+- Al menos un caso de prueba por cada RN-01 a RN-15.
+- Migraciones esperadas por el PDF: `001_esquema.sql`, `002_constraints.sql`, `003_funciones.sql`, `004_procedimientos.sql`, `005_triggers.sql`, `006_vistas.sql`, `007_roles.sql` y `008_indices.sql`.
+- Cada función debe comentar propósito, parámetros y volatilidad; cada trigger debe citar la RN que protege. Las pruebas negativas deben indicar el error esperado.
+- La etapa 2 entrega la tabla `regla -> mecanismo -> caso de prueba` y una demostración documentada con dos sesiones. Las transacciones quedan sujetas a la aclaración de la sección 4; concurrencia sigue siendo requisito del PDF salvo confirmación adicional de la cátedra.
+
+### 3.5 Carga masiva
+
+Todas las tablas deben tener al menos una fila, tres deben superar 10.000 filas y una debe superar 100.000. Volúmenes orientativos del PDF:
+
+| Grupo de tablas | Filas recomendadas |
+|---|---:|
+| Localidad, cepa, maridaje, bodega, transportista y cobertura | 10 a 60, con catálogos reales |
+| Sala, finca y empleado | 15 a 150 |
+| Parcela, vino, composición, vino-maridaje y stock de depósito | 300 a 1.000 |
+| Ingreso, transferencia y stock de sala | 500 a 5.000 |
+| Renglones de ingreso/transferencia, lote y análisis | 3.000 a 15.000 |
+| Cliente | 20.000 |
+| Comprobante | 150.000 |
+| Renglón de comprobante | 500.000 o más |
+
+Los CSV deben contener catálogos reales de cepas, maridajes, departamentos/localidades de Mendoza y tipos de vino; no deben generarse al azar. El Anexo B sugiere campañas de los últimos cinco años y cosechas entre febrero y abril; se toma como referencia, no como obligación textual. El orden de carga según FK debe diagramarse.
+
+El script futuro usará Python, Psycopg, `random` y Faker o equivalente con semilla fija; generará fechas, composiciones, importes y stock coherentes. Debe documentar cómo trata los triggers históricos y sus riesgos, comparar carga fila a fila contra lotes o `COPY`, y medir tiempos. Los controles incluyen conteos, huérfanos, stock negativo y comprobantes cuyo total no coincide con sus renglones. Se entrega `db/seed/`, reporte de resultados y `dump_completo.sql.gz` o instrucciones para generarlo.
+
+### 3.6 Índices y rendimiento
+
+- Crear al menos cinco índices propios en `008_indices.sql`: uno compuesto, uno parcial, uno sobre FK y uno de otro tipo o variante —expresión, BRIN o `INCLUDE`—, todos justificados.
+- Medir al menos tres consultas candidatas con `EXPLAIN (ANALYZE, BUFFERS)` antes y después, ejecutando `ANALYZE`; la línea base conserva únicamente los índices creados por PK y `UNIQUE`. Los planes completos quedan como anexo.
+- Comparar tiempos, tipo de recorrido y filas leídas; justificar el orden de un índice compuesto.
+- Documentar un índice evaluado y descartado, un caso donde el planificador no usa un índice existente y el costo de escritura, cronometrando la carga de una tabla grande con y sin esos índices.
+
+### 3.7 Consultas SQL requeridas
+
+Se entregan `consultas/update.sql`, `insert.sql`, `delete.sql` y `select.sql`. Cada consigna lleva código, enunciado, SQL comentado, estrategia y valores concretos del dataset. Los períodos relativos se calculan desde `CURRENT_DATE`. Cada modificación debe documentar los triggers o constraints que activa o viola, además de `BEGIN -> control previo -> sentencia -> control posterior -> ROLLBACK` y cantidad de filas afectadas; este protocolo queda alcanzado por la aclaración sobre transacciones de la sección 4.
+
+| Código | Requisito |
+|---|---|
+| U1 | Recalcular todos los totales de comprobantes aplicando el descuento del tipo de cliente. |
+| U2 | Aumentar 20 % el salario de empleados con más de cinco años de antigüedad. |
+| U3 | Aumentar 13 % el precio de vinos de una bodega elegida. |
+| U4 | Intercambiar lunes y miércoles como día de cierre, en una sola sentencia. |
+| U5 | Aplicar 15 % de rebaja a los diez vinos menos vendidos de la red. |
+| U6 | Elevar a 35 % el descuento de exportadores con más de tres permisos. |
+| I1 | Vincular General Alvear con el transportista que realizó menos envíos —ingresos trasladados— en el último trimestre. |
+| I2 | Si existe un tinto de al menos 14°, crear `cordero al disco` y asociarlo a todos los que cumplen. |
+| I3 | Crear comprobante con tres renglones, cliente dado y sala 1, dentro de una transacción y usando funciones de cálculo. |
+| I4 | Insertar una bodega. |
+| I5 | Insertar una sala de venta. |
+| I6 | Crear ingreso en confección de 120 botellas de un vino, bodega y transportista dados. |
+| D1 | Borrar comprobantes de más de cinco años de socios. |
+| D2 | Eliminar cepas que no componen vinos ni están plantadas. |
+| D3 | Eliminar empleados con menos de dos años de una sala dada de baja. |
+| D4 | Borrar socios sin compras dados de alta hace más de cinco años. |
+| D5 | Eliminar ingresos procesados de más de 365 días. |
+| D6 | Borrar socios sin compras de una localidad específica. |
+| S1 | Ranking de los diez vinos con más botellas vendidas. |
+| S2 | Vinos vendidos en todas las salas, mediante división relacional. |
+| S3 | Cantidad de clientes de cada tipo que compraron en una sala durante la última semana. |
+| S4 | Cinco salas que más solicitaron un vino en transferencias de los últimos quince días. |
+| S5 | Salas con menor cantidad de transferencias pendientes. |
+| S6 | Para una sala, vinos sin stock local pero disponibles en depósito. |
+| S7 | Transportista con mayor actividad en el último mes. |
+| S8 | Ventas por sala del último trimestre, en orden descendente. |
+| S9 | Ficha de vino con corte, bodega, maridajes y stock total, usando joins, agregación y vista. |
+| S10 | Rendimiento kg/ha por parcela/campaña y parcelas bajo el promedio de su finca, con CTE y subconsulta correlacionada. |
+| S11 | Ranking de vinos dentro de cada sala por botellas vendidas y ventas acumuladas mensuales por sala, con `RANK()` particionado y suma de ventana. |
+| S12 | Clientes que compraron todos los vinos de una bodega y quienes nunca compraron tintos, con `NOT EXISTS` y anti-join. |
+
+Las consultas candidatas de rendimiento y S9-S12 también requieren `EXPLAIN (ANALYZE)`.
+
+### 3.8 API REST completa
+
+La etapa final de API exige driver nativo, SQL parametrizado, una capa de acceso con una función por consulta, pool, paginación y filtros del catálogo por tipo, cepa, bodega y añada. Las operaciones de varias sentencias usan transacciones explícitas según la aclaración de la sección 4. OpenAPI/Swagger o Postman debe coincidir con las rutas reales.
+
+| Recurso | Métodos y rutas mínimas |
+|---|---|
+| Vinos | `GET /vinos`, `GET /vinos/{cod}`, `POST /vinos`, `PUT /vinos/{cod}`, `DELETE /vinos/{cod}`; detalle con corte y maridajes. |
+| Clientes | CRUD `GET`, `POST`, `PUT`, `DELETE` sobre `/clientes`, contemplando tres subtipos. |
+| Comprobantes | `POST /comprobantes`, `GET /comprobantes/{nro}`; venta completa sin datos parciales. |
+| Transferencias | `POST /transferencias`, `POST /transferencias/{nro}/renglones`, `/terminar` y `/procesar`. |
+| Ingresos | `POST /ingresos`, `POST /ingresos/{cod}/renglones` y `/procesar`. |
+| Reportes | `GET /reportes/top-vinos`, `/ventas-por-sala`, `/vinos-sin-stock`, `/transportista-activo`, `/trazabilidad/{cod}`. |
+| Salud | `GET /salud`, con comprobación real de acceso a PostgreSQL. |
+
+Traducción sugerida del PDF: `23505 -> 409`; `23503 -> 409 o 422`; `23514` y `23502 -> 422`; `P0001 -> 409` con mensaje de regla; `22P02 -> 400`; `40001` y `40P01 -> 503` sugiriendo reintento. Deben existir al menos ocho pruebas automáticas, tres que violen reglas. También se documenta un intento de inyección tratado como texto por la parametrización. Vender sin stock debe devolver 409 claro y no dejar cambios parciales.
+
+### 3.9 Front, nube, documentación y evaluación
+
+El front final tiene cinco pantallas mínimas:
+
+- catálogo paginado con filtros por tipo, cepa, bodega y añada, y detalle con composición/maridajes;
+- alta/edición de vino con composición y error si no suma 100 %;
+- venta con cliente, sala, vinos, total de backend y error de stock;
+- transferencias con renglones y botones habilitados según estado;
+- tablero con top diez, ventas trimestrales por sala en gráfico y vinos sin stock en una sala.
+
+Antes de implementarlas deben realizarse bocetos simples de las cinco pantallas. El front debe centralizar llamadas a la API, usar URL base configurable, mostrar los mensajes reales de las reglas y no calcular importes ni stock.
+
+La nube exige comparar dos proveedores, justificar uno, crear propietario/API/reportes, aplicar migraciones en orden, HTTPS, conexión PostgreSQL cifrada, puerto restringido, secretos externos, CORS limitado al origen público, rechazo comprobado de una conexión no autorizada y backup/restauración con conteos. Si el plan limita espacio, se acepta carga reducida con al menos 10.000 filas en una tabla, manteniendo el volumen local. Debe repetirse en nube una regla ejecutada por trigger.
+
+La entrega final incluye README reproducible, URL pública, informe, trazabilidad, demo de 10 a 15 minutos sobre la versión en nube y defensa individual. La demo debe recorrer una venta, mostrar su rechazo por falta de stock, procesar una transferencia y exhibir una consulta con su plan de ejecución. El informe sigue: alcance; modelo/3FN/diccionario; integridad/lógica/concurrencia; carga; índices; consultas; API/front e inyección fallida; nube/seguridad/backup; conclusiones. El PDF menciona un Anexo C de preguntas, pero el archivo disponible termina en la página 29 con el Anexo B.
+
+La rúbrica suma 100 puntos y la capa de datos representa 70 %:
+
+| Criterio | Puntos |
+|---|---:|
+| Modelado | 15 |
+| Constraints | 8 |
+| Funciones, procedimientos, triggers y transacciones | 17 |
+| Carga masiva | 8 |
+| Índices y rendimiento | 10 |
+| Consultas SQL | 12 |
+| API | 10 |
+| Front | 5 |
+| Nube y seguridad | 10 |
+| Documentación, Git y demo | 5 |
+
+Descuentan puntos: ORM/generadores que oculten SQL, secretos incluso en el historial, base no reproducible desde cero, API conectada como propietario/superusuario, cálculos de totales/descuentos/stock fuera de PostgreSQL e historial Git de una sola persona. La nota grupal se pondera por defensa individual, pero el coeficiente o mecanismo figura pendiente de definición en el PDF.
+
+## 4. Diferencia entre el PDF y la aclaración docente
+
+La aclaración recibida indica que los temas no vistos, como transacciones, son opcionales. Esto modifica la obligatoriedad académica, pero no borra lo escrito en la consigna.
+
+El PDF presenta transacciones y concurrencia como obligatorias en varios lugares:
+
+- objetivo de aprendizaje de manejo de transacciones y concurrencia;
+- dos procedimientos "transaccionales" y una demostración de dos sesiones en la etapa 2;
+- aceptación de que una transferencia fallida no deje cambios parciales;
+- pruebas de modificaciones dentro de `BEGIN`/`ROLLBACK` en la etapa 5;
+- manejo explícito de transacciones y venta completa en una transacción en la API;
+- rúbrica de funciones, procedimientos, triggers y transacciones;
+- ejemplo de concurrencia con `SELECT ... FOR UPDATE` en el anexo;
+- inclusión de transacciones y acceso concurrente en `Programa BD 2026.pdf`.
+
+Decisión actual: las transacciones se clasifican como opcionales porque fueron el ejemplo explícito de tema no visto. No se implementan en esta primera etapa, pero la arquitectura no impide incorporarlas. No se presume lo mismo para concurrencia: seguirá tratándose como requisito del PDF hasta confirmar si tampoco fue vista. Antes de la etapa de lógica de negocio se debe precisar con la cátedra qué entregables y puntos de la rúbrica quedan efectivamente exceptuados.
+
+## 5. Requisitos de esta primera etapa y estado esperado
+
+| Requisito | Resolución de esta etapa |
+|---|---|
+| Estructura solicitada | Directorios reales; los reservados para etapas futuras llevan README explicativo, no archivos vacíos. |
+| PostgreSQL 16 persistente | Imagen `postgres:16-alpine` y volumen nombrado. |
+| Tres servicios con un comando | `db`, `api` y `front` en `docker-compose.yml`. |
+| Healthchecks | PostgreSQL con `pg_isready`, API llamando `/salud` y front comprobando Nginx. |
+| Propietario separado de API | Bootstrap crea cuenta de inicialización, propietario del proyecto y rol API. |
+| API sin DDL ni superusuario | `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, sin `CREATE` en base o esquema. |
+| Credenciales externas | `.env.example` sólo contiene valores de ejemplo; `.env` queda ignorado. |
+| `GET /salud` real | Adquiere una conexión del pool y ejecuta `SELECT 1`; 200/503 sin detalles internos. |
+| Estado visible en navegador | El front consulta `/api/salud` y muestra éxito o indisponibilidad. |
+| Sin nombres internos en el navegador | Nginx recibe `/api/*` y lo reenvía a `api:8000` dentro de Docker. |
+| Documentación operativa | README con configuración, arranque, verificación, parada y borrado explícito del volumen. |
+| Sin negocio prematuro | No se crean tablas, CRUD, triggers, carga masiva ni reportes. |
+| Límites operativos | No hacer commit, push ni despliegue; informar con precisión toda comprobación que el entorno no permita realizar. |
+
+El rol de reportes de solo lectura se difiere hasta que existan tablas o vistas concretas a las que aplicar privilegios; sigue siendo un mínimo pendiente del PDF.
+
+## 6. Ambigüedades y decisiones pendientes del modelo
+
+Estas preguntas deben resolverse y justificarse antes del DER y del DDL de negocio:
+
+1. **Localidad:** si el código postal es realmente una clave candidata suficiente o si se necesita un ID y una unicidad compuesta con provincia/nombre.
+2. **Encargado regional:** qué atributos lo identifican, si es un empleado y cómo se representa su relación con localidad y sala.
+3. **Departamento de finca:** si se reutiliza un catálogo territorial común con localidades o se modela por separado.
+4. **Lote de uva:** alcance del número de lote (global o relativo a finca, campaña o bodega).
+5. **Vino:** el PDF propone `UNIQUE (nombre, añada, volumen)`; falta decidir si la bodega debe participar para permitir nombres iguales entre elaboradores.
+6. **Jerarquía de clientes:** se presume total y exclusiva, pero debe confirmarse y elegirse entre tabla única, tabla por subtipo o supertipo + subtipos.
+7. **Documento de cliente:** alcance de unicidad de número y tipo, y catálogo de tipos admitidos.
+8. **Descuento:** RN-06 fija 10/20/30 % por tipo, pero U6 pide elevar algunos exportadores a 35 %. Debe definirse si existe una excepción por cliente, una política versionable o si U6 corrige la regla.
+9. **Comprobantes:** alcance del número (global o por sala/serie) y semántica exacta de subtotal, descuento y total almacenados.
+10. **Depósito central:** decidir si se representa como singleton explícito o sólo mediante stock por vino, considerando una posible expansión futura.
+11. **Fechas y zonas horarias:** decidir `DATE` frente a `TIMESTAMPTZ` para movimientos y auditoría.
+12. **Permisos futuros de API:** el PDF pide un rol de lectura/escritura. Un apunte muestra, sólo como escenario de ejemplo y no como recomendación universal, un servicio limitado a procedimientos. Refinar privilegios por objeto y operación cuando existan tablas y rutinas.
+13. **Temas no vistos:** confirmar qué mínimos y puntos de rúbrica dejan de ser obligatorios por la optatividad de transacciones y si concurrencia también fue declarada tema no visto.
+14. **Ubicación de pruebas:** una sección del PDF menciona `tests/db_tests.sql`, mientras la estructura final y la instrucción de esta etapa usan `db/tests/`; se adopta `db/tests/`.
+15. **Anexo C ausente:** solicitar a la cátedra las preguntas de defensa mencionadas pero no incluidas en el PDF disponible.
+
+La temperatura de servicio no queda pendiente: el PDF la asigna al catálogo `Maridaje`; `Vino-maridaje` sólo vincula ambos. Moverla a la asociación sería una alternativa deliberada que deberá explicitar que se aparta de la guía.
+
+## 7. Decisiones de infraestructura ya tomadas
+
+- El navegador entra por el front en `localhost:8080`; JavaScript usa una ruta relativa del mismo origen.
+- Nginx traduce `/api/salud` a `http://api:8000/salud` dentro de la red de Compose.
+- La API también se publica en `localhost:8000` para `/salud` y `/docs` durante desarrollo.
+- PostgreSQL no publica el puerto 5432 al host en esta etapa; se accede desde la red interna o con `docker compose exec`.
+- El bootstrap crea un esquema vacío `bodegas`, propiedad del rol del proyecto, sin tablas de negocio.
+- Las futuras migraciones se ejecutarán como propietario. La API no recibe DML ni `EXECUTE` predeterminados en esta etapa; cada migración concederá y probará privilegios por objeto u operación.
+- Los scripts de inicialización de PostgreSQL sólo corren con un volumen vacío; cualquier cambio de roles debe hacerse mediante una migración administrativa o una reinicialización explícita y consciente del volumen.

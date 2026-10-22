@@ -1,0 +1,88 @@
+name: bodegas-del-atuel
+
+services:
+  db:
+    build:
+      context: ./db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Defina POSTGRES_DB en .env}
+      POSTGRES_USER: ${POSTGRES_BOOTSTRAP_USER:?Defina POSTGRES_BOOTSTRAP_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_BOOTSTRAP_PASSWORD:?Defina POSTGRES_BOOTSTRAP_PASSWORD en .env}
+      DB_OWNER_USER: ${DB_OWNER_USER:?Defina DB_OWNER_USER en .env}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?Defina DB_OWNER_PASSWORD en .env}
+      DB_APP_USER: ${DB_APP_USER:?Defina DB_APP_USER en .env}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?Defina DB_APP_PASSWORD en .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - datos
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./api
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:?Defina POSTGRES_DB en .env}
+      DB_USER: ${DB_APP_USER:?Defina DB_APP_USER en .env}
+      DB_PASSWORD: ${DB_APP_PASSWORD:?Defina DB_APP_PASSWORD en .env}
+      DB_POOL_MIN_SIZE: ${DB_POOL_MIN_SIZE:-1}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-5}
+      DB_POOL_TIMEOUT_SECONDS: ${DB_POOL_TIMEOUT_SECONDS:-2}
+      DB_CONNECT_TIMEOUT_SECONDS: ${DB_CONNECT_TIMEOUT_SECONDS:-3}
+    depends_on:
+      db:
+        condition: service_started
+    ports:
+      - "${API_PORT:-8000}:8000"
+    networks:
+      - datos
+      - web
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/salud', timeout=3)
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  front:
+    build:
+      context: ./front
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${FRONT_PORT:-8080}:80"
+    networks:
+      - web
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget --quiet --spider http://127.0.0.1/healthz || exit 1
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  datos:
+    internal: true
+  web:

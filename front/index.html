@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Estado del entorno de Bodegas del Atuel">
+    <title>Bodegas del Atuel</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main class="contenedor">
+      <header class="encabezado">
+        <p class="etiqueta">Trabajo Práctico Integrador</p>
+        <h1>Bodegas del Atuel</h1>
+        <p class="introduccion">
+          Verificación del circuito entre el navegador, la API y PostgreSQL.
+        </p>
+      </header>
+
+      <section class="tarjeta" aria-labelledby="titulo-estado">
+        <h2 id="titulo-estado">Estado de la base de datos</h2>
+
+        <div
+          id="estado"
+          class="estado estado--comprobando"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          aria-busy="true"
+        >
+          <span class="estado__indicador" aria-hidden="true"></span>
+          <div>
+            <strong id="estado-texto">Comprobando conexión…</strong>
+            <p id="estado-detalle">Consultando el estado real de PostgreSQL.</p>
+          </div>
+        </div>
+
+        <p class="ultima-comprobacion">
+          Última comprobación:
+          <time id="hora-comprobacion">pendiente</time>
+        </p>
+
+        <button id="reintentar" type="button">Comprobar nuevamente</button>
+      </section>
+    </main>
+  </body>
+</html>

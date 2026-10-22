@@ -1,0 +1,10 @@
+**
+!Dockerfile
+!bootstrap/
+!bootstrap/001_roles_y_esquema.sh
+!migrations/
+!migrations/**
+!seed/
+!seed/**
+!tests/
+!tests/**
