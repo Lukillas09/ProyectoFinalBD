@@ -1,6 +1,12 @@
 \set ON_ERROR_STOP on
 
 -- Se ejecuta conectado como el mismo rol limitado que utiliza la API.
+-- Es válida tanto después del bootstrap como después de migrar: comprueba
+-- cuentas, propiedad y permisos, no el contenido del esquema.
+--
+-- psql no tiene un \quit con código de salida (ignora el argumento y sale con
+-- 0). Por eso cada aserción falsa ejecuta un RAISE EXCEPTION: con
+-- ON_ERROR_STOP, psql termina con código distinto de cero.
 SELECT current_user AS rol_api, current_database() AS base_actual, 1 AS conexion;
 
 SELECT (
@@ -75,76 +81,81 @@ SELECT NOT EXISTS (
 ) AS defaults_cerrados
 \gset
 
--- Prueba deliberadamente previa a las migraciones. Debe ejecutarse después de
--- un bootstrap limpio y antes de db/migrate.sh. Si las migraciones ya fueron
--- aplicadas, falla para no confundir ambos estados del ciclo de vida.
+-- Antes de migrar no hay objetos y la condición se cumple trivialmente;
+-- después, garantiza que ninguna migración se ejecutó con otra cuenta.
 SELECT (
   NOT EXISTS (
     SELECT 1
     FROM pg_class AS objeto
     JOIN pg_namespace AS esquema ON esquema.oid = objeto.relnamespace
     WHERE esquema.nspname = 'bodegas'
+      AND pg_get_userbyid(objeto.relowner) <> :'owner_user'
   )
   AND NOT EXISTS (
     SELECT 1
     FROM pg_proc AS rutina
     JOIN pg_namespace AS esquema ON esquema.oid = rutina.pronamespace
     WHERE esquema.nspname = 'bodegas'
+      AND pg_get_userbyid(rutina.proowner) <> :'owner_user'
   )
   AND NOT EXISTS (
     SELECT 1
     FROM pg_type AS tipo
     JOIN pg_namespace AS esquema ON esquema.oid = tipo.typnamespace
     WHERE esquema.nspname = 'bodegas'
+      AND pg_get_userbyid(tipo.typowner) <> :'owner_user'
   )
-) AS sin_objetos_negocio
+) AS objetos_del_propietario
+\gset
+
+SELECT count(*) AS tablas_bodegas
+FROM pg_class AS objeto
+JOIN pg_namespace AS esquema ON esquema.oid = objeto.relnamespace
+WHERE esquema.nspname = 'bodegas'
+  AND objeto.relkind = 'r'
 \gset
 
 \if :atributos_limitados
   \echo 'OK: el rol de la API no tiene atributos administrativos.'
 \else
-  \echo 'ERROR: el rol de la API tiene atributos administrativos.'
-  \quit 1
+  DO $$ BEGIN RAISE EXCEPTION 'el rol de la API tiene atributos administrativos.'; END $$;
 \endif
 
 \if :propietario_limitado
   \echo 'OK: el propietario es una cuenta separada y no administrativa.'
 \else
-  \echo 'ERROR: el propietario no cumple los atributos esperados.'
-  \quit 1
+  DO $$ BEGIN RAISE EXCEPTION 'el propietario no cumple los atributos esperados.'; END $$;
 \endif
 
 \if :propiedad_esquema
   \echo 'OK: el propietario es dueño de la base y del esquema bodegas.'
 \else
-  \echo 'ERROR: la propiedad de la base o del esquema no es la esperada.'
-  \quit 1
+  DO $$ BEGIN RAISE EXCEPTION 'la propiedad de la base o del esquema no es la esperada.'; END $$;
 \endif
 
 \if :permisos_limitados
   \echo 'OK: el rol de la API puede conectarse y no puede crear objetos.'
 \else
-  \echo 'ERROR: los privilegios del rol de la API no son los esperados.'
-  \quit 1
+  DO $$ BEGIN RAISE EXCEPTION 'los privilegios del rol de la API no son los esperados.'; END $$;
 \endif
 
 \if :sin_membresias
   \echo 'OK: el rol de la API no hereda privilegios de otros roles.'
 \else
-  \echo 'ERROR: el rol de la API tiene membresías inesperadas.'
-  \quit 1
+  DO $$ BEGIN RAISE EXCEPTION 'el rol de la API tiene membresías inesperadas.'; END $$;
 \endif
 
 \if :defaults_cerrados
   \echo 'OK: PUBLIC y la API no reciben privilegios predeterminados futuros.'
 \else
-  \echo 'ERROR: hay privilegios predeterminados futuros demasiado amplios.'
-  \quit 1
+  DO $$ BEGIN RAISE EXCEPTION 'hay privilegios predeterminados futuros demasiado amplios.'; END $$;
 \endif
 
-\if :sin_objetos_negocio
-  \echo 'OK: bootstrap aislado; todavía no hay objetos del modelo de negocio.'
+\if :objetos_del_propietario
+  \echo 'OK: todos los objetos del esquema bodegas pertenecen al propietario.'
 \else
-  \echo 'ERROR: esta prueba sólo corresponde al bootstrap previo a migraciones.'
-  \quit 1
+  DO $$ BEGIN RAISE EXCEPTION 'hay objetos del esquema bodegas creados por otra cuenta.'; END $$;
 \endif
+
+-- Informativo: describe el momento del ciclo de vida sin hacer fallar la prueba.
+\echo 'INFO: tablas actuales en el esquema bodegas:' :tablas_bodegas

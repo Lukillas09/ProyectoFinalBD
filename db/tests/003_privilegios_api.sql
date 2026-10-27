@@ -1,6 +1,8 @@
 \set ON_ERROR_STOP on
 
 -- Ejecutar como el mismo rol limitado de la API, después de las migraciones.
+-- Cada aserción falsa ejecuta RAISE EXCEPTION para que psql, con
+-- ON_ERROR_STOP, termine con código distinto de cero.
 SELECT (
   NOT rolsuper
   AND NOT rolcreatedb
@@ -58,20 +60,17 @@ SELECT (
 \if :atributos_limitados
   \echo 'OK: la API sigue sin atributos administrativos.'
 \else
-  \echo 'ERROR: la API tiene atributos administrativos.'
-  \quit 1
+  DO $$ BEGIN RAISE EXCEPTION 'la API tiene atributos administrativos.'; END $$;
 \endif
 
 \if :esquema_limitado
   \echo 'OK: la API usa el esquema pero no puede crear objetos.'
 \else
-  \echo 'ERROR: privilegios incorrectos sobre el esquema.'
-  \quit 1
+  DO $$ BEGIN RAISE EXCEPTION 'privilegios incorrectos sobre el esquema.'; END $$;
 \endif
 
 \if :sin_privilegios_objetos
   \echo 'OK: existen 31 tablas y la API aún no tiene DML ni acceso a secuencias.'
 \else
-  \echo 'ERROR: cantidad de tablas o privilegios de la API inesperados.'
-  \quit 1
+  DO $$ BEGIN RAISE EXCEPTION 'cantidad de tablas o privilegios de la API inesperados.'; END $$;
 \endif
