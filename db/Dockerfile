@@ -10,3 +10,4 @@ COPY --chmod=755 migrate.sh /opt/bodegas/db/migrate.sh
 COPY migrations /opt/bodegas/db/migrations
 COPY seed /opt/bodegas/db/seed
 COPY tests /opt/bodegas/db/tests
+COPY --chmod=755 tests/run_all.sh /opt/bodegas/db/tests/run_all.sh

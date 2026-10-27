@@ -118,17 +118,25 @@ docker compose exec db /opt/bodegas/db/migrate.sh
 
 ## Ejecutar pruebas de base
 
-### 1. Bootstrap vacío, antes de migrar
+Todas juntas, en orden y con el rol correcto para cada archivo:
 
-Sólo corresponde inmediatamente después de inicializar un volumen nuevo:
+```bash
+docker compose exec db /opt/bodegas/db/tests/run_all.sh
+```
+
+El script termina con código distinto de cero si alguna prueba falla. Desde Git Bash en Windows, anteponer `MSYS_NO_PATHCONV=1` para que no reescriba la ruta del contenedor.
+
+Cada archivo también puede ejecutarse por separado, como se indica a continuación. Toda aserción falsa ejecuta `RAISE EXCEPTION`, así que psql termina con código 3.
+
+### 1. Infraestructura (rol API)
 
 ```bash
 docker compose exec db sh -c 'PGPASSWORD="$DB_APP_PASSWORD" psql -h 127.0.0.1 -U "$DB_APP_USER" -d "$POSTGRES_DB" -f /opt/bodegas/db/tests/001_infraestructura.sql'
 ```
 
-Comprueba cuentas separadas, propietario limitado, permisos cerrados y ausencia inicial de objetos. Después de migrar, su última aserción debe fallar por diseño.
+Comprueba cuentas separadas, propietario limitado, permisos cerrados y que todos los objetos de `bodegas` pertenezcan al propietario. Vale antes y después de migrar; informa la cantidad de tablas.
 
-### 2. Esquema y restricciones, después de migrar
+### 2. Esquema y restricciones, después de migrar (propietario)
 
 ```bash
 docker compose exec db sh -c 'PGPASSWORD="$DB_OWNER_PASSWORD" psql -h 127.0.0.1 -U "$DB_OWNER_USER" -d "$POSTGRES_DB" -f /opt/bodegas/db/tests/002_esquema_y_restricciones.sql'
@@ -146,7 +154,7 @@ Prueba datos mínimos válidos y rechazos por:
 
 El archivo abre una transacción y termina con `ROLLBACK`: no deja filas de prueba ni borra datos existentes.
 
-### 3. Privilegios de API, después de migrar
+### 3. Privilegios de API, después de migrar (rol API)
 
 ```bash
 docker compose exec db sh -c 'PGPASSWORD="$DB_APP_PASSWORD" psql -h 127.0.0.1 -U "$DB_APP_USER" -d "$POSTGRES_DB" -f /opt/bodegas/db/tests/003_privilegios_api.sql'
