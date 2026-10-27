@@ -13,8 +13,9 @@
 --
 -- Principio: la API no escribe directamente stock, auditoría, importes ni
 -- estados. Esas columnas cambian sólo por triggers y procedimientos
--- SECURITY DEFINER que validan las reglas. Los privilegios por columna además
--- impiden que la API envíe precio, descuento o importes.
+-- SECURITY DEFINER que validan las reglas. Las ventas se registran sólo con
+-- fn_registrar_venta. Los privilegios por columna sobre ingresos y
+-- transferencias impiden que la API envíe estados o fechas.
 
 SET search_path TO bodegas, pg_catalog;
 
@@ -44,11 +45,12 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
   cliente, socio_club, distribuidor, exportador, permiso_exportacion
 TO bodegas_rw;
 
--- Ventas: alta de cabecera y renglones. Sólo las columnas que decide el
--- usuario; precio, descuento, subtotal e importes los calcula la base.
+-- Ventas: sólo lectura directa. La API vende únicamente con
+-- fn_registrar_venta, que crea cabecera y renglones juntos (todo o nada). Sin
+-- INSERT directo, la API no puede dejar cabeceras vacías ni agregar renglones
+-- a una venta existente; además trg_renglon_comprobante_completar lo impide
+-- para cualquier rol (RN-12 extendida a comprobantes).
 GRANT SELECT ON comprobante, renglon_comprobante TO bodegas_rw;
-GRANT INSERT (id_cliente, id_sala) ON comprobante TO bodegas_rw;
-GRANT INSERT (nro_comprobante, cod_vino, cantidad) ON renglon_comprobante TO bodegas_rw;
 
 -- Ingresos y transferencias: alta de cabecera y edición de renglones en
 -- confección. El estado cambia sólo con CALL sp_terminar_* / sp_procesar_*.
@@ -81,6 +83,11 @@ GRANT EXECUTE ON PROCEDURE
   sp_procesar_ingreso(BIGINT),
   sp_terminar_transferencia(BIGINT),
   sp_procesar_transferencia(BIGINT)
+TO bodegas_rw;
+
+-- Único camino de venta de la API. Reportes no lo recibe.
+GRANT EXECUTE ON FUNCTION
+  fn_registrar_venta(BIGINT, INTEGER, BIGINT[], INTEGER[])
 TO bodegas_rw;
 
 -- PostgreSQL no verifica EXECUTE sobre una función de trigger al dispararla,

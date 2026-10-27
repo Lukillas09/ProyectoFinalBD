@@ -1,4 +1,5 @@
--- Bodegas del Atuel - procedimientos de ingresos y transferencias (Etapa 2)
+-- Bodegas del Atuel - procedimientos de ingresos y transferencias, y registro
+-- de ventas (Etapa 2)
 -- Ejecutar con el rol propietario. Sin BEGIN/COMMIT: db/migrate.sh envuelve
 -- cada archivo en su propia transacción.
 --
@@ -221,6 +222,108 @@ BEGIN
   PERFORM set_config('bodegas.procesando_documento', 'off', true);
 END;
 $$;
+
+-- fn_registrar_venta
+-- Propósito: registrar una venta completa, cabecera y renglones, en una sola
+--   llamada (RN-08, RN-09). Es el único camino de venta de la API: la API no
+--   tiene INSERT sobre comprobante ni renglon_comprobante, así que no puede
+--   dejar cabeceras vacías ni agregar renglones a una venta existente. Es una
+--   función y no un procedimiento porque devuelve el número de comprobante.
+-- Parámetros: p_id_cliente, p_id_sala y dos arrays paralelos: el renglón i
+--   vende p_cantidades[i] botellas del vino p_vinos[i]. Se eligieron arrays y
+--   no jsonb: Psycopg convierte una lista de Python en un array de PostgreSQL
+--   sin código adicional, y PostgreSQL valida los tipos BIGINT[] e INTEGER[]
+--   al recibir la llamada, sin parsear claves ni convertir texto adentro.
+-- Resultado: nro_comprobante creado.
+-- Volatilidad: VOLATILE (inserta datos).
+-- Todo o nada: se ejecuta dentro de la transacción de quien la llama. Si un
+--   renglón falla (por ejemplo, RN-09 sin stock), la sentencia completa se
+--   revierte y no queda ni la cabecera ni los renglones anteriores.
+-- Concurrencia: bloquea las filas de stock_sala de la venta en orden de
+--   cod_vino antes de insertar, y los renglones se insertan en ese orden. Dos
+--   ventas simultáneas de varios vinos piden los bloqueos en el mismo orden y
+--   no pueden bloquearse en cruz (deadlock).
+-- Los triggers de renglon_comprobante siguen validando cada renglón: precio
+--   vigente, descuento del cliente, stock suficiente e importes.
+CREATE FUNCTION fn_registrar_venta(
+  p_id_cliente BIGINT,
+  p_id_sala INTEGER,
+  p_vinos BIGINT[],
+  p_cantidades INTEGER[]
+)
+RETURNS BIGINT
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = bodegas, pg_temp
+AS $$
+DECLARE
+  v_nro BIGINT;
+  v_repetidos TEXT;
+BEGIN
+  IF COALESCE(cardinality(p_vinos), 0) = 0 THEN
+    RAISE EXCEPTION 'RN-08: una venta debe tener al menos un renglón.'
+      USING ERRCODE = 'P0001',
+            HINT = 'Envíe al menos un vino con su cantidad.';
+  END IF;
+
+  IF array_ndims(p_vinos) <> 1
+     OR array_ndims(p_cantidades) IS DISTINCT FROM 1
+     OR cardinality(p_vinos) <> cardinality(p_cantidades) THEN
+    RAISE EXCEPTION 'RN-08: vinos y cantidades deben ser listas del mismo largo.'
+      USING ERRCODE = 'P0001',
+            DETAIL = format('Vinos: %s; cantidades: %s.',
+                            cardinality(p_vinos), COALESCE(cardinality(p_cantidades), 0));
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM unnest(p_vinos) AS v WHERE v IS NULL) THEN
+    RAISE EXCEPTION 'RN-08: todos los renglones deben indicar un vino.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM unnest(p_cantidades) AS c WHERE c IS NULL OR c <= 0) THEN
+    RAISE EXCEPTION 'RN-15: las cantidades vendidas deben ser positivas.'
+      USING ERRCODE = 'P0001',
+            DETAIL = format('Cantidades recibidas: %s.', p_cantidades);
+  END IF;
+
+  SELECT string_agg(v::TEXT, ', ' ORDER BY v)
+  INTO v_repetidos
+  FROM (
+    SELECT v FROM unnest(p_vinos) AS v GROUP BY v HAVING count(*) > 1
+  ) AS repetido;
+
+  IF v_repetidos IS NOT NULL THEN
+    RAISE EXCEPTION 'RN-08: un vino no puede repetirse en la misma venta.'
+      USING ERRCODE = 'P0001',
+            DETAIL = format('Vinos repetidos: %s.', v_repetidos),
+            HINT = 'Sume las cantidades del mismo vino en un solo renglón.';
+  END IF;
+
+  PERFORM 1
+  FROM stock_sala
+  WHERE id_sala = p_id_sala
+    AND cod_vino = ANY (p_vinos)
+  ORDER BY cod_vino
+  FOR UPDATE;
+
+  INSERT INTO comprobante (id_cliente, id_sala)
+  VALUES (p_id_cliente, p_id_sala)
+  RETURNING nro_comprobante INTO v_nro;
+
+  INSERT INTO renglon_comprobante (nro_comprobante, cod_vino, cantidad)
+  SELECT v_nro, r.cod_vino, r.cantidad
+  FROM unnest(p_vinos, p_cantidades) AS r(cod_vino, cantidad)
+  ORDER BY r.cod_vino;
+
+  RETURN v_nro;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION fn_registrar_venta(BIGINT, INTEGER, BIGINT[], INTEGER[]) FROM PUBLIC;
+
+COMMENT ON FUNCTION fn_registrar_venta(BIGINT, INTEGER, BIGINT[], INTEGER[]) IS
+  'RN-08/RN-09: venta completa (cabecera y renglones) en una llamada; todo o nada. Único camino de venta de la API.';
 
 REVOKE ALL ON PROCEDURE
   sp_terminar_ingreso(BIGINT),

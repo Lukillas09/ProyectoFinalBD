@@ -14,8 +14,48 @@
 SET search_path TO bodegas, pg_catalog;
 
 -------------------------------------------------------------------------------
+-- RN-12 extendida a comprobantes: una venta ya emitida no admite renglones
+-- nuevos. A diferencia de ingresos y transferencias, el comprobante no tiene
+-- estado; se cierra al terminar la transacción que lo creó.
+--
+-- Columna técnica xact_alta: identificador de la transacción que creó la
+-- cabecera. El trigger de renglones exige que coincida con la transacción
+-- actual. Se eligió frente a comparar xmin porque:
+-- - pg_current_xact_id() devuelve la transacción principal también dentro de
+--   un SAVEPOINT o de un bloque EXCEPTION, mientras que el xmin de una fila
+--   insertada allí es el de la subtransacción;
+-- - xmin cambia con cada UPDATE (el recálculo de U1 haría parecer "nuevo" un
+--   comprobante viejo); xact_alta no se modifica nunca;
+-- - xid8 es de 64 bits y no da la vuelta como xmin (32 bits).
+-- No depende de privilegios: vale también para el propietario. Su límite es el
+-- de cualquier trigger: el propietario podría desactivarlo deliberadamente.
+-------------------------------------------------------------------------------
+ALTER TABLE comprobante
+  ADD COLUMN xact_alta xid8 NOT NULL DEFAULT pg_current_xact_id();
+
+COMMENT ON COLUMN comprobante.xact_alta IS
+  'Transacción que creó el comprobante; la fuerza trg_comprobante_alta. Técnica: cierra la venta para renglones nuevos (RN-12).';
+
+CREATE FUNCTION fn_trg_comprobante_alta()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = bodegas, pg_temp
+AS $$
+BEGIN
+  -- Se ignora cualquier valor enviado: sólo vale la transacción real.
+  NEW.xact_alta := pg_current_xact_id();
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_comprobante_alta
+BEFORE INSERT ON comprobante
+FOR EACH ROW EXECUTE FUNCTION fn_trg_comprobante_alta();
+
+-------------------------------------------------------------------------------
 -- RN-08 / RN-09: venta. BEFORE INSERT en renglon_comprobante.
--- Completa precio, descuento y subtotal (la API no puede imponerlos) y
+-- Rechaza renglones de un comprobante emitido en otra transacción (RN-12),
+-- completa precio, descuento y subtotal (la API no puede imponerlos) y
 -- rechaza la venta si la sala no tiene stock suficiente.
 -------------------------------------------------------------------------------
 CREATE FUNCTION fn_trg_renglon_comprobante_completar()
@@ -27,18 +67,27 @@ AS $$
 DECLARE
   v_id_sala INTEGER;
   v_id_cliente BIGINT;
+  v_xact_alta xid8;
   v_stock INTEGER;
 BEGIN
   -- Bloquear la cabecera serializa los renglones de un mismo comprobante:
   -- así el recálculo de importes de una sesión no pisa el de otra.
-  SELECT id_sala, id_cliente
-  INTO v_id_sala, v_id_cliente
+  SELECT id_sala, id_cliente, xact_alta
+  INTO v_id_sala, v_id_cliente, v_xact_alta
   FROM comprobante
   WHERE nro_comprobante = NEW.nro_comprobante
   FOR UPDATE;
 
   IF NOT FOUND THEN
     RETURN NEW; -- la FK informará que el comprobante no existe
+  END IF;
+
+  IF v_xact_alta <> pg_current_xact_id() THEN
+    RAISE EXCEPTION 'RN-12: el comprobante % ya fue emitido; no admite renglones nuevos.',
+      NEW.nro_comprobante
+      USING ERRCODE = 'P0001',
+            DETAIL = 'La cabecera se creó en otra transacción.',
+            HINT = 'Registre una venta nueva con fn_registrar_venta.';
   END IF;
 
   -- Precio vigente y descuento del cliente: se ignora lo que se haya enviado.
@@ -166,9 +215,9 @@ BEGIN
   END IF;
 
   IF current_setting('bodegas.recalculo_importes', true) = 'on'
-     AND (NEW.nro_comprobante, NEW.fecha, NEW.id_cliente, NEW.id_sala)
+     AND (NEW.nro_comprobante, NEW.fecha, NEW.id_cliente, NEW.id_sala, NEW.xact_alta)
          IS NOT DISTINCT FROM
-         (OLD.nro_comprobante, OLD.fecha, OLD.id_cliente, OLD.id_sala) THEN
+         (OLD.nro_comprobante, OLD.fecha, OLD.id_cliente, OLD.id_sala, OLD.xact_alta) THEN
     RETURN NEW;
   END IF;
 
@@ -663,6 +712,7 @@ FOR EACH ROW EXECUTE FUNCTION fn_trg_permiso_excepcion();
 -- quede expuesta por omisión.
 -------------------------------------------------------------------------------
 REVOKE ALL ON FUNCTION
+  fn_trg_comprobante_alta(),
   fn_trg_renglon_comprobante_completar(),
   fn_trg_renglon_comprobante_impactar(),
   fn_trg_renglon_comprobante_inmutable(),
@@ -681,8 +731,10 @@ REVOKE ALL ON FUNCTION
   fn_trg_permiso_excepcion()
 FROM PUBLIC;
 
+COMMENT ON TRIGGER trg_comprobante_alta ON comprobante IS
+  'RN-12: registra la transacción que crea el comprobante (xact_alta), ignorando el valor enviado.';
 COMMENT ON TRIGGER trg_renglon_comprobante_completar ON renglon_comprobante IS
-  'RN-08/RN-09: completa precio, descuento y subtotal; rechaza sin stock (bloquea la fila FOR UPDATE).';
+  'RN-08/RN-09/RN-12: rechaza renglones de un comprobante ya emitido; completa precio, descuento y subtotal; rechaza sin stock.';
 COMMENT ON TRIGGER trg_renglon_comprobante_impactar ON renglon_comprobante IS
   'RN-08/RN-09: descuenta stock de la sala y recalcula los importes de la cabecera.';
 COMMENT ON TRIGGER trg_renglon_comprobante_inmutable ON renglon_comprobante IS
