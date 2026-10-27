@@ -313,6 +313,64 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 | `fecha_hora` | Instante auditado | `TIMESTAMPTZ` | No | `CURRENT_TIMESTAMP` | — |
 | `usuario_bd` | Rol PostgreSQL que realizó el cambio | `VARCHAR(63)` | No | `CURRENT_USER` | — |
 
-## 8. Reglas deliberadamente no atribuidas a una columna
+## 8. Columnas mantenidas por la base (Etapa 2)
 
-El diccionario describe estructura física, no afirma que las siguientes reglas ya estén implementadas: suma 100 % de composición; mínimos de hijos; totalidad de la jerarquía de clientes (la exclusividad sí está protegida por las FK compuestas); calificación de U6; cálculo agregado de cabecera; stock suficiente; transiciones e impacto único; bloqueo de renglones; fecha inmutable; auditoría automática. Sus columnas existen, pero sus mecanismos de funciones/procedimientos/triggers pertenecen a la etapa siguiente.
+Las tablas no cambiaron en la Etapa 2. Estas columnas existen desde la Etapa 1, pero ahora las escriben triggers y procedimientos, no los usuarios. La API ni siquiera tiene privilegio para enviarlas (`007_roles.sql`).
+
+| Columna | Quién la escribe | Regla |
+|---|---|---|
+| `renglon_comprobante.precio_unitario`, `descuento_porcentaje`, `subtotal` | `trg_renglon_comprobante_completar`, que ignora los valores enviados | RN-06, RN-08 |
+| `comprobante.subtotal`, `descuento`, `total` | `fn_recalcular_comprobante`, llamada por `trg_renglon_comprobante_impactar` | RN-08 |
+| `stock_sala.cantidad` | Venta (`trg_renglon_comprobante_impactar`) y `sp_procesar_transferencia` | RN-09, RN-11 |
+| `stock_deposito.cantidad` | `sp_procesar_ingreso` y `sp_procesar_transferencia` | RN-10, RN-11 |
+| `ingreso.estado`, `transferencia.estado` | `sp_terminar_*` y `sp_procesar_*`; `trg_*_estado` valida las transiciones | RN-10, RN-11 |
+| `transferencia.fecha_confeccion` | `trg_transferencia_fecha` fuerza la fecha actual y la vuelve inmutable | RN-11 |
+| `auditoria_precio` (todas) | `trg_vino_auditoria_precio`; `usuario_bd` = `session_user` | RN-13 |
+
+Reglas entre filas que no se ven en una columna: suma 100 % de la composición, totalidad de la jerarquía de clientes, respaldo de la excepción U6 y comprobante con al menos un renglón (constraint triggers diferidos). El detalle está en `docs/trazabilidad.md`.
+
+Participaciones mínimas que siguen sin protegerse porque no las exige una RN: al menos un maridaje por vino, un análisis por lote y un empleado por sala.
+
+## 9. Vistas (Etapa 2)
+
+Todas en `006_vistas.sql`. Son vistas comunes: guardan la consulta, no los datos.
+
+### `v_stock_total_vino`
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `cod_vino`, `nombre`, `anada`, `volumen_ml` | como en `vino` | Identificación del vino |
+| `stock_deposito` | `INTEGER` | Botellas en el depósito central (0 si no hay fila) |
+| `stock_salas` | `BIGINT` | Suma de botellas en todas las salas (0 si no hay filas) |
+| `stock_total` | `BIGINT` | Depósito + salas |
+
+### `v_ventas_mensuales_sala`
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id_sala` | `INTEGER` | Sala |
+| `mes` | `DATE` | Primer día del mes, en zona `America/Argentina/Buenos_Aires` |
+| `comprobantes` | `BIGINT` | Cantidad de ventas |
+| `importe_bruto`, `descuento`, `importe_neto` | `NUMERIC` | Sumas de los importes de cabecera |
+
+### `v_documentos_pendientes`
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `tipo_documento` | `TEXT` | `ingreso` o `transferencia` |
+| `numero` | `BIGINT` | `cod_ingreso` o `nro_transferencia` |
+| `estado` | `estado_documento` | `en_confeccion` o `terminado` |
+| `fecha` | `DATE` | Fecha del ingreso (en zona local) o de confección |
+| `id_sala` | `INTEGER` | Sala solicitante; nulo en ingresos |
+| `cuit_bodega`, `cod_transportista` | `cuit_dom`, `INTEGER` | Origen del ingreso; nulos en transferencias |
+| `renglones`, `botellas` | `BIGINT` | Cantidad de renglones y suma de botellas |
+
+### `v_ficha_vino`
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `cod_vino`, `nombre`, `tipo`, `anada`, `volumen_ml`, `graduacion`, `precio`, `cuit_bodega` | como en `vino` | Datos del vino |
+| `bodega` | `VARCHAR(150)` | Razón social de la bodega |
+| `corte` | `TEXT` | Cepas y porcentajes, de mayor a menor |
+| `maridajes` | `TEXT` | Maridajes con temperatura de servicio |
+| `stock_total` | `BIGINT` | Igual que en `v_stock_total_vino` |

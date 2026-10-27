@@ -9,7 +9,7 @@ Navegador http://localhost:8080
 Nginx (front) -- /api/* --> FastAPI (api) --> Psycopg 3 pool --> PostgreSQL 16
                                       SELECT 1              rol limitado
 
-migrate (tarea única, propietario) -- db/migrate.sh --> 001_esquema.sql --> 002_constraints.sql
+migrate (tarea única, propietario) -- db/migrate.sh --> 001_esquema ... 007_roles
 ```
 
 El navegador nunca usa nombres internos de Docker: solicita `/api/salud` al mismo origen y Nginx lo reenvía a `api:8000` dentro de la red de Compose. FastAPI se conecta a `db:5432` con la cuenta limitada, no con el propietario.
@@ -18,24 +18,34 @@ El navegador nunca usa nombres internos de Docker: solicita `/api/salud` al mism
 
 Incluye:
 
-- PostgreSQL 16 persistente con cuentas separadas de bootstrap, propietario y API;
+- PostgreSQL 16 persistente con cuentas separadas de bootstrap, propietario, API y reportes;
 - FastAPI con pool Psycopg 3 y `GET /salud` mediante `SELECT 1`;
 - front mínimo que muestra el estado real a través del proxy Nginx;
-- modelo conceptual y relacional completo, normalización y diccionario;
+- modelo conceptual y relacional completo, normalización y diccionario (Etapa 1);
 - 30 tablas de negocio y una tabla técnica de migraciones;
-- 31 PK y 35 FK (varias compuestas), `NOT NULL`, 11 `UNIQUE`, 36 `CHECK` contando el dominio, 16 columnas con `DEFAULT`, dos ENUM y un DOMAIN (conteos tomados de `pg_constraint` y `pg_attrdef`);
+- 31 PK y 35 FK (varias compuestas), `NOT NULL`, 11 `UNIQUE`, 36 `CHECK` contando el dominio, 16 columnas con `DEFAULT`, dos ENUM y un DOMAIN;
+- lógica de negocio en la base (Etapa 2):
+  - 6 funciones (4 de cálculo pedidas por la consigna);
+  - 4 procedimientos de ingresos y transferencias;
+  - 19 triggers (9 BEFORE, 2 AFTER, 8 constraint triggers diferidos);
+  - 4 vistas;
+  - privilegios mínimos para la API (`bodegas_rw`) y para reportes (`bodegas_ro`);
 - runner de migraciones con transacción, registro y SHA-256, ejecutado por el servicio de única ejecución `migrate`;
-- pruebas SQL de estructura, constraints y privilegios.
+- pruebas SQL de estructura, reglas RN-01 a RN-15, privilegios y roles.
 
-No incluye todavía CRUD, funciones de negocio, procedimientos, triggers, vistas, índices de rendimiento, carga masiva, reportes, pantallas nuevas ni despliegue. En particular, las columnas para totales, descuentos, estados, stock y auditoría no sustituyen la lógica pendiente.
+Todos los conteos se tomaron del catálogo (`pg_constraint`, `pg_attrdef`, `pg_proc`, `pg_trigger`, `pg_views`).
+
+No incluye todavía CRUD en la API, índices de rendimiento, carga masiva, consultas de la Etapa 5, pantallas nuevas ni despliegue.
 
 Documentos académicos:
 
-- [Requisitos y trazabilidad](docs/requisitos.md)
+- [Requisitos y alcance](docs/requisitos.md)
 - [Modelo conceptual y DER](docs/modelo_conceptual.md)
 - [Modelo relacional](docs/modelo_relacional.md)
 - [Normalización](docs/normalizacion.md)
 - [Diccionario de datos](docs/diccionario_datos.md)
+- [Trazabilidad regla → mecanismo → prueba](docs/trazabilidad.md)
+- [Concurrencia: la última botella](docs/concurrencia.md)
 
 La consigna y los apuntes de la cátedra se guardan en `material/`, pero esa carpeta está ignorada por Git: es material docente y no se publica. Cada integrante debe copiar los PDF localmente.
 
@@ -63,11 +73,12 @@ No hace falta instalar Python, PostgreSQL ni `psql` en el host.
    cp .env.example .env
    ```
 
-2. Reemplazar las tres contraseñas de ejemplo por valores diferentes y robustos:
+2. Reemplazar las cuatro contraseñas de ejemplo por valores diferentes y robustos. El bootstrap rechaza cuentas o contraseñas repetidas:
 
    - `POSTGRES_BOOTSTRAP_PASSWORD`: inicialización administrativa del contenedor;
    - `DB_OWNER_PASSWORD`: propietario que aplica migraciones;
-   - `DB_APP_PASSWORD`: única contraseña entregada a la API.
+   - `DB_APP_PASSWORD`: única contraseña entregada a la API;
+   - `DB_REPORT_PASSWORD`: cuenta de solo lectura para reportes (`DB_REPORT_USER`).
 
    `.env` está ignorado por Git. No copiar secretos reales a `.env.example`, documentación, capturas o historial.
 
@@ -134,6 +145,17 @@ docker compose exec db /opt/bodegas/db/tests/run_all.sh
 
 El script termina con código distinto de cero si alguna prueba falla. Desde Git Bash en Windows, anteponer `MSYS_NO_PATHCONV=1` para que no reescriba la ruta del contenedor.
 
+| Archivo | Rol | Qué prueba |
+|---|---|---|
+| `001_infraestructura.sql` | API | Cuentas, propietario, membresías de grupo, permisos cerrados, propiedad de objetos. |
+| `002_esquema_y_restricciones.sql` | propietario | PK/FK, UNIQUE, NOT NULL, CHECK, DOMAIN y exclusividad de subtipos. |
+| `003_privilegios_api.sql` | API | Matriz exacta de privilegios de tablas, columnas y rutinas heredados de `bodegas_rw`. |
+| `004_reglas_negocio.sql` | propietario | Éxito y rechazo por cada RN-01 a RN-15, U6, totalidad de clientes y funciones. |
+| `005_roles.sql` | propietario con `SET ROLE` | Operaciones reales de la API y de reportes: lo permitido funciona y lo prohibido da 42501. |
+| `006_conexion_reportes.sql` | reportes | La cuenta de reportes sólo lee. |
+
+Las pruebas de propietario terminan en `ROLLBACK`. La correspondencia de cada regla con su caso está en [docs/trazabilidad.md](docs/trazabilidad.md).
+
 Cada archivo también puede ejecutarse por separado, como se indica a continuación. Toda aserción falsa ejecuta `RAISE EXCEPTION`, así que psql termina con código 3.
 
 ### 1. Infraestructura (rol API)
@@ -169,7 +191,17 @@ El archivo abre una transacción y termina con `ROLLBACK`: no deja filas de prue
 docker compose exec db sh -c 'PGPASSWORD="$DB_APP_PASSWORD" psql -h 127.0.0.1 -U "$DB_APP_USER" -d "$POSTGRES_DB" -f /opt/bodegas/db/tests/003_privilegios_api.sql'
 ```
 
-Confirma que existen 31 tablas y que la API sigue sin atributos administrativos, DDL, DML ni acceso a secuencias. Es intencional: los permisos de escritura se otorgarán por operación cuando exista la lógica de negocio que deba protegerlos.
+Compara los privilegios efectivos de la cuenta de la API contra la matriz esperada de `007_roles.sql` y nombra lo que sobre o falte. La API puede leer catálogos, hacer el CRUD de vinos y clientes, insertar ventas y documentos y llamar a los procedimientos. No puede escribir stock, auditoría, importes ni estados, ni tiene privilegios sobre secuencias (no los necesita para columnas IDENTITY).
+
+### 4 a 6. Reglas de negocio y roles
+
+```bash
+docker compose exec db sh -c 'PGPASSWORD="$DB_OWNER_PASSWORD" psql -h 127.0.0.1 -U "$DB_OWNER_USER" -d "$POSTGRES_DB" -f /opt/bodegas/db/tests/004_reglas_negocio.sql'
+docker compose exec db sh -c 'PGPASSWORD="$DB_OWNER_PASSWORD" psql -h 127.0.0.1 -U "$DB_OWNER_USER" -d "$POSTGRES_DB" -f /opt/bodegas/db/tests/005_roles.sql'
+docker compose exec db sh -c 'PGPASSWORD="$DB_REPORT_PASSWORD" psql -h 127.0.0.1 -U "$DB_REPORT_USER" -d "$POSTGRES_DB" -f /opt/bodegas/db/tests/006_conexion_reportes.sql'
+```
+
+La demostración de concurrencia con dos sesiones no es automática; su guion está en [docs/concurrencia.md](docs/concurrencia.md).
 
 ## Verificar el circuito web
 
@@ -260,20 +292,19 @@ docker compose down -v
 
 - `POSTGRES_BOOTSTRAP_USER`: superusuario técnico de la imagen oficial; no lo usa la aplicación.
 - `DB_OWNER_USER`: dueño no administrativo de la base/esquema y único ejecutor de migraciones (servicio `migrate`).
-- `DB_APP_USER`: puede conectar y usar el esquema, pero no crear objetos ni manipular tablas en esta etapa.
+- `DB_APP_USER`: cuenta de la API. Puede conectar y usar el esquema, no crear objetos; sus privilegios de datos los hereda del grupo `bodegas_rw`.
+- `DB_REPORT_USER`: cuenta de solo lectura; hereda los privilegios del grupo `bodegas_ro`.
+- `bodegas_rw` y `bodegas_ro`: roles de grupo con nombre fijo y sin inicio de sesión. Las migraciones otorgan los privilegios sobre objetos a estos grupos, no a las cuentas, cuyos nombres son configurables. El propietario es miembro de ambos sin heredarlos, sólo para que las pruebas puedan ejecutar `SET ROLE` dentro de una transacción revertida.
 
 PostgreSQL guarda datos en el volumen `postgres_data`. Las variables de inicialización y el bootstrap sólo se aplican cuando el volumen está vacío. Cambiar usuarios o contraseñas en `.env` después del primer arranque no modifica roles existentes.
 
-## Reglas pendientes de la próxima etapa
+**Cambio de la Etapa 2:** el bootstrap ahora crea la cuenta de reportes y los roles de grupo. Un volumen inicializado antes de este cambio no los tiene: agregar `DB_REPORT_USER` y `DB_REPORT_PASSWORD` al `.env` y recrear el volumen con `docker compose down -v` (borra los datos locales).
 
-- suma diferida de composición igual a 100 % y participación mínima;
-- totalidad de la jerarquía de clientes (la exclusividad ya está protegida por FK compuesta);
-- descuento base 10/20/30, excepción U6 y copia histórica;
-- cálculo agregado de comprobantes;
-- venta con validación y descuento de stock;
-- transiciones, bloqueo de renglones e impacto único de ingresos/transferencias;
-- fecha de transferencia inmutable;
-- auditoría automática de precio;
-- funciones, procedimientos, triggers, vistas y permisos operativos mínimos.
+## Pendientes para las próximas etapas
+
+- Carga masiva (Etapa 3): los triggers obligan a cargar la historia respetando las reglas. Los documentos nacen en confección, la fecha de transferencia se fuerza a la actual, las ventas descuentan stock y los comprobantes recalculan importes. Habrá que decidir entre cargar por los procedimientos o desactivar temporalmente sólo triggers de usuario como propietario (`DISABLE TRIGGER USER`) y verificar la coherencia después, documentando los riesgos.
+- Índices (Etapa 4): medir si `v_ventas_mensuales_sala` conviene materializada.
+- U1 (Etapa 5): decidir si "aplicar el descuento del tipo de cliente" recalcula sólo cabeceras con `fn_recalcular_comprobante` o también reaplica el descuento en renglones históricos, que hoy son inmutables.
+- Participaciones mínimas no exigidas por una RN: al menos un maridaje por vino, un análisis por lote y un empleado por sala.
 
 La diferencia entre las obligaciones del PDF y la aclaración docente sobre temas no vistos —transacciones como ejemplo opcional— permanece registrada en [docs/requisitos.md](docs/requisitos.md); no se eliminó ningún requisito silenciosamente.
