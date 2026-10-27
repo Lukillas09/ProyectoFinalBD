@@ -21,7 +21,7 @@ Antes de modificar el alcance, consultar `docs/requisitos.md` y la consigna orig
 
 ## Reglas de modelado y documentación
 
-Para cada entidad futura, documentar:
+Para cada entidad del modelo, documentar:
 
 1. Qué representa y por qué es una entidad independiente.
 2. Todas sus claves candidatas y la clave primaria elegida.
@@ -75,10 +75,17 @@ No usar `FLOAT` para dinero. Usar `NUMERIC(p,s)`. No modelar estados como texto 
 - Las pruebas de base van en `db/tests/` y deben incluir éxitos y rechazos esperados.
 - Antes de cerrar una etapa, verificar configuración, arranque, healthchecks y el circuito real desde el front hasta PostgreSQL siempre que el entorno lo permita.
 - Si una herramienta necesaria no está disponible, informar exactamente qué comprobación no pudo ejecutarse; no reemplazarla por una afirmación simulada.
-- No hacer commits, push ni despliegues durante esta etapa. Una ampliación de ese alcance requiere instrucción explícita del usuario.
 
-## Alcance de la etapa inicial
+## Flujo de trabajo con Git
 
-Esta primera etapa prepara únicamente el circuito PostgreSQL -> API -> front. No implementar todavía tablas de negocio, CRUD, triggers, carga masiva, reportes ni cálculos de totales, descuentos o stock.
+- Trabajar en una rama por etapa creada desde `main`. No commitear directamente sobre `main`.
+- Hacer commits frecuentes, pequeños y con mensajes descriptivos.
+- Integrar cada etapa mediante un PR revisado por otro integrante antes del merge (revisión cruzada).
+- Antes de cada commit, verificar que no se incluyan `.env`, secretos ni dumps con datos sensibles; un secreto commiteado queda en el historial aunque luego se borre.
+- Los despliegues a la nube requieren instrucción explícita del usuario.
+
+## Alcance de la etapa actual
+
+La infraestructura PostgreSQL -> API -> front ya existe. La etapa actual incorpora modelo conceptual/relacional, normalización, diccionario, tablas y constraints base. No implementar todavía CRUD, funciones de negocio, procedimientos, triggers, vistas, índices de rendimiento, carga masiva, reportes ni pantallas nuevas. Los importes y stocks pueden tener estructura y restricciones de dominio, pero su mantenimiento automático pertenece a la etapa de lógica.
 
 Actualizar `README.md` y `docs/requisitos.md` cuando una decisión cambie el modo de ejecutar el proyecto, el alcance académico o una alternativa de diseño.
