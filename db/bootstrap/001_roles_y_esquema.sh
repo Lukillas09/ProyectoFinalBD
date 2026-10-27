@@ -12,21 +12,25 @@ set -e
 : "${DB_OWNER_PASSWORD:?DB_OWNER_PASSWORD es obligatoria}"
 : "${DB_APP_USER:?DB_APP_USER es obligatoria}"
 : "${DB_APP_PASSWORD:?DB_APP_PASSWORD es obligatoria}"
+: "${DB_REPORT_USER:?DB_REPORT_USER es obligatoria}"
+: "${DB_REPORT_PASSWORD:?DB_REPORT_PASSWORD es obligatoria}"
 
-if [ "$DB_OWNER_USER" = "$DB_APP_USER" ]; then
-  echo "DB_OWNER_USER y DB_APP_USER deben ser cuentas diferentes." >&2
+# Las cuatro cuentas deben ser distintas, con contraseñas distintas.
+nombres="$POSTGRES_USER
+$DB_OWNER_USER
+$DB_APP_USER
+$DB_REPORT_USER"
+if [ "$(printf '%s\n' "$nombres" | sort -u | wc -l)" -ne 4 ]; then
+  echo "Bootstrap, propietario, API y reportes deben ser cuentas diferentes." >&2
   exit 1
 fi
 
-if [ "$POSTGRES_USER" = "$DB_OWNER_USER" ] || [ "$POSTGRES_USER" = "$DB_APP_USER" ]; then
-  echo "La cuenta de bootstrap debe ser distinta del propietario y de la API." >&2
-  exit 1
-fi
-
-if [ "$POSTGRES_PASSWORD" = "$DB_OWNER_PASSWORD" ] \
-  || [ "$POSTGRES_PASSWORD" = "$DB_APP_PASSWORD" ] \
-  || [ "$DB_OWNER_PASSWORD" = "$DB_APP_PASSWORD" ]; then
-  echo "Las tres cuentas deben usar contraseñas diferentes." >&2
+claves="$POSTGRES_PASSWORD
+$DB_OWNER_PASSWORD
+$DB_APP_PASSWORD
+$DB_REPORT_PASSWORD"
+if [ "$(printf '%s\n' "$claves" | sort -u | wc -l)" -ne 4 ]; then
+  echo "Las cuatro cuentas deben usar contraseñas diferentes." >&2
   exit 1
 fi
 
@@ -38,62 +42,76 @@ psql \
   --set=owner_user="$DB_OWNER_USER" \
   --set=owner_password="$DB_OWNER_PASSWORD" \
   --set=app_user="$DB_APP_USER" \
-  --set=app_password="$DB_APP_PASSWORD" <<'SQL'
+  --set=app_password="$DB_APP_PASSWORD" \
+  --set=report_user="$DB_REPORT_USER" \
+  --set=report_password="$DB_REPORT_PASSWORD" <<'SQL'
 BEGIN;
 
+-- Cuentas de conexión (identidad): propietario, API y reportes.
 SELECT format(
   'CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS',
-  :'owner_user', :'owner_password'
+  usuario, clave
 )
-WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'owner_user')
+FROM (VALUES
+  (:'owner_user', :'owner_password'),
+  (:'app_user', :'app_password'),
+  (:'report_user', :'report_password')
+) AS cuenta(usuario, clave)
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = usuario)
 \gexec
 
 SELECT format(
   'ALTER ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS',
-  :'owner_user', :'owner_password'
+  usuario, clave
 )
+FROM (VALUES
+  (:'owner_user', :'owner_password'),
+  (:'app_user', :'app_password'),
+  (:'report_user', :'report_password')
+) AS cuenta(usuario, clave)
 \gexec
 
+-- Roles de grupo (permisos) con nombre fijo: 007_roles.sql les otorga los
+-- privilegios sobre objetos sin depender de los nombres configurables de las
+-- cuentas. No pueden iniciar sesión.
 SELECT format(
-  'CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS',
-  :'app_user', :'app_password'
+  'CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS',
+  grupo
 )
-WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_user')
+FROM (VALUES ('bodegas_rw'), ('bodegas_ro')) AS g(grupo)
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = grupo)
 \gexec
 
-SELECT format(
-  'ALTER ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS',
-  :'app_user', :'app_password'
-)
-\gexec
+-- Las cuentas se crean NOINHERIT; la opción INHERIT de cada GRANT (PostgreSQL
+-- 16) hace que la API y reportes hereden sólo el privilegio de su grupo.
+GRANT bodegas_rw TO :"app_user" WITH INHERIT TRUE;
+GRANT bodegas_ro TO :"report_user" WITH INHERIT TRUE;
+
+-- El propietario no hereda (ya es dueño de todo), pero puede hacer SET ROLE a
+-- cada grupo: las pruebas ejercitan así los permisos reales dentro de una
+-- transacción que termina en ROLLBACK.
+GRANT bodegas_rw, bodegas_ro TO :"owner_user" WITH INHERIT FALSE, SET TRUE;
 
 SELECT format('ALTER DATABASE %I OWNER TO %I', :'db_name', :'owner_user')
 \gexec
 
 REVOKE ALL ON DATABASE :"db_name" FROM PUBLIC;
-REVOKE CREATE, TEMPORARY ON DATABASE :"db_name" FROM :"app_user";
-GRANT CONNECT ON DATABASE :"db_name" TO :"owner_user", :"app_user";
+REVOKE CREATE, TEMPORARY ON DATABASE :"db_name" FROM :"app_user", :"report_user";
+GRANT CONNECT ON DATABASE :"db_name" TO :"owner_user", :"app_user", :"report_user";
 
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA IF NOT EXISTS bodegas AUTHORIZATION :"owner_user";
 ALTER SCHEMA bodegas OWNER TO :"owner_user";
 REVOKE ALL ON SCHEMA bodegas FROM PUBLIC;
-GRANT USAGE ON SCHEMA bodegas TO :"app_user";
-REVOKE CREATE ON SCHEMA bodegas FROM :"app_user";
+GRANT USAGE ON SCHEMA bodegas TO bodegas_rw, bodegas_ro;
 
 ALTER ROLE :"owner_user" IN DATABASE :"db_name" SET search_path TO bodegas, pg_catalog;
 ALTER ROLE :"app_user" IN DATABASE :"db_name" SET search_path TO bodegas, pg_catalog;
+ALTER ROLE :"report_user" IN DATABASE :"db_name" SET search_path TO bodegas, pg_catalog;
 
--- Esta etapa no anticipa permisos de datos. Las migraciones futuras deben
--- conceder por objeto solamente lo que cada operación de la API necesite.
-ALTER DEFAULT PRIVILEGES FOR ROLE :"owner_user" IN SCHEMA bodegas
-  REVOKE ALL ON TABLES FROM :"app_user";
-ALTER DEFAULT PRIVILEGES FOR ROLE :"owner_user" IN SCHEMA bodegas
-  REVOKE ALL ON SEQUENCES FROM :"app_user";
-ALTER DEFAULT PRIVILEGES FOR ROLE :"owner_user" IN SCHEMA bodegas
-  REVOKE ALL ON ROUTINES FROM :"app_user";
-ALTER DEFAULT PRIVILEGES FOR ROLE :"owner_user" IN SCHEMA bodegas
-  REVOKE ALL ON TYPES FROM :"app_user";
+-- El bootstrap no anticipa permisos de datos: 007_roles.sql concede por
+-- objeto sólo lo que cada grupo necesita. Los objetos futuros del
+-- propietario no reciben privilegios implícitos.
 ALTER DEFAULT PRIVILEGES FOR ROLE :"owner_user"
   REVOKE ALL ON TABLES FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE :"owner_user"
@@ -106,4 +124,4 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"owner_user"
 COMMIT;
 SQL
 
-echo "Roles limitados y esquema bodegas inicializados correctamente."
+echo "Roles limitados, grupos y esquema bodegas inicializados correctamente."

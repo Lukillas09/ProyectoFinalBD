@@ -12,6 +12,8 @@ services:
       DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?Defina DB_OWNER_PASSWORD en .env}
       DB_APP_USER: ${DB_APP_USER:?Defina DB_APP_USER en .env}
       DB_APP_PASSWORD: ${DB_APP_PASSWORD:?Defina DB_APP_PASSWORD en .env}
+      DB_REPORT_USER: ${DB_REPORT_USER:?Defina DB_REPORT_USER en .env}
+      DB_REPORT_PASSWORD: ${DB_REPORT_PASSWORD:?Defina DB_REPORT_PASSWORD en .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:

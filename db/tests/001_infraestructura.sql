@@ -60,11 +60,48 @@ SELECT (
 ) AS permisos_limitados
 \gset
 
-SELECT NOT EXISTS (
-  SELECT 1
+-- Membresías esperadas (PostgreSQL 16 registra herencia y SET por grant):
+-- API -> bodegas_rw heredando; reportes -> bodegas_ro heredando;
+-- propietario -> ambos grupos sin heredar, sólo con SET para las pruebas.
+-- Los grupos no inician sesión ni tienen atributos administrativos.
+SELECT (
+  SELECT array_agg(
+           format('%s:%s:%s:%s', pg_get_userbyid(roleid),
+                  inherit_option, set_option, admin_option)
+           ORDER BY pg_get_userbyid(roleid))
   FROM pg_auth_members
   WHERE member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
-) AS sin_membresias
+) = ARRAY['bodegas_rw:t:t:f'] AS membresia_api
+\gset
+
+SELECT (
+  SELECT array_agg(
+           format('%s:%s:%s', pg_get_userbyid(roleid), inherit_option, admin_option)
+           ORDER BY pg_get_userbyid(roleid))
+  FROM pg_auth_members
+  WHERE member = (SELECT oid FROM pg_roles WHERE rolname = :'owner_user')
+) = ARRAY['bodegas_ro:f:f', 'bodegas_rw:f:f'] AS membresia_propietario
+\gset
+
+SELECT (
+  count(*) = 2
+  AND bool_and(
+    NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb
+    AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls
+  )
+  AND (
+    SELECT count(*)
+    FROM pg_auth_members AS m
+    JOIN pg_roles AS miembro ON miembro.oid = m.member
+    WHERE m.roleid = (SELECT oid FROM pg_roles WHERE rolname = 'bodegas_ro')
+      AND miembro.rolname <> :'owner_user'
+      AND m.inherit_option
+      AND miembro.rolcanlogin
+      AND NOT miembro.rolsuper
+  ) = 1
+) AS grupos_correctos
+FROM pg_roles
+WHERE rolname IN ('bodegas_rw', 'bodegas_ro')
 \gset
 
 SELECT NOT EXISTS (
@@ -139,10 +176,22 @@ WHERE esquema.nspname = 'bodegas'
   DO $$ BEGIN RAISE EXCEPTION 'los privilegios del rol de la API no son los esperados.'; END $$;
 \endif
 
-\if :sin_membresias
-  \echo 'OK: el rol de la API no hereda privilegios de otros roles.'
+\if :membresia_api
+  \echo 'OK: la API sólo pertenece a bodegas_rw y hereda únicamente sus privilegios.'
 \else
   DO $$ BEGIN RAISE EXCEPTION 'el rol de la API tiene membresías inesperadas.'; END $$;
+\endif
+
+\if :membresia_propietario
+  \echo 'OK: el propietario puede hacer SET ROLE a los grupos pero no los hereda.'
+\else
+  DO $$ BEGIN RAISE EXCEPTION 'las membresías del propietario no son las esperadas.'; END $$;
+\endif
+
+\if :grupos_correctos
+  \echo 'OK: bodegas_rw y bodegas_ro no inician sesión; reportes hereda bodegas_ro.'
+\else
+  DO $$ BEGIN RAISE EXCEPTION 'los roles de grupo o la cuenta de reportes no son los esperados.'; END $$;
 \endif
 
 \if :defaults_cerrados
