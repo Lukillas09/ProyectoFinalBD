@@ -27,7 +27,7 @@ Mermaid no expresa que tres especializaciones sean simultáneamente totales y ex
 | Identidad comercial de vino | Código; `(nombre, añada, volumen)` del ejemplo; incluir bodega | Código subrogado como PK y candidata `(cuit_bodega, nombre, anada, volumen_ml)` | Dos bodegas pueden usar el mismo nombre comercial; incluir elaboradora evita una colisión artificial. Si el negocio declara nombres globalmente registrados, se podrá quitar la bodega de la candidata. |
 | RN-05, composición | Lista multivaluada en vino; tabla N:M | Entidad asociativa `ComposicionVino(vino, cepa, porcentaje)` | El porcentaje depende del par completo. Cada porcentaje queda entre 0 y 100 en esta etapa; la suma 100 y la existencia de al menos una cepa requieren constraint trigger diferido. |
 | Maridajes | Temperatura en `VinoMaridaje`; temperatura en `Maridaje` | `Maridaje(nombre, temperatura_servicio_c)` y N:M sin atributos | Es la ubicación explícita en la consigna. Implica una temperatura única por maridaje para todos los vinos; moverla a la asociación sería una extensión, no una corrección silenciosa. |
-| Jerarquía de cliente | Tabla única; tabla sólo por subtipo; supertipo más subtipos | `Cliente` más `SocioClub`, `Distribuidor` y `Exportador` | Evita columnas inaplicables, conserva una FK uniforme desde comprobante y representa atributos específicos. La jerarquía se interpreta **total y exclusiva** porque la consigna dice que existen tres tipos. El DDL básico no alcanza para exigir exactamente un subtipo; queda un constraint trigger diferido. |
+| Jerarquía de cliente | Tabla única; tabla sólo por subtipo; supertipo más subtipos | `Cliente` más `SocioClub`, `Distribuidor` y `Exportador` | Evita columnas inaplicables, conserva una FK uniforme desde comprobante y representa atributos específicos. La jerarquía se interpreta **total y exclusiva** porque la consigna dice que existen tres tipos. La **exclusividad** se protege de forma declarativa: cada subtipo fija su discriminador `tipo` con `CHECK` y referencia `(id_cliente, tipo)` en `Cliente`, así un cliente sólo puede tener la fila del subtipo que declara. La **totalidad** (que todo cliente tenga esa fila) no puede expresarse con una FK desde el supertipo y queda para un constraint trigger diferido en la Etapa 2. |
 | RN-06 y U6, descuento 35 % | Guardar siempre 10/20/30; catálogo de políticas; sobrescribir descuento; excepción nullable | El tipo determina el descuento base; `Cliente.descuento_excepcion` sólo admite 35 % para exportador | No se duplica la política base en cada cliente. U6 establece la excepción; una función futura calculará `COALESCE(excepción, base por tipo)` y verificará que sólo califiquen exportadores con más de tres permisos. |
 | Documento de cliente | Número global; par tipo/número | Candidata `(tipo_documento, nro_documento)` | El mismo texto puede existir bajo tipos documentales distintos. No se inventa un catálogo cerrado de documentos que la consigna no define. |
 | Permiso de exportación | Código global; código relativo al exportador | `codigo_permiso` natural y global como PK | **Supuesto revisable:** un código identifica un permiso en todo el sistema. Si el organismo emisor sólo garantiza unicidad por exportador, la PK deberá pasar a ser compuesta. |
@@ -63,9 +63,9 @@ Las claves candidatas alternativas se muestran además de la PK. Una clave subro
 | `Maridaje` | Recomendación gastronómica catalogada | PK `id_maridaje`; candidata `nombre` | temperatura de servicio |
 | `VinoMaridaje` | Asociación de un vino con una recomendación | PK `(cod_vino, id_maridaje)` | sin atributos propios según consigna |
 | `Cliente` | Datos comunes de cualquier comprador | PK `id_cliente`; candidata `(tipo_documento, nro_documento)` | nombre/razón social, dirección, localidad, alta, tipo, excepción de descuento |
-| `SocioClub` | Cliente consumidor final | PK/FK `id_cliente` | no tiene atributos exclusivos en la consigna |
-| `Distribuidor` | Cliente de distribución | PK/FK `id_cliente`; candidata `nro_habilitacion` | zona de cobertura, habilitación |
-| `Exportador` | Cliente de exportación | PK/FK `id_cliente` | país de destino principal |
+| `SocioClub` | Cliente consumidor final | PK `id_cliente`; FK `(id_cliente, tipo)` | discriminador fijo `socio`; no tiene atributos exclusivos en la consigna |
+| `Distribuidor` | Cliente de distribución | PK `id_cliente`; candidata `nro_habilitacion`; FK `(id_cliente, tipo)` | discriminador fijo `distribuidor`, zona de cobertura, habilitación |
+| `Exportador` | Cliente de exportación | PK `id_cliente`; FK `(id_cliente, tipo)` | discriminador fijo `exportador`, país de destino principal |
 | `PermisoExportacion` | Autorización de un exportador | PK natural `codigo_permiso` | emisión, vencimiento |
 | `Comprobante` | Cabecera de una venta | PK global `nro_comprobante` | fecha, cliente, sala, subtotal bruto, descuento monetario, total |
 | `RenglonComprobante` | Vino incluido en una venta | PK `(nro_comprobante, cod_vino)` | cantidad, precio histórico, descuento histórico, subtotal neto |
@@ -226,14 +226,17 @@ erDiagram
     }
     SOCIO_CLUB {
         bigint id_cliente PK, FK
+        tipo_cliente tipo FK "fijo: socio"
     }
     DISTRIBUIDOR {
         bigint id_cliente PK, FK
+        tipo_cliente tipo FK "fijo: distribuidor"
         varchar zona_cobertura
         varchar nro_habilitacion UK
     }
     EXPORTADOR {
         bigint id_cliente PK, FK
+        tipo_cliente tipo FK "fijo: exportador"
         varchar pais_destino_principal
     }
     PERMISO_EXPORTACION {
@@ -278,6 +281,8 @@ erDiagram
 ```
 
 Las tres relaciones `puede_ser` deben leerse juntas: en el modelo conceptual cada cliente pertenece a **exactamente uno** de los tres subtipos. Los tres `o|` individuales sólo muestran que ninguna rama es obligatoria por sí sola; Mermaid no expresa la disyunción total/exclusiva.
+
+La FK de cada subtipo es compuesta, `(id_cliente, tipo) -> CLIENTE(id_cliente, tipo)`, y el `tipo` del subtipo es constante. Por eso la exclusividad ya queda garantizada por el esquema: a lo sumo una rama puede existir para cada cliente, y es la que coincide con `CLIENTE.tipo`. Falta la totalidad, que la Etapa 2 resolverá con un constraint trigger diferido.
 
 ### 4.4 Logística, stock y auditoría
 
@@ -375,7 +380,7 @@ erDiagram
 | Vino–Cepa | Vino `1..N` cepas | Cepa `0..N` vinos | N:M materializada por composición, con porcentaje. |
 | Vino–Maridaje | Vino `1..N` maridajes | Maridaje `0..N` vinos | N:M sin atributos propios. |
 | Localidad–Cliente | Localidad `0..N` clientes | Cliente `1..1` localidad | La dirección textual no sustituye la FK. |
-| Cliente–subtipo | Cliente `1..1` subtipo total/exclusivo | Cada subtipo `1..1` cliente | La suma de ramas es uno; control pendiente. |
+| Cliente–subtipo | Cliente `1..1` subtipo total/exclusivo | Cada subtipo `1..1` cliente | Máximo uno protegido por FK compuesta y discriminador fijo; mínimo uno (totalidad) pendiente de constraint trigger diferido. |
 | Exportador–Permiso | Exportador `0..N` permisos | Permiso `1..1` exportador | “Puede tener varios” no obliga a tener alguno. |
 | Cliente–Comprobante | Cliente `0..N` comprobantes | Comprobante `1..1` cliente | `RESTRICT` conserva ventas al intentar borrar cliente. |
 | Sala–Comprobante | Sala `0..N` comprobantes | Comprobante `1..1` sala | Lugar efectivo de venta. |
@@ -392,7 +397,7 @@ erDiagram
 
 ## 6. Reglas conceptuales no expresadas por el DER o no protegidas aún
 
-- Totalidad, exclusividad y coincidencia entre `Cliente.tipo` y la tabla de subtipo.
+- Totalidad de la jerarquía: todo cliente debe tener la fila del subtipo que declara. La exclusividad y la coincidencia con `Cliente.tipo` ya están protegidas por la FK compuesta.
 - Al menos una composición por vino y suma exacta de 100 % (RN-05).
 - Al menos un maridaje por vino y un análisis por lote.
 - Al menos un empleado por sala y una parcela por finca en estado estable.

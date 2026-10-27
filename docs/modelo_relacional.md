@@ -120,23 +120,26 @@ CLIENTE(
   id_cliente, nombre_razon_social, tipo_documento, nro_documento,
   direccion, id_localidad, fecha_alta, tipo, descuento_excepcion,
   PK(id_cliente), AK(tipo_documento, nro_documento),
+  UNIQUE(id_cliente, tipo),
   FK(id_localidad) -> LOCALIDAD(id_localidad)
 )
 
 SOCIO_CLUB(
-  id_cliente,
-  PK(id_cliente), FK(id_cliente) -> CLIENTE(id_cliente)
+  id_cliente, tipo,
+  PK(id_cliente), CHECK(tipo = 'socio'),
+  FK(id_cliente, tipo) -> CLIENTE(id_cliente, tipo)
 )
 
 DISTRIBUIDOR(
-  id_cliente, zona_cobertura, nro_habilitacion,
-  PK(id_cliente), AK(nro_habilitacion),
-  FK(id_cliente) -> CLIENTE(id_cliente)
+  id_cliente, tipo, zona_cobertura, nro_habilitacion,
+  PK(id_cliente), AK(nro_habilitacion), CHECK(tipo = 'distribuidor'),
+  FK(id_cliente, tipo) -> CLIENTE(id_cliente, tipo)
 )
 
 EXPORTADOR(
-  id_cliente, pais_destino_principal,
-  PK(id_cliente), FK(id_cliente) -> CLIENTE(id_cliente)
+  id_cliente, tipo, pais_destino_principal,
+  PK(id_cliente), CHECK(tipo = 'exportador'),
+  FK(id_cliente, tipo) -> CLIENTE(id_cliente, tipo)
 )
 
 PERMISO_EXPORTACION(
@@ -160,6 +163,8 @@ RENGLON_COMPROBANTE(
   FK(cod_vino) -> VINO(cod_vino)
 )
 ```
+
+`UNIQUE(id_cliente, tipo)` no es una clave candidata nueva, porque `id_cliente` ya es clave por sí solo. Es una superclave declarada para que las FK compuestas de los subtipos puedan referenciarla. Cada subtipo repite el discriminador como constante: con ese `CHECK`, la FK sólo encuentra el par `(id_cliente, tipo)` si el cliente declara ese mismo tipo. `PERMISO_EXPORTACION` sigue referenciando `EXPORTADOR(id_cliente)`, que es PK, y ahora además queda garantizado que esa fila pertenece a un cliente de tipo exportador.
 
 `descuento_excepcion` es nullable: sin valor, una función futura devolverá el descuento base de `tipo` (10/20/30); con valor sólo admite el 35 % de un exportador. El renglón copia el porcentaje efectivamente aplicado para conservar historia.
 
@@ -245,15 +250,22 @@ No pertenece al dominio; registra la aplicación y el contenido de los archivos 
 |---|---|---|
 | Una sola tabla con discriminador | Lectura simple; una FK desde comprobante; totalidad visible en una fila | `zona_cobertura`, `nro_habilitacion` y `pais_destino_principal` quedarían nulos según el tipo; se necesitan `CHECK` condicionales y se mezclan conceptos no aplicables. |
 | Sólo una tabla por subtipo | No hay nulos inaplicables; el tipo surge de la tabla | Duplica nombre, documento, dirección, localidad y alta; comprobante necesitaría tres FKs alternativas o una abstracción artificial; actualizar datos comunes genera anomalías. Sólo es razonable para una jerarquía total/exclusiva con poco comportamiento común, que no es este caso. |
-| Supertipo más una tabla por subtipo | Datos comunes una vez; atributos específicos sin nulos; FKs uniformes hacia `CLIENTE`; permisos referencian exactamente a `EXPORTADOR` | Inserta en dos tablas y las FKs ordinarias no pueden exigir por sí solas “exactamente una tabla hija”. Requiere una operación atómica y un constraint trigger diferido. |
+| Supertipo más una tabla por subtipo | Datos comunes una vez; atributos específicos sin nulos; FKs uniformes hacia `CLIENTE`; permisos referencian exactamente a `EXPORTADOR` | Inserta en dos tablas y las FKs ordinarias no pueden exigir por sí solas “exactamente una tabla hija”. Requiere una operación atómica y un constraint trigger diferido para la totalidad. |
 
-Se elige supertipo más subtipos. `CLIENTE.tipo` se conserva como discriminador porque RN-06 y las consultas agrupan por tipo. Su coincidencia con la tabla hija es una redundancia interrelacional deliberada: la próxima etapa deberá validarla junto con totalidad y exclusividad. No se afirma que una FK simple ya proteja esa regla.
+Se elige supertipo más subtipos. `CLIENTE.tipo` se conserva como discriminador porque RN-06 y las consultas agrupan por tipo.
+
+La regla “exactamente un subtipo” se divide en dos partes con mecanismos distintos:
+
+- **Exclusividad y coincidencia (a lo sumo un subtipo, el declarado):** se protege ya, de forma declarativa. Cada subtipo tiene `tipo` constante (`CHECK` y `DEFAULT`) y una FK compuesta `(id_cliente, tipo) -> CLIENTE(id_cliente, tipo)`. Un socio no puede insertarse como exportador, un cliente no puede estar en dos subtipos y `CLIENTE.tipo` no puede cambiar mientras exista la fila del subtipo (`ON UPDATE RESTRICT`).
+- **Totalidad (al menos un subtipo):** una FK sólo puede exigir que exista el padre, no el hijo. Queda pendiente para un constraint trigger `DEFERRABLE INITIALLY DEFERRED` en la Etapa 2, que se verifique al confirmar la transacción que inserta cliente y subtipo.
+
+**Alternativa descartada para la exclusividad:** un trigger en cada subtipo que consulte `CLIENTE.tipo` y las otras dos tablas. Se prefirió el mecanismo declarativo porque PostgreSQL lo verifica en todos los accesos, incluso durante una carga masiva que deshabilite los triggers de usuario (`DISABLE TRIGGER USER`); además no depende de código procedural ni de su orden de ejecución, no tiene condiciones de carrera entre sesiones concurrentes que inserten el mismo cliente en dos subtipos, y el catálogo lo documenta por sí solo. Su costo es una columna constante por subtipo y una superclave `UNIQUE` adicional en `CLIENTE`.
 
 ## 4. Restricciones relacionales relevantes
 
 ### 4.1 Claves candidatas adicionales
 
-Además de todas las PK, el SQL implementa diez `UNIQUE`:
+Además de todas las PK, el SQL implementa once `UNIQUE`. Diez son claves candidatas alternativas:
 
 1. departamento `(nombre, provincia)`;
 2. localidad `(provincia, nombre, codigo_postal)`;
@@ -266,19 +278,21 @@ Además de todas las PK, el SQL implementa diez `UNIQUE`:
 9. distribuidor `nro_habilitacion`;
 10. transportista `cuit`.
 
+La undécima, `uq_cliente_id_tipo (id_cliente, tipo)`, es una superclave, no una candidata: existe sólo como destino de las FK compuestas de los subtipos.
+
 Todos sus componentes son `NOT NULL`, de modo que en PostgreSQL representan candidatas efectivas y no permiten duplicados a través de valores nulos.
 
 ### 4.2 Dominios, controles y valores iniciales
 
 - `cuit_dom` exige exactamente once dígitos.
 - `estado_documento` admite `en_confeccion`, `terminado`, `procesado`.
-- `tipo_cliente` admite `socio`, `distribuidor`, `exportador`.
+- `tipo_cliente` admite `socio`, `distribuidor`, `exportador`; en cada subtipo, `tipo` admite un único valor.
 - Superficies, kilos, cantidades de movimiento, salarios y precios son positivos; stocks e importes agregados pueden ser cero.
 - Graduación está entre 5 y 20; porcentaje de composición en `(0,100]`; descuento histórico en `[0,100]`.
 - La campaña coincide con el año de cosecha y el permiso vence después de su emisión.
 - Estado inicial de ingreso/transferencia: `en_confeccion`; alta/confección usan fecha actual; eventos usan instante actual; stocks e importes de cabecera empiezan en cero.
 
-Hay más de los mínimos exigidos: 10 `UNIQUE`, 33 `CHECK` contando el dominio y más de 3 columnas con `DEFAULT`.
+Hay más de los mínimos exigidos. Conteo obtenido de `pg_constraint` y `pg_attrdef` sobre el esquema `bodegas`: 11 `UNIQUE`, 36 `CHECK` (34 de negocio, 1 de la tabla técnica y 1 del dominio `cuit_dom`) y 16 columnas con `DEFAULT`.
 
 ## 5. Acciones referenciales
 
@@ -304,7 +318,7 @@ La política general es:
 | vino-maridaje → vino | `RESTRICT` | `CASCADE` | Asociación pura dependiente. |
 | vino-maridaje → maridaje | `RESTRICT` | `CASCADE` | Borrar catálogo retira sus asociaciones. |
 | cliente → localidad | `RESTRICT` | `RESTRICT` | No deja clientes sin localidad. |
-| cada subtipo → cliente | `RESTRICT` | `CASCADE` | Datos de especialización sin vida independiente. |
+| cada subtipo `(id_cliente, tipo)` → cliente `(id_cliente, tipo)` | `RESTRICT` | `CASCADE` | Datos de especialización sin vida independiente. `RESTRICT` impide cambiar `cliente.tipo` dejando un subtipo incoherente; un cambio de tipo debe borrar la fila vieja y crear la nueva en la misma operación. |
 | permiso → exportador | `RESTRICT` | `CASCADE` | Permiso dependiente del exportador. |
 | comprobante → cliente/sala | `RESTRICT` | `RESTRICT` | Preserva la venta; D4/D6 sólo borran clientes sin compras. |
 | renglón comprobante → cabecera | `RESTRICT` | `CASCADE` | D1 borra cabecera e hijos como unidad histórica. |
@@ -325,4 +339,4 @@ No se usa `SET NULL`: todas estas relaciones son obligatorias y un nulo transfor
 
 ## 6. Restricciones aún externas al esquema relacional básico
 
-El esquema contiene las columnas necesarias, pero todavía no protege reglas entre filas/tablas: suma de composición, totalidad/exclusividad de cliente, descuento efectivo, totales agregados, stock suficiente, transiciones, bloqueo de renglones, procesamiento atómico, fecha inmutable y auditoría automática. Su mecanismo previsto se detalla en `docs/requisitos.md`; se implementará en migraciones posteriores y no se atribuye falsamente a las FKs o columnas actuales.
+El esquema contiene las columnas necesarias, pero todavía no protege reglas entre filas/tablas: suma de composición, totalidad de la jerarquía de cliente, descuento efectivo, totales agregados, stock suficiente, transiciones, bloqueo de renglones, procesamiento atómico, fecha inmutable y auditoría automática. Su mecanismo previsto se detalla en `docs/requisitos.md`; se implementará en migraciones posteriores y no se atribuye falsamente a las FKs o columnas actuales.

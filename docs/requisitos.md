@@ -311,7 +311,7 @@ Las ambigüedades se resolvieron de forma conservadora para poder avanzar. No se
 3. **Departamento:** catálogo separado para finca; localidad conserva la provincia pedida y no recibe un departamento no exigido.
 4. **Lote:** se supone número global y se agrega candidata `(finca, parcela, campaña)`.
 5. **Vino:** candidata `(bodega, nombre, añada, volumen)` para permitir igual nombre comercial en elaboradoras diferentes.
-6. **Clientes:** supertipo más subtipos, jerarquía conceptual total/exclusiva. El control entre tablas queda para constraint trigger.
+6. **Clientes:** supertipo más subtipos, jerarquía conceptual total/exclusiva. La exclusividad se protege de forma declarativa con discriminador constante y FK compuesta `(id_cliente, tipo)`; la totalidad queda para un constraint trigger diferido en la Etapa 2.
 7. **Documento:** candidata `(tipo_documento, nro_documento)`; no se cierra un catálogo de tipos no definido.
 8. **Descuento:** base calculable por tipo; excepción nullable de 35 % sólo para exportador. La condición “más de tres permisos” requiere lógica posterior.
 9. **Comprobante:** número global generado; subtotal de cabecera bruto, descuento monetario y total neto. Es un supuesto revisable si aparecen serie/punto de venta.
@@ -359,7 +359,7 @@ La temperatura de servicio no queda pendiente: el PDF la asigna al catálogo `Ma
 | RN-03 | FK de empleado `NOT NULL` a una sola sala | Mínimo de empleados por sala. |
 | RN-04 | Una FK de cepa en parcela y `UNIQUE (parcela, campaña)` | — |
 | RN-05 | Porcentaje individual `(0,100]` | Suma 100 y mínimo uno: constraint trigger diferido. |
-| RN-06 | Tipo cerrado, excepción sólo 35/exportador, histórico en renglón | Función 10/20/30, calificación por permisos y copia automática. |
+| RN-06 | Tipo cerrado por ENUM; excepción sólo 35/exportador; histórico en renglón; subtipo exclusivo y coincidente con `cliente.tipo` (FK compuesta + `CHECK` de discriminador) | Función 10/20/30, calificación por permisos, copia automática y totalidad de subtipo (constraint trigger diferido). |
 | RN-07 | Tabla 1:N y `vencimiento > emisión` | — |
 | RN-08 | Fórmula de renglón y aritmética interna de cabecera | Cálculo agregado desde renglones y actualización automática. |
 | RN-09 | Stocks `>= 0` | Validación/impacto de venta con bloqueo. |
@@ -369,5 +369,6 @@ La temperatura de servicio no queda pendiente: el PDF la asigna al catálogo `Ma
 | RN-13 | Tabla de auditoría con valores válidos | Trigger `AFTER UPDATE` que la complete. |
 | RN-14 | `RESTRICT` desde movimientos, stock y auditoría | — |
 | RN-15 | Checks de cantidades, superficies, kilos, precios y graduación | — |
+| Jerarquía de clientes (modelo, sin número de RN) | Exclusividad: `fk_socio_club_cliente`, `fk_distribuidor_cliente`, `fk_exportador_cliente` sobre `uq_cliente_id_tipo` y `ck_*_tipo`. Probado en `002_esquema_y_restricciones.sql`: socio como exportador (23503 y 23514), cliente en dos subtipos (23503), cambio de tipo con subtipo (23503). | Totalidad: constraint trigger diferido. |
 
 La tabla distingue deliberadamente una columna preparada de una regla efectivamente protegida.

@@ -35,9 +35,9 @@ Un ID generado no demuestra ninguna forma normal. Sólo se elige como identifica
 | `maridaje` | Una recomendación y su temperatura | K1 `id_maridaje`; K2 `nombre` | id, nombre | temperatura |
 | `vino_maridaje` | Una recomendación asociada a un vino | K1 `cod_vino + id_maridaje` | todos | — |
 | `cliente` | Los datos comunes de un comprador | K1 `id_cliente`; K2 `tipo_documento + nro_documento` | id, tipo documento, número | nombre/razón social, dirección, localidad, alta, tipo cliente, excepción descuento |
-| `socio_club` | La pertenencia del cliente al subtipo socio | K1 `id_cliente` | id | — |
-| `distribuidor` | Los datos específicos de un distribuidor | K1 `id_cliente`; K2 `nro_habilitacion` | cliente, habilitación | zona de cobertura |
-| `exportador` | Los datos específicos de un exportador | K1 `id_cliente` | cliente | país principal |
+| `socio_club` | La pertenencia del cliente al subtipo socio | K1 `id_cliente` | id | tipo (constante `socio`) |
+| `distribuidor` | Los datos específicos de un distribuidor | K1 `id_cliente`; K2 `nro_habilitacion` | cliente, habilitación | tipo (constante `distribuidor`), zona de cobertura |
+| `exportador` | Los datos específicos de un exportador | K1 `id_cliente` | cliente | tipo (constante `exportador`), país principal |
 | `permiso_exportacion` | Un permiso de un exportador | K1 `codigo_permiso` | código | exportador, emisión, vencimiento |
 | `comprobante` | La cabecera de una venta | K1 `nro_comprobante` | número | fecha, cliente, sala, subtotal, descuento, total |
 | `renglon_comprobante` | La aparición de un vino en una venta | K1 `nro_comprobante + cod_vino` | comprobante, vino | cantidad, precio histórico, descuento histórico, subtotal neto |
@@ -70,7 +70,8 @@ La forma abreviada `K -> resto` significa que cada candidata de la fila anterior
 | `composicion_vino` | `(cod_vino, id_cepa) -> porcentaje` |
 | `maridaje` | `id_maridaje -> nombre, temperatura`; `nombre -> id_maridaje, temperatura` |
 | `cliente` | `id_cliente ->` todos los datos comunes; `(tipo_documento, nro_documento) ->` todos los datos comunes. No se guarda una columna de descuento base, por lo que no aparece `tipo -> descuento_base` dentro de la relación. |
-| `distribuidor` | `id_cliente -> zona, habilitacion`; `nro_habilitacion -> id_cliente, zona` |
+| `distribuidor` | `id_cliente -> tipo, zona, habilitacion`; `nro_habilitacion -> id_cliente, tipo, zona` |
+| Subtipos de cliente | `id_cliente -> tipo` en `socio_club`, `distribuidor` y `exportador`. Como el `CHECK` fija un único valor, también vale la DF degenerada `∅ -> tipo` (el valor no depende de nada). `(id_cliente, tipo)` es superclave, no candidata. Ver 6.3. |
 | `comprobante` | `nro_comprobante -> fecha, cliente, sala, subtotal, descuento, total`; adicionalmente `(subtotal, descuento) -> total` por la fórmula almacenada. |
 | `renglon_comprobante` | `(nro_comprobante, cod_vino) -> cantidad, precio_unitario, descuento_porcentaje, subtotal`; además `(cantidad, precio_unitario, descuento_porcentaje) -> subtotal` por la fórmula. |
 | `transportista` | `cod_transportista -> cuit, razon_social, email, telefono, domicilio`; `cuit -> cod_transportista, razon_social, email, telefono, domicilio` |
@@ -131,11 +132,27 @@ Dos relaciones **no están en 3FN estricta** por una decisión física exigida y
 1. En `renglon_comprobante`, `(cantidad, precio_unitario, descuento_porcentaje) -> subtotal`. El determinante no es superclave y el subtotal no es primo. Es una dependencia transitiva desde la PK y una desnormalización. Se conserva porque la consigna exige el subtotal histórico; `ck_renglon_comprobante_subtotal` ya impide que contradiga la fórmula.
 2. En `comprobante`, `(subtotal, descuento) -> total`, y los tres importes también son agregados derivables de los renglones. Se conservan porque la consigna y las consultas los requieren. `ck_comprobante_importes` protege la aritmética interna, pero un trigger futuro deberá recalcularlos desde todos los renglones para evitar una cabecera desfasada.
 
-Por eso no se afirma que **todo el esquema físico** esté sin excepciones en 3FN. El modelo relacional base está descompuesto hasta 3FN y esas dos desnormalizaciones monetarias quedan identificadas, acotadas y con un mecanismo de consistencia previsto.
+Por eso no se afirma que **todo el esquema físico** esté sin excepciones en 3FN. El modelo relacional base está descompuesto hasta 3FN y esas dos desnormalizaciones monetarias quedan identificadas, acotadas y con un mecanismo de consistencia previsto. Los tres subtipos de cliente tienen además el discriminador constante analizado al final de esta sección.
 
 También hay redundancias que cruzan relaciones y no se explican sólo mediante la definición clásica de 3FN:
 
-- `cliente.tipo` y la presencia en una tabla de subtipo expresan la misma clasificación. Se conserva el discriminador para RN-06 y consultas; un constraint trigger diferido exigirá coincidencia, totalidad y exclusividad.
+- `cliente.tipo` y la presencia en una tabla de subtipo expresan la misma clasificación. Se conserva el discriminador para RN-06 y consultas. La coincidencia y la exclusividad ya las garantiza la FK compuesta descripta abajo; la totalidad quedará a cargo de un constraint trigger diferido.
+
+#### Discriminador constante en los subtipos
+
+`socio_club`, `distribuidor` y `exportador` tienen una columna `tipo` cuyo valor fija un `CHECK`. Su análisis se presenta en dos niveles:
+
+**(a) Definición de la cátedra: ningún atributo no clave depende de otro atributo no clave.** `tipo` depende directamente de la PK `id_cliente` (`id_cliente -> tipo`). No hay un atributo no clave intermedio, así que no hay dependencia transitiva y la tabla está en 3FN.
+
+**(b) Definición formal: para toda DF no trivial `X -> A`, `X` es superclave o `A` es primo.** El `CHECK (tipo = '...')` hace que `tipo` tome siempre el mismo valor, lo que introduce la DF degenerada `∅ -> tipo`. El conjunto vacío no es superclave y `tipo` no es primo, de modo que esa DF **no cumple** la condición formal.
+
+Se declara como **redundancia controlada**:
+
+- es un discriminador constante, no un dato que el usuario cargue o modifique: lo completa el `DEFAULT` y el `CHECK` rechaza cualquier otro valor;
+- no puede producir anomalías de inserción, actualización ni borrado, porque no existe ningún valor alternativo que pueda quedar desactualizado o contradecir a otra fila;
+- existe sólo para que la FK compuesta `(id_cliente, tipo) -> cliente(id_cliente, tipo)` garantice la exclusividad: un cliente sólo puede tener la fila del subtipo que declara.
+
+**Alternativa descartada:** omitir la columna y proteger la exclusividad con un trigger en cada subtipo que consulte `cliente.tipo` y las otras dos tablas. Se prefirió el mecanismo declarativo porque el motor lo aplica en todo acceso sin código procedural, sin depender del orden de triggers y sin condiciones de carrera entre sesiones concurrentes. Además, es visible en el catálogo y se prueba con un error de FK o `CHECK` identificable por nombre. La totalidad, que una FK no puede expresar, sí requerirá un constraint trigger diferido.
 - `stock_sala.cantidad` y `stock_deposito.cantidad` son saldos materializados derivables de movimientos y ventas. Cada tabla, considerada aisladamente, cumple la DF `clave -> cantidad` y está en 3FN, pero puede sufrir anomalías si se actualiza fuera de los procedimientos/triggers. La siguiente etapa centralizará el impacto y bloqueará filas para mantenerlos consistentes.
 - `lote_uva.campania` coincide con el año de `fecha_cosecha`. La DF `fecha_cosecha -> campania` tiene un atributo primo a la derecha, de modo que cumple la definición de 3FN aunque no BCNF. Se conserva para expresar directamente la candidata de RN-04; `ck_lote_uva_fecha_campania` evita divergencia.
 
@@ -143,7 +160,8 @@ También hay redundancias que cruzan relaciones y no se explican sólo mediante 
 
 | Grupo | 1FN | 2FN | 3FN | Observación |
 |---|---:|---:|---:|---|
-| Catálogos, maestros, subtipos y permisos | Sí | Sí | Sí | No quedan atributos de otro determinante no clave. |
+| Catálogos, maestros y permisos | Sí | Sí | Sí | No quedan atributos de otro determinante no clave. |
+| Subtipos de cliente | Sí | Sí | Sí según la definición de la cátedra; **no estricta** según la formal | Discriminador constante `∅ -> tipo` declarado como redundancia controlada para la FK compuesta (6.3). |
 | Parcela, lote y análisis | Sí | Sí | Sí | Lote conserva campaña derivada; cumple 3FN pero no BCNF por la DF señalada. |
 | Composición y asociaciones N:M | Sí | Sí | Sí | La suma 100 es una restricción agregada, no una DF por fila. |
 | Ingresos, transferencias y sus renglones | Sí | Sí | Sí | Estados y cantidades dependen de sus claves; reglas de transición son integridad de negocio. |
@@ -161,7 +179,7 @@ El DDL actual no concede DML a la API, por lo que todavía no hay un camino de a
 - trigger de cálculo de renglón/cabecera;
 - procedimientos de ingreso y transferencia con impacto único de stock;
 - trigger de venta con control de stock;
-- constraint trigger para composición 100 % y jerarquía de clientes;
+- constraint trigger para composición 100 % y totalidad de la jerarquía de clientes;
 - trigger de auditoría de precio;
 - bloqueos de edición y transiciones válidas.
 

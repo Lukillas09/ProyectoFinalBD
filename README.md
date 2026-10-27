@@ -150,7 +150,8 @@ Prueba datos mínimos válidos y rechazos por:
 - superficie, importe, cantidad, graduación y stock inválidos;
 - permiso con fechas inválidas;
 - segunda cosecha de una parcela en la misma campaña;
-- CUIT que viola el DOMAIN.
+- CUIT que viola el DOMAIN;
+- socio insertado como exportador, cliente en dos subtipos y cambio de tipo de un cliente con subtipo.
 
 El archivo abre una transacción y termina con `ROLLBACK`: no deja filas de prueba ni borra datos existentes.
 
@@ -257,7 +258,7 @@ PostgreSQL guarda datos en el volumen `postgres_data`. Las variables de iniciali
 ## Reglas pendientes de la próxima etapa
 
 - suma diferida de composición igual a 100 % y participación mínima;
-- totalidad/exclusividad y correspondencia de subtipos de cliente;
+- totalidad de la jerarquía de clientes (la exclusividad ya está protegida por FK compuesta);
 - descuento base 10/20/30, excepción U6 y copia histórica;
 - cálculo agregado de comprobantes;
 - venta con validación y descuento de stock;

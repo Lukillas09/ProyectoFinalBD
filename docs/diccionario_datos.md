@@ -166,27 +166,29 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
-| `id_cliente` | Identificador interno | `BIGINT` | No | `IDENTITY ALWAYS` | PK `pk_cliente` |
+| `id_cliente` | Identificador interno | `BIGINT` | No | `IDENTITY ALWAYS` | PK `pk_cliente`; parte de `uq_cliente_id_tipo` |
 | `nombre_razon_social` | Nombre personal o razón social | `VARCHAR(150)` | No | — | — |
 | `tipo_documento` | Tipo de documento | `VARCHAR(20)` | No | — | Parte de `uq_cliente_documento` |
 | `nro_documento` | Número de documento | `VARCHAR(30)` | No | — | Parte de `uq_cliente_documento` |
 | `direccion` | Dirección postal | `VARCHAR(200)` | No | — | — |
 | `id_localidad` | Localidad del cliente | `INTEGER` | No | — | FK `fk_cliente_localidad` |
 | `fecha_alta` | Día de alta | `DATE` | No | `CURRENT_DATE` | — |
-| `tipo` | Discriminador de subtipo | `tipo_cliente` | No | — | Coincidencia con tabla hija pendiente |
+| `tipo` | Discriminador de subtipo | `tipo_cliente` | No | — | Parte de `uq_cliente_id_tipo` (superclave destino de las FK de subtipos); `RESTRICT` impide cambiarlo si existe fila de subtipo |
 | `descuento_excepcion` | Excepción individual al descuento base | `NUMERIC(5,2)` | Sí | `NULL` implícito | `ck_cliente_descuento_excepcion`: sólo 35 para tipo exportador |
 
 ### `socio_club`
 
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
-| `id_cliente` | Cliente que pertenece al subtipo | `BIGINT` | No | — | PK `pk_socio_club`; FK `fk_socio_club_cliente` |
+| `id_cliente` | Cliente que pertenece al subtipo | `BIGINT` | No | — | PK `pk_socio_club`; parte de FK compuesta `fk_socio_club_cliente` |
+| `tipo` | Discriminador fijo del subtipo | `tipo_cliente` | No | `'socio'` | `ck_socio_club_tipo`: sólo `socio`; parte de FK compuesta `fk_socio_club_cliente` |
 
 ### `distribuidor`
 
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
-| `id_cliente` | Cliente que pertenece al subtipo | `BIGINT` | No | — | PK `pk_distribuidor`; FK `fk_distribuidor_cliente` |
+| `id_cliente` | Cliente que pertenece al subtipo | `BIGINT` | No | — | PK `pk_distribuidor`; parte de FK compuesta `fk_distribuidor_cliente` |
+| `tipo` | Discriminador fijo del subtipo | `tipo_cliente` | No | `'distribuidor'` | `ck_distribuidor_tipo`: sólo `distribuidor`; parte de FK compuesta `fk_distribuidor_cliente` |
 | `zona_cobertura` | Zona comercial cubierta | `VARCHAR(150)` | No | — | — |
 | `nro_habilitacion` | Habilitación del distribuidor | `VARCHAR(50)` | No | — | `uq_distribuidor_habilitacion` |
 
@@ -194,7 +196,8 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
-| `id_cliente` | Cliente que pertenece al subtipo | `BIGINT` | No | — | PK `pk_exportador`; FK `fk_exportador_cliente` |
+| `id_cliente` | Cliente que pertenece al subtipo | `BIGINT` | No | — | PK `pk_exportador`; parte de FK compuesta `fk_exportador_cliente` |
+| `tipo` | Discriminador fijo del subtipo | `tipo_cliente` | No | `'exportador'` | `ck_exportador_tipo`: sólo `exportador`; parte de FK compuesta `fk_exportador_cliente` |
 | `pais_destino_principal` | País principal de exportación | `VARCHAR(100)` | No | — | — |
 
 ### `permiso_exportacion`
@@ -312,4 +315,4 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 
 ## 8. Reglas deliberadamente no atribuidas a una columna
 
-El diccionario describe estructura física, no afirma que las siguientes reglas ya estén implementadas: suma 100 % de composición; mínimos de hijos; jerarquía total/exclusiva; calificación de U6; cálculo agregado de cabecera; stock suficiente; transiciones e impacto único; bloqueo de renglones; fecha inmutable; auditoría automática. Sus columnas existen, pero sus mecanismos de funciones/procedimientos/triggers pertenecen a la etapa siguiente.
+El diccionario describe estructura física, no afirma que las siguientes reglas ya estén implementadas: suma 100 % de composición; mínimos de hijos; totalidad de la jerarquía de clientes (la exclusividad sí está protegida por las FK compuestas); calificación de U6; cálculo agregado de cabecera; stock suficiente; transiciones e impacto único; bloqueo de renglones; fecha inmutable; auditoría automática. Sus columnas existen, pero sus mecanismos de funciones/procedimientos/triggers pertenecen a la etapa siguiente.
