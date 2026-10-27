@@ -429,4 +429,4 @@ erDiagram
 - Inserción automática en auditoría al cambiar el precio (RN-13).
 - Mínimo de un renglón antes de terminar un ingreso o una transferencia.
 
-Estas reglas no se presentan como resueltas por la mera existencia de columnas. Se implementarán y probarán con funciones, procedimientos y triggers en la etapa de lógica.
+En la Etapa 1 estas reglas no se presentaban como resueltas por la mera existencia de columnas. La Etapa 2 las implementa y prueba con funciones, procedimientos y triggers (migraciones 003 a 007). Cada regla tiene su mecanismo y su caso en `docs/trazabilidad.md`. Siguen sin protegerse sólo las participaciones mínimas que ninguna RN exige: al menos un maridaje por vino, un análisis por lote y un empleado por sala, y una parcela por finca.

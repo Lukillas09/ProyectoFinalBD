@@ -171,16 +171,13 @@ Se declara como **redundancia controlada**:
 | `comprobante` | Sí | Sí | **No estricta** | Importes agregados almacenados; sincronización por trigger pendiente. |
 | `schema_migration` | Sí | Sí | Sí | Relación técnica, sin DF transitiva conocida. |
 
-## 7. Consistencia que se completará en la etapa de lógica
+## 7. Consistencia de las redundancias declaradas (Etapa 2)
 
-El DDL actual no concede DML a la API, por lo que todavía no hay un camino de aplicación que pueda saltar estas reglas. Cuando se habiliten operaciones se incorporarán, dentro de PostgreSQL:
+Las redundancias controladas de la sección 6.3 quedan protegidas dentro de PostgreSQL:
 
-- función de descuento efectivo y validación de U6;
-- trigger de cálculo de renglón/cabecera;
-- procedimientos de ingreso y transferencia con impacto único de stock;
-- trigger de venta con control de stock;
-- constraint trigger para composición 100 % y totalidad de la jerarquía de clientes;
-- trigger de auditoría de precio;
-- bloqueos de edición y transiciones válidas.
+- `renglon_comprobante.subtotal`: el trigger `trg_renglon_comprobante_completar` lo calcula con la misma fórmula del `CHECK`, y el renglón no puede modificarse después.
+- Importes de `comprobante`: sólo los escribe `fn_recalcular_comprobante`, invocada al insertar cada renglón; `trg_comprobante_importes` rechaza cualquier otra escritura.
+- Saldos de `stock_sala` y `stock_deposito`: sólo cambian por la venta y por los procedimientos de ingreso y transferencia, que bloquean las filas; la API no tiene `UPDATE` sobre ellos.
+- `cliente.tipo` y subtipos: exclusividad por FK compuesta y totalidad por constraint triggers diferidos.
 
-Hasta entonces, la presencia de las columnas no se presenta como protección de esas reglas.
+El detalle de cada mecanismo y su prueba está en `docs/trazabilidad.md`.

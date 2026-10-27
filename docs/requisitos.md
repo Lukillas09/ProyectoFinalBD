@@ -7,9 +7,9 @@ Este documento separa cuatro cosas que no deben confundirse:
 - los requisitos completos del PDF del Trabajo Práctico Integrador;
 - los conceptos que los respaldan en el material teórico;
 - la aclaración posterior del profesor sobre temas aún no vistos;
-  - el alcance incremental de la infraestructura inicial y de la etapa actual de modelado.
+  - el alcance incremental de cada etapa implementada.
 
-La infraestructura inicial ya conecta PostgreSQL 16 -> FastAPI -> front. La etapa actual agrega el modelo conceptual y relacional, la justificación de normalización, el diccionario y el esquema físico completo con constraints. Todavía no implementa CRUD, funciones de negocio, procedimientos, triggers, vistas, índices de rendimiento, carga masiva ni reportes.
+La infraestructura inicial conecta PostgreSQL 16 -> FastAPI -> front. La Etapa 1 agregó el modelo conceptual y relacional, la normalización, el diccionario y el esquema físico con constraints. La Etapa 2 agrega la lógica de negocio dentro de la base: funciones, procedimientos, triggers, vistas y roles con privilegios mínimos (secciones 9 y `docs/trazabilidad.md`). Todavía no se implementan el CRUD de la API, índices de rendimiento, carga masiva, consultas de la Etapa 5 ni pantallas nuevas.
 
 ## 2. Fuentes revisadas
 
@@ -280,7 +280,7 @@ El PDF presenta transacciones y concurrencia como obligatorias en varios lugares
 - ejemplo de concurrencia con `SELECT ... FOR UPDATE` en el anexo;
 - inclusión de transacciones y acceso concurrente en `Programa BD 2026.pdf`.
 
-Decisión actual: las transacciones se clasifican como opcionales porque fueron el ejemplo explícito de tema no visto. No se implementan en la infraestructura ni en esta etapa de modelado, pero la arquitectura no impide incorporarlas. No se presume lo mismo para concurrencia: seguirá tratándose como requisito del PDF hasta confirmar si tampoco fue vista. Antes de la etapa de lógica de negocio se debe precisar con la cátedra qué entregables y puntos de la rúbrica quedan efectivamente exceptuados.
+Decisión actual: las transacciones siguen clasificadas como tema no visto y opcional según la aclaración, pero **se implementan igual desde la Etapa 2**, porque la rúbrica las puntúa y porque reglas de la consigna dependen de ellas. Por ejemplo, una transferencia sin stock no debe dejar cambios a medias. Los procedimientos no hacen `COMMIT` y se ejecutan dentro de la transacción de quien los llama; las reglas diferidas se verifican al confirmar. La concurrencia sigue tratándose como requisito del PDF y se demuestra con dos sesiones en `docs/concurrencia.md` (escenarios con y sin `FOR UPDATE`, y `REPEATABLE READ`).
 
 ## 5. Infraestructura base implementada
 
@@ -290,17 +290,17 @@ Decisión actual: las transacciones se clasifican como opcionales porque fueron 
 | PostgreSQL 16 persistente | Imagen `postgres:16-alpine` y volumen nombrado. |
 | Un solo comando levanta base, API y front | `docker compose up` arranca `db`, ejecuta la tarea única `migrate` y recién después `api` y `front`. |
 | Healthchecks | PostgreSQL con `pg_isready`, API llamando `/salud` y front comprobando Nginx. |
-| Propietario separado de API | Bootstrap crea cuenta de inicialización, propietario del proyecto y rol API. |
+| Propietario separado de API | Bootstrap crea cuenta de inicialización, propietario del proyecto, cuenta de la API y cuenta de reportes, más los grupos `bodegas_rw` y `bodegas_ro`. |
 | API sin DDL ni superusuario | `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, sin `CREATE` en base o esquema. |
 | Credenciales externas | `.env.example` sólo contiene valores de ejemplo; `.env` queda ignorado. |
 | `GET /salud` real | Adquiere una conexión del pool y ejecuta `SELECT 1`; 200/503 sin detalles internos. |
 | Estado visible en navegador | El front consulta `/api/salud` y muestra éxito o indisponibilidad. |
 | Sin nombres internos en el navegador | Nginx recibe `/api/*` y lo reenvía a `api:8000` dentro de Docker. |
 | Documentación operativa | README con configuración, arranque, verificación, parada y borrado explícito del volumen. |
-| Separación por etapas | El bootstrap sólo crea roles y esquema; las migraciones las aplica el servicio `migrate` como propietario, en un contenedor aparte que sólo recibe las credenciales del propietario. CRUD, triggers, carga masiva y reportes siguen pendientes. |
+| Separación por etapas | El bootstrap sólo crea roles y esquema; las migraciones las aplica el servicio `migrate` como propietario, en un contenedor aparte que sólo recibe las credenciales del propietario. La lógica de negocio está en las migraciones 003 a 007; el CRUD de la API y la carga masiva siguen pendientes. |
 | Flujo Git | Según `AGENTS.md`: una rama por etapa creada desde `main` (esta etapa: `etapa-1-modelado`), commits pequeños y descriptivos, sin `.env` ni secretos, e integración por PR revisado por otro integrante antes del merge. No se commitea directamente sobre `main`. Los despliegues a la nube requieren instrucción explícita. |
 
-El rol de reportes de solo lectura se difiere hasta que existan tablas o vistas concretas a las que aplicar privilegios; sigue siendo un mínimo pendiente del PDF.
+El rol de reportes de solo lectura existe desde la Etapa 2: la cuenta `DB_REPORT_USER` hereda `bodegas_ro`, que sólo lee tablas de negocio y vistas.
 
 ## 6. Ambigüedades resueltas y supuestos revisables del modelo
 
@@ -320,8 +320,8 @@ Las ambigüedades se resolvieron de forma conservadora para poder avanzar. No se
 12. **Tiempo:** eventos operativos/auditoría con `TIMESTAMPTZ`; conceptos por día con `DATE`.
 13. **Trazabilidad:** no se inventa una relación lote-vino; necesitaría una extensión explícita de elaboración.
 14. **Borrados históricos:** D1/D5 eliminan cabecera y renglones; no revierten stock porque son depuración histórica, no anulación operativa.
-15. **Permisos API:** se mantiene sin DML en esta etapa. Se concederán operaciones mínimas cuando existan las rutinas/CRUD correspondientes.
-16. **Temas no vistos:** sigue pendiente confirmar qué puntos de transacciones/concurrencia exceptúa la cátedra.
+15. **Permisos API:** desde la Etapa 2, `bodegas_rw` recibe exactamente lo que necesitan los endpoints de la Etapa 6. No tiene DML sobre stock, auditoría, importes ni estados: esos cambios ocurren sólo por triggers y procedimientos `SECURITY DEFINER` (`007_roles.sql`).
+16. **Temas no vistos:** las transacciones se implementan aunque sean opcionales (sección 4). Sigue pendiente confirmar con la cátedra si concurrencia también queda exceptuada; mientras tanto se trata como obligatoria.
 17. **Ubicación de pruebas:** se adopta `db/tests/`.
 18. **Anexo C ausente:** sigue pendiente solicitar las preguntas de defensa mencionadas pero no incluidas en el PDF.
 
@@ -335,7 +335,7 @@ La temperatura de servicio no queda pendiente: el PDF la asigna al catálogo `Ma
 - PostgreSQL no publica el puerto 5432 al host en esta etapa; se accede desde la red interna o con `docker compose exec`.
 - El bootstrap crea un esquema vacío `bodegas`, propiedad del rol del proyecto. Las tablas aparecen cuando el servicio `migrate` ejecuta `db/migrate.sh` como propietario. Ese servicio depende de `db` saludable, y `api` depende de que `migrate` termine con código 0, de modo que la API nunca arranca contra un esquema a medio crear.
 - `db/migrate.sh` aplica archivos numerados, falla con `ON_ERROR_STOP`, usa una transacción por archivo, registra SHA-256, omite reaplicaciones idénticas y rechaza cambios en archivos ya registrados.
-- La API no recibe DML ni `EXECUTE` por la existencia de las tablas; la prueba posterior a migraciones verifica que conserva privilegios mínimos.
+- La API no recibe privilegios por la mera existencia de las tablas: `007_roles.sql` los otorga por objeto y por columna al grupo `bodegas_rw`, y `003_privilegios_api.sql` compara la matriz efectiva contra la esperada.
 - Los scripts de inicialización de PostgreSQL sólo corren con un volumen vacío; cualquier cambio de roles debe hacerse mediante una migración administrativa o una reinicialización explícita y consciente del volumen.
 
 ## 8. Estado de la etapa de modelado y esquema inicial
@@ -351,25 +351,53 @@ La temperatura de servicio no queda pendiente: el PDF la asigna al catálogo `Ma
 - Totales del esquema, consultados en `pg_constraint` y `pg_attrdef`: 31 PK, 35 FK, 11 `UNIQUE`, 36 `CHECK` contando el dominio y 16 `DEFAULT`. Superan los mínimos del PDF: 4 `UNIQUE`, 8 `CHECK` y 3 `DEFAULT`.
 - Servicio `migrate` que aplica las migraciones en cada `docker compose up`, y pruebas SQL aisladas con `ROLLBACK` ejecutables con `db/tests/run_all.sh`.
 
-### 8.2 Cobertura actual y pendiente de RN
+### 8.2 Cobertura de RN después de la Etapa 2
 
-| Regla | Protegido ahora | Pendiente explícito |
-|---|---|---|
-| RN-01 | Precio único en `vino` para la red y `CHECK > 0` | Auditoría automática se trata en RN-13. |
-| RN-02 | FK sala-localidad y encargado almacenado una vez en localidad | Mínimo de salas no se exige. |
-| RN-03 | FK de empleado `NOT NULL` a una sola sala | Mínimo de empleados por sala. |
-| RN-04 | Una FK de cepa en parcela y `UNIQUE (parcela, campaña)` | — |
-| RN-05 | Porcentaje individual `(0,100]` | Suma 100 y mínimo uno: constraint trigger diferido. |
-| RN-06 | Tipo cerrado por ENUM; excepción sólo 35/exportador; histórico en renglón; subtipo exclusivo y coincidente con `cliente.tipo` (FK compuesta + `CHECK` de discriminador) | Función 10/20/30, calificación por permisos, copia automática y totalidad de subtipo (constraint trigger diferido). |
-| RN-07 | Tabla 1:N y `vencimiento > emisión` | — |
-| RN-08 | Fórmula de renglón y aritmética interna de cabecera | Cálculo agregado desde renglones y actualización automática. |
-| RN-09 | Stocks `>= 0` | Validación/impacto de venta con bloqueo. |
-| RN-10 | ENUM y estado inicial de ingreso | Transiciones e impacto único mediante trigger/procedimiento. |
-| RN-11 | ENUM, estado inicial y fecha actual por defecto | Inmutabilidad, transiciones e impacto atómico. |
-| RN-12 | Columnas y estados disponibles | Bloqueo de renglones fuera de confección. |
-| RN-13 | Tabla de auditoría con valores válidos | Trigger `AFTER UPDATE` que la complete. |
-| RN-14 | `RESTRICT` desde movimientos, stock y auditoría | — |
-| RN-15 | Checks de cantidades, superficies, kilos, precios y graduación | — |
-| Jerarquía de clientes (modelo, sin número de RN) | Exclusividad: `fk_socio_club_cliente`, `fk_distribuidor_cliente`, `fk_exportador_cliente` sobre `uq_cliente_id_tipo` y `ck_*_tipo`. Probado en `002_esquema_y_restricciones.sql`: socio como exportador (23503 y 23514), cliente en dos subtipos (23503), cambio de tipo con subtipo (23503). | Totalidad: constraint trigger diferido. |
+La columna "Etapa 1" registra lo que ya protegía el esquema; "Etapa 2" agrega la lógica. El detalle de objetos y casos de prueba está en `docs/trazabilidad.md`.
 
-La tabla distingue deliberadamente una columna preparada de una regla efectivamente protegida.
+| Regla | Etapa 1 (estructura) | Etapa 2 (lógica) | Pendiente |
+|---|---|---|---|
+| RN-01 | Precio único en `vino` y `CHECK > 0` | Auditoría de cambios (RN-13) | — |
+| RN-02 | FK sala-localidad; encargado una vez en localidad | — | Mínimo de salas por localidad: no lo exige la consigna. |
+| RN-03 | FK `NOT NULL` de empleado a una sala | — | Mínimo de empleados por sala: no lo exige una RN. |
+| RN-04 | FK de cepa en parcela; `UNIQUE (parcela, campaña)` | — | — |
+| RN-05 | Porcentaje `(0,100]` | Suma exactamente 100 y al menos una cepa: constraint trigger diferido | — |
+| RN-06 | ENUM de tipo; excepción sólo 35/exportador; subtipo exclusivo | `fn_descuento_cliente`; descuento copiado al renglón; U6 exige más de 3 permisos; totalidad de subtipo | — |
+| RN-07 | Tabla 1:N y `vencimiento > emisión` | — | — |
+| RN-08 | Fórmula del renglón y aritmética de cabecera | Precio y descuento completados por trigger; cabecera recalculada desde renglones; importes no editables; comprobante con al menos un renglón | — |
+| RN-09 | Stocks `>= 0` | Trigger BEFORE con `FOR UPDATE` que rechaza sin stock; AFTER que descuenta | — |
+| RN-10 | ENUM y estado inicial | Transiciones sin retroceso; terminar exige renglones; procesar sólo por `sp_procesar_ingreso`, impacto único | — |
+| RN-11 | ENUM, estado inicial, fecha por defecto | Fecha forzada e inmutable; transiciones; `sp_procesar_transferencia` atómico y con verificación por renglón | — |
+| RN-12 | — | Bloqueo de renglones fuera de confección; D5 permitido por cascada | — |
+| RN-13 | Tabla de auditoría con valores válidos | Trigger `AFTER UPDATE OF precio` con `session_user` | — |
+| RN-14 | `RESTRICT` desde movimientos, stock y auditoría | — | — |
+| RN-15 | `CHECK` de cantidades, superficies, kilos, precios y graduación | — | — |
+| Jerarquía de clientes | Exclusividad por FK compuesta y `ck_*_tipo` | Totalidad por constraint triggers diferidos | — |
+
+Todas las reglas RN-01 a RN-15 tienen mecanismo y caso de prueba. Quedan como participaciones mínimas no exigidas por una RN: al menos un maridaje por vino, un análisis por lote y un empleado por sala.
+
+## 9. Estado de la Etapa 2: integridad y lógica
+
+### 9.1 Entregables
+
+- `db/migrations/003_funciones.sql` a `007_roles.sql` (la consigna incluye `002_constraints.sql`, que ya estaba completo y no se modificó).
+- Pruebas en `db/tests/` (equivalente a `tests/db_tests.sql` de la consigna), ejecutables con `run_all.sh`.
+- `docs/trazabilidad.md`: tabla regla → mecanismo → caso de prueba y la guía "¿Dónde va cada regla?".
+- `docs/concurrencia.md`: guion de la demostración con dos sesiones, con lugares para las capturas.
+
+### 9.2 Mínimos de la consigna, contados en el catálogo
+
+Valores obtenidos con consultas a `pg_proc`, `pg_trigger`, `pg_views`, `pg_roles`, `pg_type`, `pg_constraint` y `pg_attrdef` sobre una base creada desde cero.
+
+| Elemento | Mínimo | Real |
+|---|---:|---|
+| Funciones | 4 | 6: `fn_descuento_cliente`, `fn_stock_sala`, `fn_total_comprobante`, `fn_antiguedad_anios`, `fn_recalcular_comprobante`, `fn_validar_transicion_estado`; además 15 funciones de trigger |
+| Procedimientos | 2 | 4: `sp_terminar_ingreso`, `sp_procesar_ingreso`, `sp_terminar_transferencia`, `sp_procesar_transferencia` |
+| Triggers | 6, con BEFORE, AFTER y constraint diferido | 19: 9 BEFORE, 2 AFTER, 8 `CONSTRAINT … DEFERRABLE INITIALLY DEFERRED` |
+| Vistas | 3 | 4: `v_stock_total_vino`, `v_ventas_mensuales_sala`, `v_documentos_pendientes`, `v_ficha_vino` (ninguna materializada; ver `006_vistas.sql`) |
+| Roles | 3 | Propietario, `bodegas_rw` (API) y `bodegas_ro` (reportes), con sus cuentas `DB_APP_USER` y `DB_REPORT_USER` |
+| ENUM / DOMAIN | 1 / 1 | 2 / 1 |
+| UNIQUE | 4 | 11 |
+| CHECK | 8 (uno entre columnas) | 36 contando el dominio; varios entre columnas |
+| DEFAULT | 3 | 16 columnas |
+| PK / FK | todas | 31 / 35 |

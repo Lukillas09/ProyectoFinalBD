@@ -337,6 +337,6 @@ La política general es:
 
 No se usa `SET NULL`: todas estas relaciones son obligatorias y un nulo transformaría una fila válida en información incompleta.
 
-## 6. Restricciones aún externas al esquema relacional básico
+## 6. Restricciones entre filas y tablas (Etapa 2)
 
-El esquema contiene las columnas necesarias, pero todavía no protege reglas entre filas/tablas: suma de composición, totalidad de la jerarquía de cliente, descuento efectivo, totales agregados, stock suficiente, transiciones, bloqueo de renglones, procesamiento atómico, fecha inmutable y auditoría automática. Su mecanismo previsto se detalla en `docs/requisitos.md`; se implementará en migraciones posteriores y no se atribuye falsamente a las FKs o columnas actuales.
+El esquema relacional básico no alcanza para las reglas que dependen de otras filas o tablas: suma de composición, totalidad de la jerarquía de cliente, descuento efectivo, totales agregados, stock suficiente, transiciones, bloqueo de renglones, procesamiento atómico, fecha inmutable y auditoría automática. La Etapa 2 las implementa con funciones, procedimientos y triggers (migraciones 003 a 007). La relación de cada regla con su objeto y su prueba está en `docs/trazabilidad.md`.

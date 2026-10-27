@@ -86,6 +86,8 @@ No usar `FLOAT` para dinero. Usar `NUMERIC(p,s)`. No modelar estados como texto 
 
 ## Alcance de la etapa actual
 
-La infraestructura PostgreSQL -> API -> front ya existe. La etapa actual incorpora modelo conceptual/relacional, normalización, diccionario, tablas y constraints base. No implementar todavía CRUD, funciones de negocio, procedimientos, triggers, vistas, índices de rendimiento, carga masiva, reportes ni pantallas nuevas. Los importes y stocks pueden tener estructura y restricciones de dominio, pero su mantenimiento automático pertenece a la etapa de lógica.
+La infraestructura PostgreSQL -> API -> front, el modelo (Etapa 1) y la lógica de negocio en la base (Etapa 2: funciones, procedimientos, triggers, vistas y roles, migraciones 003 a 007) ya existen. `001` a `007` están en `main` o en un PR compartido: cualquier corrección va en una migración nueva. No implementar todavía CRUD en la API, índices de rendimiento (`008_indices.sql`, Etapa 4), carga masiva (Etapa 3), consultas de la Etapa 5 ni pantallas nuevas.
+
+Las escrituras de stock, importes, estados y auditoría pertenecen a triggers y procedimientos. Una etapa posterior no debe otorgar a la API privilegios directos sobre esas columnas ni duplicar esos cálculos fuera de PostgreSQL.
 
 Actualizar `README.md` y `docs/requisitos.md` cuando una decisión cambie el modo de ejecutar el proyecto, el alcance académico o una alternativa de diseño.
