@@ -23,11 +23,11 @@ Incluye:
 - front mínimo que muestra el estado real a través del proxy Nginx;
 - modelo conceptual y relacional completo, normalización y diccionario (Etapa 1);
 - 30 tablas de negocio y una tabla técnica de migraciones;
-- 31 PK y 35 FK (varias compuestas), `NOT NULL`, 11 `UNIQUE`, 36 `CHECK` contando el dominio, 16 columnas con `DEFAULT`, dos ENUM y un DOMAIN;
+- 31 PK y 35 FK (varias compuestas), `NOT NULL`, 11 `UNIQUE`, 36 `CHECK` contando el dominio, 17 columnas con `DEFAULT`, dos ENUM y un DOMAIN;
 - lógica de negocio en la base (Etapa 2):
-  - 6 funciones (4 de cálculo pedidas por la consigna);
+  - 7 funciones (4 de cálculo pedidas por la consigna y `fn_registrar_venta`, único camino de venta de la API);
   - 4 procedimientos de ingresos y transferencias;
-  - 19 triggers (9 BEFORE, 2 AFTER, 8 constraint triggers diferidos);
+  - 20 triggers (10 BEFORE, 2 AFTER, 8 constraint triggers diferidos);
   - 4 vistas;
   - privilegios mínimos para la API (`bodegas_rw`) y para reportes (`bodegas_ro`);
 - runner de migraciones con transacción, registro y SHA-256, ejecutado por el servicio de única ejecución `migrate`;
@@ -153,8 +153,9 @@ El script termina con código distinto de cero si alguna prueba falla. Desde Git
 | `004_reglas_negocio.sql` | propietario | Éxito y rechazo por cada RN-01 a RN-15, U6, totalidad de clientes y funciones. |
 | `005_roles.sql` | propietario con `SET ROLE` | Operaciones reales de la API y de reportes: lo permitido funciona y lo prohibido da 42501. |
 | `006_conexion_reportes.sql` | reportes | La cuenta de reportes sólo lee. |
+| `007_comprobante_emitido.sql` | propietario | Un comprobante confirmado no admite renglones nuevos, aun como propietario; U1 sigue funcionando. Usa varias transacciones y limpia sus datos. |
 
-Las pruebas de propietario terminan en `ROLLBACK`. La correspondencia de cada regla con su caso está en [docs/trazabilidad.md](docs/trazabilidad.md).
+Las pruebas de propietario terminan en `ROLLBACK`, salvo `007`, que necesita una venta confirmada y la borra al terminar. La correspondencia de cada regla con su caso está en [docs/trazabilidad.md](docs/trazabilidad.md).
 
 Cada archivo también puede ejecutarse por separado, como se indica a continuación. Toda aserción falsa ejecuta `RAISE EXCEPTION`, así que psql termina con código 3.
 
@@ -191,7 +192,7 @@ El archivo abre una transacción y termina con `ROLLBACK`: no deja filas de prue
 docker compose exec db sh -c 'PGPASSWORD="$DB_APP_PASSWORD" psql -h 127.0.0.1 -U "$DB_APP_USER" -d "$POSTGRES_DB" -f /opt/bodegas/db/tests/003_privilegios_api.sql'
 ```
 
-Compara los privilegios efectivos de la cuenta de la API contra la matriz esperada de `007_roles.sql` y nombra lo que sobre o falte. La API puede leer catálogos, hacer el CRUD de vinos y clientes, insertar ventas y documentos y llamar a los procedimientos. No puede escribir stock, auditoría, importes ni estados, ni tiene privilegios sobre secuencias (no los necesita para columnas IDENTITY).
+Compara los privilegios efectivos de la cuenta de la API contra la matriz esperada de `007_roles.sql` y nombra lo que sobre o falte. La API puede leer catálogos, hacer el CRUD de vinos y clientes, vender con `fn_registrar_venta`, insertar ingresos y transferencias y llamar a los procedimientos. No puede insertar comprobantes ni renglones directamente, ni escribir stock, auditoría, importes ni estados, ni tiene privilegios sobre secuencias (no los necesita para columnas IDENTITY).
 
 ### 4 a 6. Reglas de negocio y roles
 

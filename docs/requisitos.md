@@ -348,7 +348,7 @@ La temperatura de servicio no queda pendiente: el PDF la asigna al catálogo `Ma
 - Diccionario en `docs/diccionario_datos.md`, contrastado contra el catálogo de PostgreSQL: coinciden tablas, columnas, tipos, nulabilidad, defaults y el nombre de cada constraint en las columnas que abarca.
 - `001_esquema.sql`: dos tipos `ENUM`, un `DOMAIN` con su `CHECK`, 30 tablas de negocio, una tabla técnica, 31 PK, 35 FK, `NOT NULL` y la superclave `uq_cliente_id_tipo` que necesitan las FK de subtipos.
 - `002_constraints.sql`: 10 `UNIQUE` (claves candidatas), 35 `CHECK` (34 de negocio y 1 de la tabla técnica) y 16 columnas con `DEFAULT`.
-- Totales del esquema, consultados en `pg_constraint` y `pg_attrdef`: 31 PK, 35 FK, 11 `UNIQUE`, 36 `CHECK` contando el dominio y 16 `DEFAULT`. Superan los mínimos del PDF: 4 `UNIQUE`, 8 `CHECK` y 3 `DEFAULT`.
+- Totales del esquema, consultados en `pg_constraint` y `pg_attrdef`: 31 PK, 35 FK, 11 `UNIQUE`, 36 `CHECK` contando el dominio y 16 `DEFAULT` al cerrar la Etapa 1 (17 desde la Etapa 2, por `comprobante.xact_alta`). Superan los mínimos del PDF: 4 `UNIQUE`, 8 `CHECK` y 3 `DEFAULT`.
 - Servicio `migrate` que aplica las migraciones en cada `docker compose up`, y pruebas SQL aisladas con `ROLLBACK` ejecutables con `db/tests/run_all.sh`.
 
 ### 8.2 Cobertura de RN después de la Etapa 2
@@ -364,11 +364,11 @@ La columna "Etapa 1" registra lo que ya protegía el esquema; "Etapa 2" agrega l
 | RN-05 | Porcentaje `(0,100]` | Suma exactamente 100 y al menos una cepa: constraint trigger diferido | — |
 | RN-06 | ENUM de tipo; excepción sólo 35/exportador; subtipo exclusivo | `fn_descuento_cliente`; descuento copiado al renglón; U6 exige más de 3 permisos; totalidad de subtipo | — |
 | RN-07 | Tabla 1:N y `vencimiento > emisión` | — | — |
-| RN-08 | Fórmula del renglón y aritmética de cabecera | Precio y descuento completados por trigger; cabecera recalculada desde renglones; importes no editables; comprobante con al menos un renglón | — |
+| RN-08 | Fórmula del renglón y aritmética de cabecera | Precio y descuento completados por trigger; cabecera recalculada desde renglones; importes no editables; comprobante con al menos un renglón; la API vende sólo con `fn_registrar_venta` (todo o nada) | — |
 | RN-09 | Stocks `>= 0` | Trigger BEFORE con `FOR UPDATE` que rechaza sin stock; AFTER que descuenta | — |
 | RN-10 | ENUM y estado inicial | Transiciones sin retroceso; terminar exige renglones; procesar sólo por `sp_procesar_ingreso`, impacto único | — |
 | RN-11 | ENUM, estado inicial, fecha por defecto | Fecha forzada e inmutable; transiciones; `sp_procesar_transferencia` atómico y con verificación por renglón | — |
-| RN-12 | — | Bloqueo de renglones fuera de confección; D5 permitido por cascada | — |
+| RN-12 | — | Bloqueo de renglones fuera de confección; D5 permitido por cascada; extendida a comprobantes: una venta confirmada no admite renglones nuevos (`xact_alta`) | — |
 | RN-13 | Tabla de auditoría con valores válidos | Trigger `AFTER UPDATE OF precio` con `session_user` | — |
 | RN-14 | `RESTRICT` desde movimientos, stock y auditoría | — | — |
 | RN-15 | `CHECK` de cantidades, superficies, kilos, precios y graduación | — | — |
@@ -391,13 +391,13 @@ Valores obtenidos con consultas a `pg_proc`, `pg_trigger`, `pg_views`, `pg_roles
 
 | Elemento | Mínimo | Real |
 |---|---:|---|
-| Funciones | 4 | 6: `fn_descuento_cliente`, `fn_stock_sala`, `fn_total_comprobante`, `fn_antiguedad_anios`, `fn_recalcular_comprobante`, `fn_validar_transicion_estado`; además 15 funciones de trigger |
+| Funciones | 4 | 7: `fn_descuento_cliente`, `fn_stock_sala`, `fn_total_comprobante`, `fn_antiguedad_anios`, `fn_recalcular_comprobante`, `fn_registrar_venta`, `fn_validar_transicion_estado`; además 16 funciones de trigger |
 | Procedimientos | 2 | 4: `sp_terminar_ingreso`, `sp_procesar_ingreso`, `sp_terminar_transferencia`, `sp_procesar_transferencia` |
-| Triggers | 6, con BEFORE, AFTER y constraint diferido | 19: 9 BEFORE, 2 AFTER, 8 `CONSTRAINT … DEFERRABLE INITIALLY DEFERRED` |
+| Triggers | 6, con BEFORE, AFTER y constraint diferido | 20: 10 BEFORE, 2 AFTER, 8 `CONSTRAINT … DEFERRABLE INITIALLY DEFERRED` |
 | Vistas | 3 | 4: `v_stock_total_vino`, `v_ventas_mensuales_sala`, `v_documentos_pendientes`, `v_ficha_vino` (ninguna materializada; ver `006_vistas.sql`) |
 | Roles | 3 | Propietario, `bodegas_rw` (API) y `bodegas_ro` (reportes), con sus cuentas `DB_APP_USER` y `DB_REPORT_USER` |
 | ENUM / DOMAIN | 1 / 1 | 2 / 1 |
 | UNIQUE | 4 | 11 |
 | CHECK | 8 (uno entre columnas) | 36 contando el dominio; varios entre columnas |
-| DEFAULT | 3 | 16 columnas |
+| DEFAULT | 3 | 17 columnas |
 | PK / FK | todas | 31 / 35 |
