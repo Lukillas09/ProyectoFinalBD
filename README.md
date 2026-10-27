@@ -37,6 +37,8 @@ Documentos académicos:
 - [Normalización](docs/normalizacion.md)
 - [Diccionario de datos](docs/diccionario_datos.md)
 
+La consigna y los apuntes de la cátedra se guardan en `material/`, pero esa carpeta está ignorada por Git: es material docente y no se publica. Cada integrante debe copiar los PDF localmente.
+
 ## Requisitos
 
 - Docker Engine o Docker Desktop en ejecución.

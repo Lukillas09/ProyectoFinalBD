@@ -26,3 +26,6 @@ tmp/
 *.dump
 *.backup
 *.sql.gz
+
+# Material de la cátedra: se usa localmente, no se publica
+material/
