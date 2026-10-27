@@ -75,8 +75,9 @@ SELECT NOT EXISTS (
 ) AS defaults_cerrados
 \gset
 
--- Invariante temporal de esta primera etapa. Esta comprobación se reemplazará
--- al incorporar 001_esquema.sql.
+-- Prueba deliberadamente previa a las migraciones. Debe ejecutarse después de
+-- un bootstrap limpio y antes de db/migrate.sh. Si las migraciones ya fueron
+-- aplicadas, falla para no confundir ambos estados del ciclo de vida.
 SELECT (
   NOT EXISTS (
     SELECT 1
@@ -142,8 +143,8 @@ SELECT (
 \endif
 
 \if :sin_objetos_negocio
-  \echo 'OK: el esquema no contiene relaciones, rutinas ni tipos de negocio.'
+  \echo 'OK: bootstrap aislado; todavía no hay objetos del modelo de negocio.'
 \else
-  \echo 'ERROR: se encontraron objetos de negocio antes de la etapa de modelado.'
+  \echo 'ERROR: esta prueba sólo corresponde al bootstrap previo a migraciones.'
   \quit 1
 \endif
