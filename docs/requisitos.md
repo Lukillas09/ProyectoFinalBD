@@ -7,9 +7,9 @@ Este documento separa cuatro cosas que no deben confundirse:
 - los requisitos completos del PDF del Trabajo Práctico Integrador;
 - los conceptos que los respaldan en el material teórico;
 - la aclaración posterior del profesor sobre temas aún no vistos;
-- el alcance reducido de esta primera etapa de implementación.
+  - el alcance incremental de la infraestructura inicial y de la etapa actual de modelado.
 
-En esta etapa se prepara un circuito ejecutable PostgreSQL 16 -> FastAPI -> front. No se implementan todavía el esquema del negocio, CRUD, triggers, carga masiva ni reportes.
+La infraestructura inicial ya conecta PostgreSQL 16 -> FastAPI -> front. La etapa actual agrega el modelo conceptual y relacional, la justificación de normalización, el diccionario y el esquema físico completo con constraints. Todavía no implementa CRUD, funciones de negocio, procedimientos, triggers, vistas, índices de rendimiento, carga masiva ni reportes.
 
 ## 2. Fuentes revisadas
 
@@ -70,9 +70,9 @@ Decisiones fijadas adicionalmente para este proyecto: Python + FastAPI, Psycopg 
 
 ### 3.2 Modelado y normalización
 
-El modelo futuro debe incluir, como mínimo: localidad, sala de venta, empleado, finca, parcela débil, cepa, lote de uva, análisis de calidad, bodega, vino, composición vino-cepa, maridaje, vino-maridaje, cliente y sus tres subtipos, permiso de exportación, comprobante y renglón, transportista y cobertura, ingreso y renglón, transferencia y renglón, stock por sala, stock del depósito y auditoría de precio.
+El modelo implementado incluye, como mínimo: localidad, sala de venta, empleado, finca, parcela débil, cepa, lote de uva, análisis de calidad, bodega, vino, composición vino-cepa, maridaje, vino-maridaje, cliente y sus tres subtipos, permiso de exportación, comprobante y renglón, transportista y cobertura, ingreso y renglón, transferencia y renglón, stock por sala, stock del depósito y auditoría de precio. También separa `departamento` para evitar repetir su provincia y agrega sólo la relación técnica `schema_migration`.
 
-Los atributos e identificadores siguientes son la guía mínima del PDF; todavía deben analizarse sus claves candidatas y justificarse las decisiones finales:
+Los atributos e identificadores siguientes son la guía mínima del PDF. Las claves candidatas y decisiones finales están desarrolladas en `modelo_conceptual.md`, `modelo_relacional.md` y `normalizacion.md`:
 
 | Entidad o relación | Identificador/atributos guía |
 |---|---|
@@ -280,9 +280,9 @@ El PDF presenta transacciones y concurrencia como obligatorias en varios lugares
 - ejemplo de concurrencia con `SELECT ... FOR UPDATE` en el anexo;
 - inclusión de transacciones y acceso concurrente en `Programa BD 2026.pdf`.
 
-Decisión actual: las transacciones se clasifican como opcionales porque fueron el ejemplo explícito de tema no visto. No se implementan en esta primera etapa, pero la arquitectura no impide incorporarlas. No se presume lo mismo para concurrencia: seguirá tratándose como requisito del PDF hasta confirmar si tampoco fue vista. Antes de la etapa de lógica de negocio se debe precisar con la cátedra qué entregables y puntos de la rúbrica quedan efectivamente exceptuados.
+Decisión actual: las transacciones se clasifican como opcionales porque fueron el ejemplo explícito de tema no visto. No se implementan en la infraestructura ni en esta etapa de modelado, pero la arquitectura no impide incorporarlas. No se presume lo mismo para concurrencia: seguirá tratándose como requisito del PDF hasta confirmar si tampoco fue vista. Antes de la etapa de lógica de negocio se debe precisar con la cátedra qué entregables y puntos de la rúbrica quedan efectivamente exceptuados.
 
-## 5. Requisitos de esta primera etapa y estado esperado
+## 5. Infraestructura base implementada
 
 | Requisito | Resolución de esta etapa |
 |---|---|
@@ -297,30 +297,33 @@ Decisión actual: las transacciones se clasifican como opcionales porque fueron 
 | Estado visible en navegador | El front consulta `/api/salud` y muestra éxito o indisponibilidad. |
 | Sin nombres internos en el navegador | Nginx recibe `/api/*` y lo reenvía a `api:8000` dentro de Docker. |
 | Documentación operativa | README con configuración, arranque, verificación, parada y borrado explícito del volumen. |
-| Sin negocio prematuro | No se crean tablas, CRUD, triggers, carga masiva ni reportes. |
-| Límites operativos | No hacer commit, push ni despliegue; informar con precisión toda comprobación que el entorno no permita realizar. |
+| Separación por etapas | La infraestructura no aplica migraciones automáticamente durante el bootstrap; el propietario usa el runner explícito. CRUD, triggers, carga masiva y reportes siguen pendientes. |
+| Límites operativos | La regla general pide una rama por etapa y PR revisado, pero la instrucción específica de esta entrega prohíbe commit y push. El trabajo queda sin commit en `etapa-2-modelado`; no se despliega. |
 
 El rol de reportes de solo lectura se difiere hasta que existan tablas o vistas concretas a las que aplicar privilegios; sigue siendo un mínimo pendiente del PDF.
 
-## 6. Ambigüedades y decisiones pendientes del modelo
+## 6. Ambigüedades resueltas y supuestos revisables del modelo
 
-Estas preguntas deben resolverse y justificarse antes del DER y del DDL de negocio:
+Las ambigüedades se resolvieron de forma conservadora para poder avanzar. No se presentan como texto explícito de la consigna:
 
-1. **Localidad:** si el código postal es realmente una clave candidata suficiente o si se necesita un ID y una unicidad compuesta con provincia/nombre.
-2. **Encargado regional:** qué atributos lo identifican, si es un empleado y cómo se representa su relación con localidad y sala.
-3. **Departamento de finca:** si se reutiliza un catálogo territorial común con localidades o se modela por separado.
-4. **Lote de uva:** alcance del número de lote (global o relativo a finca, campaña o bodega).
-5. **Vino:** el PDF propone `UNIQUE (nombre, añada, volumen)`; falta decidir si la bodega debe participar para permitir nombres iguales entre elaboradores.
-6. **Jerarquía de clientes:** se presume total y exclusiva, pero debe confirmarse y elegirse entre tabla única, tabla por subtipo o supertipo + subtipos.
-7. **Documento de cliente:** alcance de unicidad de número y tipo, y catálogo de tipos admitidos.
-8. **Descuento:** RN-06 fija 10/20/30 % por tipo, pero U6 pide elevar algunos exportadores a 35 %. Debe definirse si existe una excepción por cliente, una política versionable o si U6 corrige la regla.
-9. **Comprobantes:** alcance del número (global o por sala/serie) y semántica exacta de subtotal, descuento y total almacenados.
-10. **Depósito central:** decidir si se representa como singleton explícito o sólo mediante stock por vino, considerando una posible expansión futura.
-11. **Fechas y zonas horarias:** decidir `DATE` frente a `TIMESTAMPTZ` para movimientos y auditoría.
-12. **Permisos futuros de API:** el PDF pide un rol de lectura/escritura. Un apunte muestra, sólo como escenario de ejemplo y no como recomendación universal, un servicio limitado a procedimientos. Refinar privilegios por objeto y operación cuando existan tablas y rutinas.
-13. **Temas no vistos:** confirmar qué mínimos y puntos de rúbrica dejan de ser obligatorios por la optatividad de transacciones y si concurrencia también fue declarada tema no visto.
-14. **Ubicación de pruebas:** una sección del PDF menciona `tests/db_tests.sql`, mientras la estructura final y la instrucción de esta etapa usan `db/tests/`; se adopta `db/tests/`.
-15. **Anexo C ausente:** solicitar a la cátedra las preguntas de defensa mencionadas pero no incluidas en el PDF disponible.
+1. **Localidad:** ID subrogado y candidata `(provincia, nombre, codigo_postal)`; ni nombre ni CP son únicos por separado.
+2. **Encargado regional:** atributo obligatorio de localidad. No se inventa relación laboral con empleado ni entidad sin identificador; se revisará si la cátedra aporta datos propios.
+3. **Departamento:** catálogo separado para finca; localidad conserva la provincia pedida y no recibe un departamento no exigido.
+4. **Lote:** se supone número global y se agrega candidata `(finca, parcela, campaña)`.
+5. **Vino:** candidata `(bodega, nombre, añada, volumen)` para permitir igual nombre comercial en elaboradoras diferentes.
+6. **Clientes:** supertipo más subtipos, jerarquía conceptual total/exclusiva. El control entre tablas queda para constraint trigger.
+7. **Documento:** candidata `(tipo_documento, nro_documento)`; no se cierra un catálogo de tipos no definido.
+8. **Descuento:** base calculable por tipo; excepción nullable de 35 % sólo para exportador. La condición “más de tres permisos” requiere lógica posterior.
+9. **Comprobante:** número global generado; subtotal de cabecera bruto, descuento monetario y total neto. Es un supuesto revisable si aparecen serie/punto de venta.
+10. **Permiso:** código global natural como supuesto revisable.
+11. **Depósito:** singleton implícito mediante una fila por vino, sin tabla sin atributos.
+12. **Tiempo:** eventos operativos/auditoría con `TIMESTAMPTZ`; conceptos por día con `DATE`.
+13. **Trazabilidad:** no se inventa una relación lote-vino; necesitaría una extensión explícita de elaboración.
+14. **Borrados históricos:** D1/D5 eliminan cabecera y renglones; no revierten stock porque son depuración histórica, no anulación operativa.
+15. **Permisos API:** se mantiene sin DML en esta etapa. Se concederán operaciones mínimas cuando existan las rutinas/CRUD correspondientes.
+16. **Temas no vistos:** sigue pendiente confirmar qué puntos de transacciones/concurrencia exceptúa la cátedra.
+17. **Ubicación de pruebas:** se adopta `db/tests/`.
+18. **Anexo C ausente:** sigue pendiente solicitar las preguntas de defensa mencionadas pero no incluidas en el PDF.
 
 La temperatura de servicio no queda pendiente: el PDF la asigna al catálogo `Maridaje`; `Vino-maridaje` sólo vincula ambos. Moverla a la asociación sería una alternativa deliberada que deberá explicitar que se aparta de la guía.
 
@@ -330,6 +333,41 @@ La temperatura de servicio no queda pendiente: el PDF la asigna al catálogo `Ma
 - Nginx traduce `/api/salud` a `http://api:8000/salud` dentro de la red de Compose.
 - La API también se publica en `localhost:8000` para `/salud` y `/docs` durante desarrollo.
 - PostgreSQL no publica el puerto 5432 al host en esta etapa; se accede desde la red interna o con `docker compose exec`.
-- El bootstrap crea un esquema vacío `bodegas`, propiedad del rol del proyecto, sin tablas de negocio.
-- Las futuras migraciones se ejecutarán como propietario. La API no recibe DML ni `EXECUTE` predeterminados en esta etapa; cada migración concederá y probará privilegios por objeto u operación.
+- El bootstrap crea un esquema vacío `bodegas`, propiedad del rol del proyecto. Las tablas sólo aparecen cuando se ejecuta `db/migrate.sh` como propietario.
+- `db/migrate.sh` aplica archivos numerados, falla con `ON_ERROR_STOP`, usa una transacción por archivo, registra SHA-256, omite reaplicaciones idénticas y rechaza cambios en archivos ya registrados.
+- La API no recibe DML ni `EXECUTE` por la existencia de las tablas; la prueba posterior a migraciones verifica que conserva privilegios mínimos.
 - Los scripts de inicialización de PostgreSQL sólo corren con un volumen vacío; cualquier cambio de roles debe hacerse mediante una migración administrativa o una reinicialización explícita y consciente del volumen.
+
+## 8. Estado de la etapa de modelado y esquema inicial
+
+### 8.1 Entregables implementados
+
+- DER Mermaid editable, entidades, atributos, identificadores y cardinalidades en `docs/modelo_conceptual.md`.
+- Relaciones, PK, candidatas, FK, jerarquía y acciones referenciales en `docs/modelo_relacional.md`.
+- Metodología de 1FN/2FN/3FN y desnormalizaciones declaradas en `docs/normalizacion.md`.
+- Diccionario coincidente con el SQL en `docs/diccionario_datos.md`.
+- `001_esquema.sql`: dos tipos `ENUM`, un `DOMAIN`, 30 tablas de negocio, una tabla técnica, PK, FK y `NOT NULL`.
+- `002_constraints.sql`: 10 `UNIQUE`, 33 `CHECK` contando el dominio y más de tres `DEFAULT`.
+- Runner pequeño sin ORM y pruebas SQL aisladas con `ROLLBACK`.
+
+### 8.2 Cobertura actual y pendiente de RN
+
+| Regla | Protegido ahora | Pendiente explícito |
+|---|---|---|
+| RN-01 | Precio único en `vino` para la red y `CHECK > 0` | Auditoría automática se trata en RN-13. |
+| RN-02 | FK sala-localidad y encargado almacenado una vez en localidad | Mínimo de salas no se exige. |
+| RN-03 | FK de empleado `NOT NULL` a una sola sala | Mínimo de empleados por sala. |
+| RN-04 | Una FK de cepa en parcela y `UNIQUE (parcela, campaña)` | — |
+| RN-05 | Porcentaje individual `(0,100]` | Suma 100 y mínimo uno: constraint trigger diferido. |
+| RN-06 | Tipo cerrado, excepción sólo 35/exportador, histórico en renglón | Función 10/20/30, calificación por permisos y copia automática. |
+| RN-07 | Tabla 1:N y `vencimiento > emisión` | — |
+| RN-08 | Fórmula de renglón y aritmética interna de cabecera | Cálculo agregado desde renglones y actualización automática. |
+| RN-09 | Stocks `>= 0` | Validación/impacto de venta con bloqueo. |
+| RN-10 | ENUM y estado inicial de ingreso | Transiciones e impacto único mediante trigger/procedimiento. |
+| RN-11 | ENUM, estado inicial y fecha actual por defecto | Inmutabilidad, transiciones e impacto atómico. |
+| RN-12 | Columnas y estados disponibles | Bloqueo de renglones fuera de confección. |
+| RN-13 | Tabla de auditoría con valores válidos | Trigger `AFTER UPDATE` que la complete. |
+| RN-14 | `RESTRICT` desde movimientos, stock y auditoría | — |
+| RN-15 | Checks de cantidades, superficies, kilos, precios y graduación | — |
+
+La tabla distingue deliberadamente una columna preparada de una regla efectivamente protegida.
