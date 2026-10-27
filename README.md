@@ -23,7 +23,7 @@ Incluye:
 - front mínimo que muestra el estado real a través del proxy Nginx;
 - modelo conceptual y relacional completo, normalización y diccionario;
 - 30 tablas de negocio y una tabla técnica de migraciones;
-- PK/FK compuestas, `NOT NULL`, 10 `UNIQUE`, 33 `CHECK` contando el dominio, `DEFAULT`, dos ENUM y un DOMAIN;
+- 31 PK y 35 FK (varias compuestas), `NOT NULL`, 11 `UNIQUE`, 36 `CHECK` contando el dominio, 16 columnas con `DEFAULT`, dos ENUM y un DOMAIN (conteos tomados de `pg_constraint` y `pg_attrdef`);
 - runner de migraciones con transacción, registro y SHA-256, ejecutado por el servicio de única ejecución `migrate`;
 - pruebas SQL de estructura, constraints y privilegios.
 

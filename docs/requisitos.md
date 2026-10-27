@@ -298,7 +298,7 @@ Decisión actual: las transacciones se clasifican como opcionales porque fueron 
 | Sin nombres internos en el navegador | Nginx recibe `/api/*` y lo reenvía a `api:8000` dentro de Docker. |
 | Documentación operativa | README con configuración, arranque, verificación, parada y borrado explícito del volumen. |
 | Separación por etapas | El bootstrap sólo crea roles y esquema; las migraciones las aplica el servicio `migrate` como propietario, en un contenedor aparte que sólo recibe las credenciales del propietario. CRUD, triggers, carga masiva y reportes siguen pendientes. |
-| Límites operativos | La regla general pide una rama por etapa y PR revisado, pero la instrucción específica de esta entrega prohíbe commit y push. El trabajo queda sin commit en `etapa-2-modelado`; no se despliega. |
+| Flujo Git | Según `AGENTS.md`: una rama por etapa creada desde `main` (esta etapa: `etapa-1-modelado`), commits pequeños y descriptivos, sin `.env` ni secretos, e integración por PR revisado por otro integrante antes del merge. No se commitea directamente sobre `main`. Los despliegues a la nube requieren instrucción explícita. |
 
 El rol de reportes de solo lectura se difiere hasta que existan tablas o vistas concretas a las que aplicar privilegios; sigue siendo un mínimo pendiente del PDF.
 
@@ -342,13 +342,14 @@ La temperatura de servicio no queda pendiente: el PDF la asigna al catálogo `Ma
 
 ### 8.1 Entregables implementados
 
-- DER Mermaid editable, entidades, atributos, identificadores y cardinalidades en `docs/modelo_conceptual.md`.
+- DER Mermaid editable, entidades, atributos, identificadores y cardinalidades en `docs/modelo_conceptual.md`; fuente `.mmd` e imágenes PNG en `docs/der/`.
 - Relaciones, PK, candidatas, FK, jerarquía y acciones referenciales en `docs/modelo_relacional.md`.
 - Metodología de 1FN/2FN/3FN y desnormalizaciones declaradas en `docs/normalizacion.md`.
-- Diccionario coincidente con el SQL en `docs/diccionario_datos.md`.
-- `001_esquema.sql`: dos tipos `ENUM`, un `DOMAIN`, 30 tablas de negocio, una tabla técnica, PK, FK y `NOT NULL`.
-- `002_constraints.sql`: 10 `UNIQUE`, 33 `CHECK` contando el dominio y más de tres `DEFAULT`.
-- Runner pequeño sin ORM y pruebas SQL aisladas con `ROLLBACK`.
+- Diccionario en `docs/diccionario_datos.md`, contrastado contra el catálogo de PostgreSQL: coinciden tablas, columnas, tipos, nulabilidad, defaults y el nombre de cada constraint en las columnas que abarca.
+- `001_esquema.sql`: dos tipos `ENUM`, un `DOMAIN` con su `CHECK`, 30 tablas de negocio, una tabla técnica, 31 PK, 35 FK, `NOT NULL` y la superclave `uq_cliente_id_tipo` que necesitan las FK de subtipos.
+- `002_constraints.sql`: 10 `UNIQUE` (claves candidatas), 35 `CHECK` (34 de negocio y 1 de la tabla técnica) y 16 columnas con `DEFAULT`.
+- Totales del esquema, consultados en `pg_constraint` y `pg_attrdef`: 31 PK, 35 FK, 11 `UNIQUE`, 36 `CHECK` contando el dominio y 16 `DEFAULT`. Superan los mínimos del PDF: 4 `UNIQUE`, 8 `CHECK` y 3 `DEFAULT`.
+- Servicio `migrate` que aplica las migraciones en cada `docker compose up`, y pruebas SQL aisladas con `ROLLBACK` ejecutables con `db/tests/run_all.sh`.
 
 ### 8.2 Cobertura actual y pendiente de RN
 

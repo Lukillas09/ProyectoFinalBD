@@ -2,7 +2,7 @@
 
 ## 1. Convenciones y tipos propios
 
-Este diccionario corresponde exactamente a `db/migrations/001_esquema.sql` y `002_constraints.sql`. “Nulo: No” significa `NOT NULL`. `IDENTITY ALWAYS` describe generación de identidad, no un `DEFAULT` editable. Todos los objetos están en el esquema `bodegas`.
+Este diccionario corresponde exactamente a `db/migrations/001_esquema.sql` y `002_constraints.sql`. Se contrastó contra el catálogo de PostgreSQL (`pg_attribute`, `pg_attrdef` y `pg_constraint`) después de migrar: coinciden las 31 tablas, las 134 columnas, sus tipos, nulabilidad y defaults, y cada fila nombra todas las constraints que abarcan esa columna. “Nulo: No” significa `NOT NULL`. `IDENTITY ALWAYS` describe generación de identidad, no un `DEFAULT` editable. Todos los objetos están en el esquema `bodegas`.
 
 | Tipo | Definición | Regla |
 |---|---|---|
@@ -86,7 +86,7 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
 | `id_finca` | Finca propietaria e identificadora | `INTEGER` | No | — | Parte de PK `pk_parcela`; FK `fk_parcela_finca` |
-| `nro_parcela` | Número dentro de la finca | `INTEGER` | No | — | Parte de PK; `ck_parcela_numero_positivo`: `> 0` |
+| `nro_parcela` | Número dentro de la finca | `INTEGER` | No | — | Parte de PK `pk_parcela`; `ck_parcela_numero_positivo`: `> 0` |
 | `superficie_ha` | Superficie de parcela en hectáreas | `NUMERIC(10,2)` | No | — | `ck_parcela_superficie_positiva`: `> 0` |
 | `anio_plantacion` | Año de plantación | `SMALLINT` | No | — | `ck_parcela_anio_plantacion_positivo`: `> 0` |
 | `id_cepa` | Única cepa plantada | `INTEGER` | No | — | FK `fk_parcela_cepa` |
@@ -97,8 +97,8 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 |---|---|---|---:|---|---|
 | `nro_lote` | Número global de lote, supuesto revisable | `BIGINT` | No | — | PK `pk_lote_uva` |
 | `id_finca` | Finca de la parcela cosechada | `INTEGER` | No | — | Parte de FK compuesta `fk_lote_uva_parcela` y `uq_lote_uva_parcela_campania` |
-| `nro_parcela` | Parcela dentro de la finca | `INTEGER` | No | — | Parte de FK compuesta y `uq_lote_uva_parcela_campania` |
-| `campania` | Año de campaña | `SMALLINT` | No | — | `1900..9999`; parte del `UNIQUE` de cosecha |
+| `nro_parcela` | Parcela dentro de la finca | `INTEGER` | No | — | Parte de FK compuesta `fk_lote_uva_parcela` y de `uq_lote_uva_parcela_campania` |
+| `campania` | Año de campaña | `SMALLINT` | No | — | `ck_lote_uva_campania`: `1900..9999`; parte de `uq_lote_uva_parcela_campania` y de `ck_lote_uva_fecha_campania` |
 | `fecha_cosecha` | Día de cosecha | `DATE` | No | — | `ck_lote_uva_fecha_campania`: su año coincide con campaña |
 | `kilos` | Kilogramos cosechados | `NUMERIC(12,2)` | No | — | `ck_lote_uva_kilos_positivos`: `> 0` |
 | `cuit_bodega` | Bodega destino | `cuit_dom` | No | — | FK `fk_lote_uva_bodega`; formato del dominio |
@@ -131,8 +131,8 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 | `cod_vino` | Código interno del producto | `BIGINT` | No | `IDENTITY ALWAYS` | PK `pk_vino` |
 | `nombre` | Nombre comercial | `VARCHAR(100)` | No | — | Parte de `uq_vino_identidad_comercial` |
 | `tipo` | Tipo de vino | `VARCHAR(12)` | No | — | `ck_vino_tipo`: tinto, blanco, rosado o espumante |
-| `anada` | Año de añada | `SMALLINT` | No | — | `ck_vino_anada`: `1900..9999`; parte de candidata |
-| `volumen_ml` | Volumen de la presentación | `INTEGER` | No | — | `ck_vino_volumen_positivo`; parte de candidata |
+| `anada` | Año de añada | `SMALLINT` | No | — | `ck_vino_anada`: `1900..9999`; parte de `uq_vino_identidad_comercial` |
+| `volumen_ml` | Volumen de la presentación | `INTEGER` | No | — | `ck_vino_volumen_positivo`: `> 0`; parte de `uq_vino_identidad_comercial` |
 | `graduacion` | Graduación alcohólica | `NUMERIC(4,2)` | No | — | `ck_vino_graduacion`: `5..20` |
 | `precio` | Precio actual único en la red | `NUMERIC(14,2)` | No | — | `ck_vino_precio_positivo`: `> 0` |
 | `cuit_bodega` | Bodega elaboradora | `cuit_dom` | No | — | FK `fk_vino_bodega`; parte de `uq_vino_identidad_comercial` |
@@ -141,8 +141,8 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
-| `cod_vino` | Vino compuesto | `BIGINT` | No | — | Parte de PK; FK `fk_composicion_vino_vino` |
-| `id_cepa` | Cepa participante | `INTEGER` | No | — | Parte de PK; FK `fk_composicion_vino_cepa` |
+| `cod_vino` | Vino compuesto | `BIGINT` | No | — | Parte de PK `pk_composicion_vino`; FK `fk_composicion_vino_vino` |
+| `id_cepa` | Cepa participante | `INTEGER` | No | — | Parte de PK `pk_composicion_vino`; FK `fk_composicion_vino_cepa` |
 | `porcentaje` | Porcentaje de corte de la cepa | `NUMERIC(5,2)` | No | — | `ck_composicion_vino_porcentaje`: `> 0` y `<= 100`; suma 100 pendiente |
 
 ### `maridaje`
@@ -157,8 +157,8 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
-| `cod_vino` | Vino recomendado | `BIGINT` | No | — | Parte de PK; FK `fk_vino_maridaje_vino` |
-| `id_maridaje` | Maridaje recomendado | `INTEGER` | No | — | Parte de PK; FK `fk_vino_maridaje_maridaje` |
+| `cod_vino` | Vino recomendado | `BIGINT` | No | — | Parte de PK `pk_vino_maridaje`; FK `fk_vino_maridaje_vino` |
+| `id_maridaje` | Maridaje recomendado | `INTEGER` | No | — | Parte de PK `pk_vino_maridaje`; FK `fk_vino_maridaje_maridaje` |
 
 ## 6. Clientes y ventas
 
@@ -173,7 +173,7 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 | `direccion` | Dirección postal | `VARCHAR(200)` | No | — | — |
 | `id_localidad` | Localidad del cliente | `INTEGER` | No | — | FK `fk_cliente_localidad` |
 | `fecha_alta` | Día de alta | `DATE` | No | `CURRENT_DATE` | — |
-| `tipo` | Discriminador de subtipo | `tipo_cliente` | No | — | Parte de `uq_cliente_id_tipo` (superclave destino de las FK de subtipos); `RESTRICT` impide cambiarlo si existe fila de subtipo |
+| `tipo` | Discriminador de subtipo | `tipo_cliente` | No | — | Parte de `uq_cliente_id_tipo` (superclave destino de las FK de subtipos); `RESTRICT` impide cambiarlo si existe fila de subtipo; interviene en `ck_cliente_descuento_excepcion` |
 | `descuento_excepcion` | Excepción individual al descuento base | `NUMERIC(5,2)` | Sí | `NULL` implícito | `ck_cliente_descuento_excepcion`: sólo 35 para tipo exportador |
 
 ### `socio_club`
@@ -207,7 +207,7 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 | `codigo_permiso` | Código global supuesto del permiso | `VARCHAR(50)` | No | — | PK `pk_permiso_exportacion` |
 | `id_exportador` | Exportador titular | `BIGINT` | No | — | FK `fk_permiso_exportacion_exportador` |
 | `fecha_emision` | Día de emisión | `DATE` | No | — | Parte de `ck_permiso_exportacion_fechas` |
-| `fecha_vencimiento` | Día de vencimiento | `DATE` | No | — | Debe ser posterior a emisión |
+| `fecha_vencimiento` | Día de vencimiento | `DATE` | No | — | `ck_permiso_exportacion_fechas`: posterior a la emisión |
 
 ### `comprobante`
 
@@ -218,18 +218,18 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 | `id_cliente` | Comprador | `BIGINT` | No | — | FK `fk_comprobante_cliente` |
 | `id_sala` | Sala de venta | `INTEGER` | No | — | FK `fk_comprobante_sala_venta` |
 | `subtotal` | Importe bruto de cabecera | `NUMERIC(14,2)` | No | `0` | `>= 0`; parte de `ck_comprobante_importes` |
-| `descuento` | Descuento monetario total | `NUMERIC(14,2)` | No | `0` | Entre 0 y subtotal |
-| `total` | Importe neto | `NUMERIC(14,2)` | No | `0` | `total = subtotal - descuento` |
+| `descuento` | Descuento monetario total | `NUMERIC(14,2)` | No | `0` | `ck_comprobante_importes`: entre 0 y subtotal |
+| `total` | Importe neto | `NUMERIC(14,2)` | No | `0` | `ck_comprobante_importes`: `total = subtotal - descuento` |
 
 ### `renglon_comprobante`
 
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
-| `nro_comprobante` | Cabecera de venta | `BIGINT` | No | — | Parte de PK; FK `fk_renglon_comprobante_comprobante` |
-| `cod_vino` | Vino vendido | `BIGINT` | No | — | Parte de PK; FK `fk_renglon_comprobante_vino` |
-| `cantidad` | Botellas vendidas | `INTEGER` | No | — | `ck_renglon_comprobante_cantidad_positiva`: `> 0` |
-| `precio_unitario` | Precio histórico por botella | `NUMERIC(14,2)` | No | — | `ck_renglon_comprobante_precio_positivo`: `> 0` |
-| `descuento_porcentaje` | Porcentaje histórico aplicado | `NUMERIC(5,2)` | No | — | `ck_renglon_comprobante_descuento`: `0..100` |
+| `nro_comprobante` | Cabecera de venta | `BIGINT` | No | — | Parte de PK `pk_renglon_comprobante`; FK `fk_renglon_comprobante_comprobante` |
+| `cod_vino` | Vino vendido | `BIGINT` | No | — | Parte de PK `pk_renglon_comprobante`; FK `fk_renglon_comprobante_vino` |
+| `cantidad` | Botellas vendidas | `INTEGER` | No | — | `ck_renglon_comprobante_cantidad_positiva`: `> 0`; interviene en `ck_renglon_comprobante_subtotal` |
+| `precio_unitario` | Precio histórico por botella | `NUMERIC(14,2)` | No | — | `ck_renglon_comprobante_precio_positivo`: `> 0`; interviene en `ck_renglon_comprobante_subtotal` |
+| `descuento_porcentaje` | Porcentaje histórico aplicado | `NUMERIC(5,2)` | No | — | `ck_renglon_comprobante_descuento`: `0..100`; interviene en `ck_renglon_comprobante_subtotal` |
 | `subtotal` | Neto del renglón | `NUMERIC(14,2)` | No | — | `ck_renglon_comprobante_subtotal`: fórmula redondeada a 2 decimales |
 
 ## 7. Logística, stock y auditoría
@@ -249,8 +249,8 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
-| `cod_transportista` | Transportista que presta servicio | `INTEGER` | No | — | Parte de PK; FK `fk_transportista_localidad_transportista` |
-| `id_localidad` | Localidad cubierta | `INTEGER` | No | — | Parte de PK; FK `fk_transportista_localidad_localidad` |
+| `cod_transportista` | Transportista que presta servicio | `INTEGER` | No | — | Parte de PK `pk_transportista_localidad`; FK `fk_transportista_localidad_transportista` |
+| `id_localidad` | Localidad cubierta | `INTEGER` | No | — | Parte de PK `pk_transportista_localidad`; FK `fk_transportista_localidad_localidad` |
 
 ### `ingreso`
 
@@ -266,8 +266,8 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
-| `cod_ingreso` | Cabecera de ingreso | `BIGINT` | No | — | Parte de PK; FK `fk_renglon_ingreso_ingreso` |
-| `cod_vino` | Vino recibido | `BIGINT` | No | — | Parte de PK; FK `fk_renglon_ingreso_vino` |
+| `cod_ingreso` | Cabecera de ingreso | `BIGINT` | No | — | Parte de PK `pk_renglon_ingreso`; FK `fk_renglon_ingreso_ingreso` |
+| `cod_vino` | Vino recibido | `BIGINT` | No | — | Parte de PK `pk_renglon_ingreso`; FK `fk_renglon_ingreso_vino` |
 | `cantidad` | Botellas ingresadas | `INTEGER` | No | — | `ck_renglon_ingreso_cantidad_positiva`: `> 0` |
 
 ### `transferencia`
@@ -283,16 +283,16 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
-| `nro_transferencia` | Cabecera de transferencia | `BIGINT` | No | — | Parte de PK; FK `fk_renglon_transferencia_transferencia` |
-| `cod_vino` | Vino solicitado | `BIGINT` | No | — | Parte de PK; FK `fk_renglon_transferencia_vino` |
+| `nro_transferencia` | Cabecera de transferencia | `BIGINT` | No | — | Parte de PK `pk_renglon_transferencia`; FK `fk_renglon_transferencia_transferencia` |
+| `cod_vino` | Vino solicitado | `BIGINT` | No | — | Parte de PK `pk_renglon_transferencia`; FK `fk_renglon_transferencia_vino` |
 | `cantidad` | Botellas solicitadas | `INTEGER` | No | — | `ck_renglon_transferencia_cantidad_positiva`: `> 0` |
 
 ### `stock_sala`
 
 | Columna | Descripción | Tipo | Nulo | Por defecto/generación | Restricciones |
 |---|---|---|---:|---|---|
-| `id_sala` | Sala que mantiene el saldo | `INTEGER` | No | — | Parte de PK; FK `fk_stock_sala_sala_venta` |
-| `cod_vino` | Vino del saldo | `BIGINT` | No | — | Parte de PK; FK `fk_stock_sala_vino` |
+| `id_sala` | Sala que mantiene el saldo | `INTEGER` | No | — | Parte de PK `pk_stock_sala`; FK `fk_stock_sala_sala_venta` |
+| `cod_vino` | Vino del saldo | `BIGINT` | No | — | Parte de PK `pk_stock_sala`; FK `fk_stock_sala_vino` |
 | `cantidad` | Botellas disponibles | `INTEGER` | No | `0` | `ck_stock_sala_cantidad_no_negativa`: `>= 0` |
 
 ### `stock_deposito`
@@ -309,7 +309,7 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 | `id_auditoria` | Identificador del evento | `BIGINT` | No | `IDENTITY ALWAYS` | PK `pk_auditoria_precio` |
 | `cod_vino` | Vino modificado | `BIGINT` | No | — | FK `fk_auditoria_precio_vino` |
 | `precio_anterior` | Precio previo | `NUMERIC(14,2)` | No | — | `ck_auditoria_precio_valores`: `> 0` |
-| `precio_nuevo` | Precio resultante | `NUMERIC(14,2)` | No | — | `> 0` y distinto del anterior |
+| `precio_nuevo` | Precio resultante | `NUMERIC(14,2)` | No | — | `ck_auditoria_precio_valores`: `> 0` y distinto del anterior |
 | `fecha_hora` | Instante auditado | `TIMESTAMPTZ` | No | `CURRENT_TIMESTAMP` | — |
 | `usuario_bd` | Rol PostgreSQL que realizó el cambio | `VARCHAR(63)` | No | `CURRENT_USER` | — |
 
