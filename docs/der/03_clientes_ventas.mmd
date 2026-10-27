@@ -1,0 +1,66 @@
+erDiagram
+    LOCALIDAD {
+        int id_localidad PK
+    }
+    CLIENTE {
+        bigint id_cliente PK
+        varchar tipo_documento
+        varchar nro_documento
+        tipo_cliente tipo
+        numeric descuento_excepcion
+        int id_localidad FK
+    }
+    SOCIO_CLUB {
+        bigint id_cliente PK, FK
+        tipo_cliente tipo FK "fijo: socio"
+    }
+    DISTRIBUIDOR {
+        bigint id_cliente PK, FK
+        tipo_cliente tipo FK "fijo: distribuidor"
+        varchar zona_cobertura
+        varchar nro_habilitacion UK
+    }
+    EXPORTADOR {
+        bigint id_cliente PK, FK
+        tipo_cliente tipo FK "fijo: exportador"
+        varchar pais_destino_principal
+    }
+    PERMISO_EXPORTACION {
+        varchar codigo_permiso PK
+        bigint id_exportador FK
+        date fecha_emision
+        date fecha_vencimiento
+    }
+    SALA_VENTA {
+        int id_sala PK
+    }
+    COMPROBANTE {
+        bigint nro_comprobante PK
+        timestamptz fecha
+        bigint id_cliente FK
+        int id_sala FK
+        numeric subtotal
+        numeric descuento
+        numeric total
+    }
+    RENGLON_COMPROBANTE {
+        bigint nro_comprobante PK, FK
+        bigint cod_vino PK, FK
+        int cantidad
+        numeric precio_unitario
+        numeric descuento_porcentaje
+        numeric subtotal
+    }
+    VINO {
+        bigint cod_vino PK
+    }
+
+    LOCALIDAD ||--o{ CLIENTE : residencia
+    CLIENTE ||--o| SOCIO_CLUB : puede_ser
+    CLIENTE ||--o| DISTRIBUIDOR : puede_ser
+    CLIENTE ||--o| EXPORTADOR : puede_ser
+    EXPORTADOR ||--o{ PERMISO_EXPORTACION : posee
+    CLIENTE ||--o{ COMPROBANTE : compra
+    SALA_VENTA ||--o{ COMPROBANTE : emite
+    COMPROBANTE ||--|{ RENGLON_COMPROBANTE : contiene
+    VINO ||--o{ RENGLON_COMPROBANTE : se_vende

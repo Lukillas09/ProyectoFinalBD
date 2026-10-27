@@ -1,5 +1,6 @@
 **
 !Dockerfile
+!migrate.sh
 !bootstrap/
 !bootstrap/001_roles_y_esquema.sh
 !migrations/

@@ -1,5 +1,10 @@
 # Migraciones
 
-Este directorio recibirá las migraciones SQL numeradas del esquema de negocio cuando comience la etapa de modelado físico.
+Las migraciones actuales son:
 
-No se agregó una migración ficticia ni vacía en esta etapa. Cada migración futura deberá ejecutarse como el rol propietario, ser reproducible desde una base vacía y mantener coherencia con el DER, el esquema relacional y el diccionario de datos.
+- `001_esquema.sql`: tipos, tabla técnica de control, tablas de negocio, PK y FK;
+- `002_constraints.sql`: claves candidatas `UNIQUE`, reglas `CHECK` y valores `DEFAULT`.
+
+`db/migrate.sh` las ordena por el prefijo numérico, ejecuta cada una en una transacción con el rol propietario, registra nombre y SHA-256 en `bodegas.schema_migration`, omite las ya aplicadas sin cambios y falla si detecta que se modificó una migración registrada. El servicio `migrate` de Docker Compose lo ejecuta en cada `docker compose up`, antes de arrancar la API.
+
+No usar `IF NOT EXISTS` dentro de migraciones para disimular diferencias de esquema. Una corrección posterior debe ir en un archivo nuevo con el siguiente número.
