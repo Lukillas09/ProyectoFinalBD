@@ -65,6 +65,7 @@ ejecutar_prueba 003_privilegios_api.sql api
 ejecutar_prueba 004_reglas_negocio.sql owner
 ejecutar_prueba 005_roles.sql owner
 ejecutar_prueba 006_conexion_reportes.sql reportes
+ejecutar_prueba 007_comprobante_emitido.sql owner
 
 if [ "$fallidas" -gt 0 ]; then
   echo "Resultado: $fallidas prueba(s) fallida(s)." >&2
