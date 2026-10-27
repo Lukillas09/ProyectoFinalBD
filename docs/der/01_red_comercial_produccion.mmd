@@ -1,0 +1,76 @@
+erDiagram
+    LOCALIDAD {
+        int id_localidad PK
+        varchar codigo_postal
+        varchar nombre
+        varchar provincia
+        varchar encargado_regional
+    }
+    SALA_VENTA {
+        int id_sala PK
+        varchar calle
+        varchar numero
+        varchar dia_cierre
+        int id_localidad FK
+    }
+    EMPLEADO {
+        cuit cuit PK
+        varchar nombre
+        date fecha_ingreso
+        numeric salario
+        int id_sala FK
+    }
+    DEPARTAMENTO {
+        int id_departamento PK
+        varchar nombre
+        varchar provincia
+    }
+    FINCA {
+        int id_finca PK
+        varchar nombre
+        numeric superficie_ha
+        int id_departamento FK
+    }
+    PARCELA {
+        int id_finca PK, FK
+        int nro_parcela PK
+        numeric superficie_ha
+        smallint anio_plantacion
+        int id_cepa FK
+    }
+    CEPA {
+        int id_cepa PK
+        varchar nombre UK
+        varchar tipo
+    }
+    LOTE_UVA {
+        bigint nro_lote PK
+        int id_finca FK
+        int nro_parcela FK
+        smallint campania
+        date fecha_cosecha
+        numeric kilos
+        cuit cuit_bodega FK
+    }
+    ANALISIS_CALIDAD {
+        bigint id_analisis PK
+        bigint nro_lote FK
+        date fecha_analisis
+        numeric grado_brix
+        numeric ph
+        numeric acidez_total
+    }
+    BODEGA {
+        cuit cuit PK
+        varchar razon_social
+        varchar domicilio
+    }
+
+    LOCALIDAD ||--o{ SALA_VENTA : contiene
+    SALA_VENTA ||--|{ EMPLEADO : emplea
+    DEPARTAMENTO ||--o{ FINCA : ubica
+    FINCA ||--|{ PARCELA : identifica
+    CEPA ||--o{ PARCELA : esta_plantada_en
+    PARCELA ||--o{ LOTE_UVA : produce
+    BODEGA ||--o{ LOTE_UVA : recibe
+    LOTE_UVA ||--|{ ANALISIS_CALIDAD : posee

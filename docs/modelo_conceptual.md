@@ -4,7 +4,19 @@
 
 Este modelo deriva del escenario, las entidades mínimas y RN-01 a RN-15 de la consigna. Separa requisitos explícitos de supuestos necesarios para avanzar. No incorpora funciones, procedimientos ni triggers: cuando una cardinalidad o regla no puede protegerse con el DDL de esta etapa, se indica expresamente.
 
-Los diagramas usan Mermaid `erDiagram` con notación pata de gallo. El bloque de código es el archivo fuente editable y puede visualizarse en cualquier renderizador compatible con Mermaid. Como un único gráfico con treinta entidades resulta ilegible, el DER se presenta en cuatro vistas del mismo modelo; las entidades repetidas son puntos de unión, no copias.
+Los diagramas usan Mermaid `erDiagram` con notación pata de gallo. Como un único gráfico con treinta entidades resulta ilegible, el DER se presenta en cuatro vistas del mismo modelo; las entidades repetidas son puntos de unión, no copias.
+
+Archivos del DER:
+
+- fuente editable: `docs/der/*.mmd`;
+- imagen exportada: `docs/der/*.png`, enlazada en cada vista;
+- los bloques `mermaid` de este documento repiten la misma fuente para que GitHub los dibuje en línea.
+
+Al modificar una vista, actualizar el `.mmd` y el bloque correspondiente, y regenerar la imagen desde `docs/der/`:
+
+```bash
+npx -y @mermaid-js/mermaid-cli@11.4.2 -i 03_clientes_ventas.mmd -o 03_clientes_ventas.png -b white -s 2
+```
 
 Convenciones de cardinalidad:
 
@@ -84,6 +96,8 @@ Las claves candidatas alternativas se muestran además de la PK. Una clave subro
 ## 4. DER editable y visualizable
 
 ### 4.1 Red comercial y producción de uva
+
+Imagen: [01_red_comercial_produccion.png](der/01_red_comercial_produccion.png) · fuente: [01_red_comercial_produccion.mmd](der/01_red_comercial_produccion.mmd)
 
 ```mermaid
 erDiagram
@@ -166,6 +180,8 @@ erDiagram
 
 ### 4.2 Vinos, composición y maridajes
 
+Imagen: [02_vinos_composicion_maridajes.png](der/02_vinos_composicion_maridajes.png) · fuente: [02_vinos_composicion_maridajes.mmd](der/02_vinos_composicion_maridajes.mmd)
+
 ```mermaid
 erDiagram
     BODEGA {
@@ -210,6 +226,8 @@ erDiagram
 ```
 
 ### 4.3 Clientes y ventas
+
+Imagen: [03_clientes_ventas.png](der/03_clientes_ventas.png) · fuente: [03_clientes_ventas.mmd](der/03_clientes_ventas.mmd)
 
 ```mermaid
 erDiagram
@@ -285,6 +303,8 @@ Las tres relaciones `puede_ser` deben leerse juntas: en el modelo conceptual cad
 La FK de cada subtipo es compuesta, `(id_cliente, tipo) -> CLIENTE(id_cliente, tipo)`, y el `tipo` del subtipo es constante. Por eso la exclusividad ya queda garantizada por el esquema: a lo sumo una rama puede existir para cada cliente, y es la que coincide con `CLIENTE.tipo`. Falta la totalidad, que la Etapa 2 resolverá con un constraint trigger diferido.
 
 ### 4.4 Logística, stock y auditoría
+
+Imagen: [04_logistica_stock_auditoria.png](der/04_logistica_stock_auditoria.png) · fuente: [04_logistica_stock_auditoria.mmd](der/04_logistica_stock_auditoria.mmd)
 
 ```mermaid
 erDiagram

@@ -1,0 +1,40 @@
+erDiagram
+    BODEGA {
+        cuit cuit PK
+        varchar razon_social
+    }
+    VINO {
+        bigint cod_vino PK
+        varchar nombre
+        varchar tipo
+        smallint anada
+        int volumen_ml
+        numeric graduacion
+        numeric precio
+        cuit cuit_bodega FK
+    }
+    CEPA {
+        int id_cepa PK
+        varchar nombre UK
+        varchar tipo
+    }
+    COMPOSICION_VINO {
+        bigint cod_vino PK, FK
+        int id_cepa PK, FK
+        numeric porcentaje
+    }
+    MARIDAJE {
+        int id_maridaje PK
+        varchar nombre UK
+        numeric temperatura_servicio_c
+    }
+    VINO_MARIDAJE {
+        bigint cod_vino PK, FK
+        int id_maridaje PK, FK
+    }
+
+    BODEGA ||--|{ VINO : elabora
+    VINO ||--|{ COMPOSICION_VINO : tiene
+    CEPA ||--o{ COMPOSICION_VINO : integra
+    VINO ||--|{ VINO_MARIDAJE : recomienda
+    MARIDAJE ||--o{ VINO_MARIDAJE : se_asocia

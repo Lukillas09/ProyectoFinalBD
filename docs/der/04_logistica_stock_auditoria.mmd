@@ -1,0 +1,75 @@
+erDiagram
+    TRANSPORTISTA {
+        int cod_transportista PK
+        cuit cuit UK
+    }
+    LOCALIDAD {
+        int id_localidad PK
+    }
+    TRANSPORTISTA_LOCALIDAD {
+        int cod_transportista PK, FK
+        int id_localidad PK, FK
+    }
+    BODEGA {
+        cuit cuit PK
+    }
+    INGRESO {
+        bigint cod_ingreso PK
+        timestamptz fecha
+        estado_documento estado
+        int cod_transportista FK
+        cuit cuit_bodega FK
+    }
+    RENGLON_INGRESO {
+        bigint cod_ingreso PK, FK
+        bigint cod_vino PK, FK
+        int cantidad
+    }
+    SALA_VENTA {
+        int id_sala PK
+    }
+    TRANSFERENCIA {
+        bigint nro_transferencia PK
+        int id_sala FK
+        date fecha_confeccion
+        estado_documento estado
+    }
+    RENGLON_TRANSFERENCIA {
+        bigint nro_transferencia PK, FK
+        bigint cod_vino PK, FK
+        int cantidad
+    }
+    VINO {
+        bigint cod_vino PK
+    }
+    STOCK_SALA {
+        int id_sala PK, FK
+        bigint cod_vino PK, FK
+        int cantidad
+    }
+    STOCK_DEPOSITO {
+        bigint cod_vino PK, FK
+        int cantidad
+    }
+    AUDITORIA_PRECIO {
+        bigint id_auditoria PK
+        bigint cod_vino FK
+        numeric precio_anterior
+        numeric precio_nuevo
+        timestamptz fecha_hora
+        varchar usuario_bd
+    }
+
+    TRANSPORTISTA ||--o{ TRANSPORTISTA_LOCALIDAD : cubre
+    LOCALIDAD ||--o{ TRANSPORTISTA_LOCALIDAD : es_cubierta
+    TRANSPORTISTA ||--o{ INGRESO : traslada
+    BODEGA ||--o{ INGRESO : origina
+    INGRESO ||--o{ RENGLON_INGRESO : detalla
+    VINO ||--o{ RENGLON_INGRESO : ingresa
+    SALA_VENTA ||--o{ TRANSFERENCIA : solicita
+    TRANSFERENCIA ||--o{ RENGLON_TRANSFERENCIA : detalla
+    VINO ||--o{ RENGLON_TRANSFERENCIA : transfiere
+    SALA_VENTA ||--o{ STOCK_SALA : mantiene
+    VINO ||--o{ STOCK_SALA : tiene_en_sala
+    VINO ||--o| STOCK_DEPOSITO : tiene_en_deposito
+    VINO ||--o{ AUDITORIA_PRECIO : registra
