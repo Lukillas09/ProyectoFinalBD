@@ -30,51 +30,17 @@ BEGIN
     RAISE EXCEPTION 'Faltan tablas esperadas: %', v_tablas_faltantes;
   END IF;
 
-  IF (SELECT count(*) FROM schema_migration) <> 2 THEN
-    RAISE EXCEPTION 'Se esperaban 2 migraciones registradas';
+  -- Las etapas posteriores agregan migraciones: se exige que estén las dos
+  -- que crean el esquema y las restricciones base, no un total fijo.
+  IF (SELECT count(*) FROM schema_migration
+      WHERE archivo IN ('001_esquema.sql', '002_constraints.sql')) <> 2 THEN
+    RAISE EXCEPTION 'Faltan 001_esquema.sql o 002_constraints.sql en schema_migration';
   END IF;
 END;
 $$;
 
--- Ayudante temporal: exige SQLSTATE y, cuando se indica, nombre de constraint.
-CREATE FUNCTION pg_temp.esperar_error(
-  p_sql TEXT,
-  p_sqlstate TEXT,
-  p_constraint TEXT DEFAULT NULL
-) RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-DECLARE
-  v_ocurrio BOOLEAN := FALSE;
-  v_sqlstate TEXT;
-  v_constraint TEXT;
-BEGIN
-  BEGIN
-    EXECUTE p_sql;
-  EXCEPTION WHEN OTHERS THEN
-    GET STACKED DIAGNOSTICS
-      v_sqlstate = RETURNED_SQLSTATE,
-      v_constraint = CONSTRAINT_NAME;
-    v_ocurrio := TRUE;
-
-    IF v_sqlstate IS DISTINCT FROM p_sqlstate THEN
-      RAISE EXCEPTION
-        'SQLSTATE inesperado. Esperado %, recibido %', p_sqlstate, v_sqlstate;
-    END IF;
-
-    IF p_constraint IS NOT NULL
-       AND v_constraint IS DISTINCT FROM p_constraint THEN
-      RAISE EXCEPTION
-        'Constraint inesperada. Esperada %, recibida %',
-        p_constraint, v_constraint;
-    END IF;
-  END;
-
-  IF NOT v_ocurrio THEN
-    RAISE EXCEPTION 'La sentencia debía fallar y fue aceptada: %', p_sql;
-  END IF;
-END;
-$$;
+-- esperar_error(sql, sqlstate, constraint, patrón de mensaje)
+\ir ayudantes.sql
 
 -- Datos mínimos válidos compartidos por los casos negativos.
 INSERT INTO departamento (id_departamento, nombre, provincia)
