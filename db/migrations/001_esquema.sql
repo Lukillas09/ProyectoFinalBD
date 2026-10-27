@@ -224,6 +224,9 @@ CREATE TABLE cliente (
   tipo                   tipo_cliente NOT NULL,
   descuento_excepcion   NUMERIC(5,2),
   CONSTRAINT pk_cliente PRIMARY KEY (id_cliente),
+  -- Superclave referenciada por las FK compuestas de los subtipos. Va aquí y
+  -- no en 002 porque PostgreSQL exige que exista antes de crear esas FK.
+  CONSTRAINT uq_cliente_id_tipo UNIQUE (id_cliente, tipo),
   CONSTRAINT fk_cliente_localidad
     FOREIGN KEY (id_localidad)
     REFERENCES localidad (id_localidad)
@@ -231,35 +234,42 @@ CREATE TABLE cliente (
     ON DELETE RESTRICT
 );
 
+-- Exclusividad de la jerarquía: cada subtipo fija su `tipo` (CHECK en 002) y
+-- lo referencia junto con el id, así un cliente sólo puede tener la fila del
+-- subtipo que declara. ON UPDATE RESTRICT impide cambiar cliente.tipo
+-- mientras exista la fila del subtipo.
 CREATE TABLE socio_club (
   id_cliente BIGINT NOT NULL,
+  tipo       tipo_cliente NOT NULL,
   CONSTRAINT pk_socio_club PRIMARY KEY (id_cliente),
   CONSTRAINT fk_socio_club_cliente
-    FOREIGN KEY (id_cliente)
-    REFERENCES cliente (id_cliente)
+    FOREIGN KEY (id_cliente, tipo)
+    REFERENCES cliente (id_cliente, tipo)
     ON UPDATE RESTRICT
     ON DELETE CASCADE
 );
 
 CREATE TABLE distribuidor (
   id_cliente      BIGINT NOT NULL,
+  tipo            tipo_cliente NOT NULL,
   zona_cobertura  VARCHAR(150) NOT NULL,
   nro_habilitacion VARCHAR(50) NOT NULL,
   CONSTRAINT pk_distribuidor PRIMARY KEY (id_cliente),
   CONSTRAINT fk_distribuidor_cliente
-    FOREIGN KEY (id_cliente)
-    REFERENCES cliente (id_cliente)
+    FOREIGN KEY (id_cliente, tipo)
+    REFERENCES cliente (id_cliente, tipo)
     ON UPDATE RESTRICT
     ON DELETE CASCADE
 );
 
 CREATE TABLE exportador (
   id_cliente             BIGINT NOT NULL,
+  tipo                   tipo_cliente NOT NULL,
   pais_destino_principal VARCHAR(100) NOT NULL,
   CONSTRAINT pk_exportador PRIMARY KEY (id_cliente),
   CONSTRAINT fk_exportador_cliente
-    FOREIGN KEY (id_cliente)
-    REFERENCES cliente (id_cliente)
+    FOREIGN KEY (id_cliente, tipo)
+    REFERENCES cliente (id_cliente, tipo)
     ON UPDATE RESTRICT
     ON DELETE CASCADE
 );

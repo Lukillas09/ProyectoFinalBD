@@ -96,9 +96,21 @@ ALTER TABLE cliente
     OR (tipo = 'exportador' AND descuento_excepcion = 35.00)
   );
 
+-- El discriminador de cada subtipo es constante; junto con la FK compuesta
+-- de 001 impide que un cliente tenga la fila de otro subtipo.
+ALTER TABLE socio_club
+  ADD CONSTRAINT ck_socio_club_tipo
+  CHECK (tipo = 'socio');
+
 ALTER TABLE distribuidor
   ADD CONSTRAINT uq_distribuidor_habilitacion
-  UNIQUE (nro_habilitacion);
+  UNIQUE (nro_habilitacion),
+  ADD CONSTRAINT ck_distribuidor_tipo
+  CHECK (tipo = 'distribuidor');
+
+ALTER TABLE exportador
+  ADD CONSTRAINT ck_exportador_tipo
+  CHECK (tipo = 'exportador');
 
 ALTER TABLE permiso_exportacion
   ADD CONSTRAINT ck_permiso_exportacion_fechas
@@ -158,6 +170,15 @@ ALTER TABLE auditoria_precio
 
 ALTER TABLE cliente
   ALTER COLUMN fecha_alta SET DEFAULT CURRENT_DATE;
+
+ALTER TABLE socio_club
+  ALTER COLUMN tipo SET DEFAULT 'socio';
+
+ALTER TABLE distribuidor
+  ALTER COLUMN tipo SET DEFAULT 'distribuidor';
+
+ALTER TABLE exportador
+  ALTER COLUMN tipo SET DEFAULT 'exportador';
 
 ALTER TABLE comprobante
   ALTER COLUMN fecha SET DEFAULT CURRENT_TIMESTAMP,

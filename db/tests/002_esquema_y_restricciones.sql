@@ -318,6 +318,66 @@ SELECT pg_temp.esperar_error(
   'ck_cuit_dom_formato'
 );
 
+-- Jerarquía de clientes: un socio válido, con su fila de subtipo.
+INSERT INTO cliente (
+  id_cliente, nombre_razon_social, tipo_documento, nro_documento,
+  direccion, id_localidad, fecha_alta, tipo
+)
+OVERRIDING SYSTEM VALUE
+VALUES (
+  900003, 'Socio prueba', 'DNI', '30999999',
+  'Dirección socio', 900001, DATE '2026-02-01', 'socio'
+);
+
+INSERT INTO socio_club (id_cliente) VALUES (900003);
+
+-- Exclusividad: un socio no puede insertarse como exportador. El DEFAULT
+-- completa tipo = 'exportador' y el par (900003, exportador) no existe en
+-- cliente. Error esperado: 23503 en fk_exportador_cliente.
+SELECT pg_temp.esperar_error(
+  $sql$
+    INSERT INTO exportador (id_cliente, pais_destino_principal)
+    VALUES (900003, 'Brasil')
+  $sql$,
+  '23503',
+  'fk_exportador_cliente'
+);
+
+-- Tampoco declarando el tipo real del cliente: el discriminador del subtipo
+-- es constante. Error esperado: 23514 en ck_exportador_tipo.
+SELECT pg_temp.esperar_error(
+  $sql$
+    INSERT INTO exportador (id_cliente, tipo, pais_destino_principal)
+    VALUES (900003, 'socio', 'Brasil')
+  $sql$,
+  '23514',
+  'ck_exportador_tipo'
+);
+
+-- Un cliente no puede estar en dos subtipos: el exportador 900001 no puede
+-- agregarse como distribuidor. Error esperado: 23503 en
+-- fk_distribuidor_cliente.
+SELECT pg_temp.esperar_error(
+  $sql$
+    INSERT INTO distribuidor (id_cliente, zona_cobertura, nro_habilitacion)
+    VALUES (900001, 'Zona prueba', 'HAB-PRUEBA')
+  $sql$,
+  '23503',
+  'fk_distribuidor_cliente'
+);
+
+-- Cambiar el tipo de un cliente con fila de subtipo dejaría ambos
+-- desalineados; ON UPDATE RESTRICT lo rechaza. Error esperado: 23503 en
+-- fk_socio_club_cliente.
+SELECT pg_temp.esperar_error(
+  $sql$
+    UPDATE cliente SET tipo = 'distribuidor' WHERE id_cliente = 900003
+  $sql$,
+  '23503',
+  'fk_socio_club_cliente'
+);
+
 \echo 'OK: estructura, PK/FK, UNIQUE, NOT NULL, CHECK, ENUM y DOMAIN verificados.'
+\echo 'OK: exclusividad de subtipos de cliente verificada.'
 ROLLBACK;
 \echo 'OK: los datos mínimos de prueba fueron revertidos.'
