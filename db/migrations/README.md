@@ -5,8 +5,8 @@ Las migraciones actuales son:
 - `001_esquema.sql`: tipos, tabla técnica de control, tablas de negocio, PK y FK;
 - `002_constraints.sql`: claves candidatas `UNIQUE`, reglas `CHECK` y valores `DEFAULT`;
 - `003_funciones.sql`: funciones de cálculo (descuento, stock de sala, total, antigüedad) y el recálculo de importes;
-- `004_procedimientos.sql`: terminar y procesar ingresos y transferencias;
-- `005_triggers.sql`: triggers de RN-05, RN-06/U6, RN-08 a RN-13 y totalidad de clientes;
+- `004_procedimientos.sql`: terminar y procesar ingresos y transferencias, y `fn_registrar_venta`, único camino de venta de la API;
+- `005_triggers.sql`: triggers de RN-05, RN-06/U6, RN-08 a RN-13 y totalidad de clientes; agrega la columna técnica `comprobante.xact_alta`, que cierra una venta confirmada a renglones nuevos;
 - `006_vistas.sql`: stock total, ventas mensuales, documentos pendientes y ficha de vino;
 - `007_roles.sql`: privilegios de `bodegas_rw` (API) y `bodegas_ro` (reportes).
 

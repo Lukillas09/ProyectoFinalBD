@@ -32,7 +32,7 @@ En cada `psql`, identificar la sesión para que se distinga en las capturas:
 \set PROMPT1 'B> '   -- en la terminal B
 ```
 
-En la terminal A, cargar los datos de la demostración (una sala con **una** botella):
+En la terminal A, cargar los datos de la demostración: una sala con **una** botella del vino 990001 y diez del vino 990002, que se usa en el escenario 4b.
 
 ```sql
 BEGIN;
@@ -43,13 +43,14 @@ OVERRIDING SYSTEM VALUE VALUES (990001, 'Calle concurrencia', '1', 'lunes', 9900
 INSERT INTO bodega (cuit, razon_social, domicilio) VALUES ('30990000001', 'Bodega concurrencia', 'Dom');
 INSERT INTO cepa (id_cepa, nombre, tipo) OVERRIDING SYSTEM VALUE VALUES (990001, 'Malbec concurrencia', 'tinta');
 INSERT INTO vino (cod_vino, nombre, tipo, anada, volumen_ml, graduacion, precio, cuit_bodega)
-OVERRIDING SYSTEM VALUE VALUES (990001, 'Última botella', 'tinto', 2021, 750, 14.00, 12500.00, '30990000001');
-INSERT INTO composicion_vino VALUES (990001, 990001, 100.00);
+OVERRIDING SYSTEM VALUE VALUES (990001, 'Última botella', 'tinto', 2021, 750, 14.00, 12500.00, '30990000001'),
+                               (990002, 'Segundo vino', 'tinto', 2021, 750, 14.00, 9000.00, '30990000001');
+INSERT INTO composicion_vino VALUES (990001, 990001, 100.00), (990002, 990001, 100.00);
 INSERT INTO cliente (id_cliente, nombre_razon_social, tipo_documento, nro_documento, direccion, id_localidad, tipo)
 OVERRIDING SYSTEM VALUE VALUES (990001, 'Cliente A', 'DNI', '99000001', 'Dir', 990001, 'socio'),
                                (990002, 'Cliente B', 'DNI', '99000002', 'Dir', 990001, 'socio');
 INSERT INTO socio_club VALUES (990001), (990002);
-INSERT INTO stock_sala VALUES (990001, 990001, 1);
+INSERT INTO stock_sala VALUES (990001, 990001, 1), (990001, 990002, 10);
 COMMIT;
 ```
 
@@ -127,9 +128,12 @@ Reponer la botella.
 
 > 📷 **Captura 3:** terminal B esperando (paso 3) y luego mostrando 0 (paso 6).
 
-## 6. Escenario 4: la venta real (trigger RN-09)
+## 6. Escenario 4: la venta real (`fn_registrar_venta` y trigger RN-09)
 
-En el sistema, la aplicación no lee ni descuenta el stock: inserta el renglón y la base hace todo. `trg_renglon_comprobante_completar` (`db/migrations/005_triggers.sql`) bloquea la fila de `stock_sala` con `FOR UPDATE` y rechaza si no alcanza. Después, `trg_renglon_comprobante_impactar` descuenta el stock.
+En el sistema, la aplicación no lee ni descuenta el stock. Llama a `fn_registrar_venta` (`db/migrations/004_procedimientos.sql`), que crea la cabecera y los renglones en una sola llamada; la API no tiene `INSERT` directo sobre ventas. Los triggers hacen el resto:
+
+- `trg_renglon_comprobante_completar` (`005_triggers.sql`) bloquea la fila de `stock_sala` con `FOR UPDATE` y rechaza si no alcanza;
+- `trg_renglon_comprobante_impactar` descuenta el stock.
 
 Reponer la botella. Abrir las dos terminales **con la cuenta de la API**:
 
@@ -140,16 +144,33 @@ docker compose exec db sh -c 'PGPASSWORD="$DB_APP_PASSWORD" psql -h 127.0.0.1 -U
 | Paso | Terminal A (API) | Terminal B (API) |
 |---:|---|---|
 | 1 | `BEGIN;` | `BEGIN;` |
-| 2 | `INSERT INTO comprobante (id_cliente, id_sala) VALUES (990001, 990001) RETURNING nro_comprobante;` → anotar el número (`nA`) | `INSERT INTO comprobante (id_cliente, id_sala) VALUES (990002, 990001) RETURNING nro_comprobante;` → anotar `nB` |
-| 3 | `INSERT INTO renglon_comprobante (nro_comprobante, cod_vino, cantidad) VALUES (nA, 990001, 1);` | |
-| 4 | | `INSERT INTO renglon_comprobante (nro_comprobante, cod_vino, cantidad) VALUES (nB, 990001, 1);` → **queda esperando** |
-| 5 | `COMMIT;` | |
-| 6 | | `ERROR: RN-09: stock insuficiente del vino 990001 en la sala 990001.`<br>`DETAIL: Se piden 1 botellas y la sala tiene 0.`<br>`HINT: Solicite una transferencia desde el depósito central.` |
-| 7 | | `ROLLBACK;` (la transacción quedó abortada: el comprobante de B tampoco se guarda) |
+| 2 | `SELECT fn_registrar_venta(990001, 990001, ARRAY[990001]::BIGINT[], ARRAY[1]);` → devuelve el número de comprobante | |
+| 3 | | `SELECT fn_registrar_venta(990002, 990001, ARRAY[990001]::BIGINT[], ARRAY[1]);` → **queda esperando** |
+| 4 | `COMMIT;` | |
+| 5 | | `ERROR: RN-09: stock insuficiente del vino 990001 en la sala 990001.`<br>`DETAIL: Se piden 1 botellas y la sala tiene 0.`<br>`HINT: Solicite una transferencia desde el depósito central.` |
+| 6 | | `ROLLBACK;` |
 
-**Resultado observado:** una sola venta confirmada, stock 0 y un mensaje de negocio claro para la segunda, que la API traducirá a HTTP 409. Como la venta es una transacción, el comprobante de B se descarta junto con su renglón: no quedan datos a medias.
+**Resultado observado:** B esperó hasta el `COMMIT` de A (≈1,3 s en la ejecución de prueba) y recibió el mensaje de negocio, que la API traducirá a HTTP 409. No quedó ningún comprobante de B: la función es todo o nada y la transacción abortada descartó también su cabecera. Stock final: 0.
 
 > 📷 **Captura 4:** terminal B con el error RN-09.
+
+### 6.1 Escenario 4b: dos ventas de varios vinos en orden inverso
+
+Reponer: `UPDATE stock_sala SET cantidad = 10 WHERE id_sala = 990001;` (terminal del propietario).
+
+| Paso | Terminal A (API) | Terminal B (API) |
+|---:|---|---|
+| 1 | `BEGIN;` | `BEGIN;` |
+| 2 | `SELECT fn_registrar_venta(990001, 990001, ARRAY[990001, 990002]::BIGINT[], ARRAY[1, 1]);` | |
+| 3 | | `SELECT fn_registrar_venta(990002, 990001, ARRAY[990002, 990001]::BIGINT[], ARRAY[1, 1]);` → **queda esperando** |
+| 4 | `COMMIT;` | |
+| 5 | | Devuelve su número de comprobante. `COMMIT;` |
+
+**Resultado observado:** las dos ventas se confirman y el stock queda en 8 y 8. B pidió los vinos al revés, pero `fn_registrar_venta` bloquea las filas de stock **en orden de `cod_vino`**: las dos sesiones piden primero 990001, así que una espera a la otra y no se bloquean en cruz.
+
+Si cada venta bloqueara en el orden en que recibe los vinos, A podría tener 990001 esperando 990002 mientras B tiene 990002 esperando 990001. PostgreSQL detectaría el deadlock y cancelaría una con `40P01`.
+
+> 📷 **Captura 4b:** ambas terminales con su comprobante confirmado.
 
 ## 7. Escenario 5: `REPEATABLE READ`
 
@@ -183,7 +204,7 @@ En una terminal del propietario:
 BEGIN;
 DELETE FROM comprobante WHERE id_sala = 990001;
 DELETE FROM stock_sala WHERE id_sala = 990001;
-DELETE FROM vino WHERE cod_vino = 990001;
+DELETE FROM vino WHERE cod_vino IN (990001, 990002);
 DELETE FROM cliente WHERE id_cliente IN (990001, 990002);
 DELETE FROM sala_venta WHERE id_sala = 990001;
 DELETE FROM localidad WHERE id_localidad = 990001;
@@ -202,4 +223,6 @@ El borrado de comprobantes es el de D1: arrastra los renglones en cascada.
 | Procesar el mismo ingreso o transferencia dos veces a la vez | `sp_procesar_*` bloquean la cabecera `FOR UPDATE`; la segunda llamada espera y encuentra `procesado` (RN-10/RN-11). |
 | Dos transferencias que usan los mismos vinos | `sp_procesar_transferencia` bloquea las filas del depósito en orden de `cod_vino`: todas las sesiones piden los bloqueos en el mismo orden y no se bloquean en cruz. |
 | Editar un renglón mientras otra sesión termina el documento | El trigger RN-12 bloquea la cabecera `FOR SHARE`: el cambio de estado espera a que termine la edición, o la edición encuentra el documento ya terminado. |
-| Dos ventas con varios vinos en orden inverso | Pueden producir un deadlock (40P01). PostgreSQL lo detecta y cancela una; la API sugiere reintentar. |
+| Dos ventas con varios vinos en orden inverso | `fn_registrar_venta` bloquea el stock en orden de `cod_vino` (escenario 4b): no hay deadlock. |
+| Agregar renglones a una venta ya confirmada | `comprobante.xact_alta` + `trg_renglon_comprobante_completar` (RN-12): se rechaza aun para el propietario. |
+| Otros bloqueos en orden distinto (por ejemplo, operaciones manuales del propietario) | Pueden producir un deadlock (40P01). PostgreSQL lo detecta y cancela una; la API sugiere reintentar. |

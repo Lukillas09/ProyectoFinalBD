@@ -95,8 +95,9 @@ END;
 $$;
 \echo 'OK: la matriz de privilegios de tablas y vistas es exactamente la esperada.'
 
--- Privilegios por columna: la API decide cliente, sala, vino y cantidad; nunca
--- precio, descuento, importes, estados ni fechas.
+-- Privilegios por columna. Ventas: ninguna columna insertable (sólo
+-- fn_registrar_venta). Documentos: la API decide sala, bodega, transportista,
+-- vino y cantidad; nunca estados ni fechas.
 DO $$
 DECLARE
   v_fallas TEXT;
@@ -104,12 +105,14 @@ BEGIN
   SELECT string_agg(format('%s.%s %s (esperado %s)', tabla, columna, privilegio, esperado), '; ')
   INTO v_fallas
   FROM (VALUES
-    ('comprobante', 'id_cliente', 'INSERT', TRUE),
-    ('comprobante', 'id_sala', 'INSERT', TRUE),
+    ('comprobante', 'id_cliente', 'INSERT', FALSE),
+    ('comprobante', 'id_sala', 'INSERT', FALSE),
     ('comprobante', 'total', 'INSERT', FALSE),
     ('comprobante', 'fecha', 'INSERT', FALSE),
+    ('comprobante', 'xact_alta', 'INSERT', FALSE),
     ('comprobante', 'total', 'UPDATE', FALSE),
-    ('renglon_comprobante', 'cantidad', 'INSERT', TRUE),
+    ('renglon_comprobante', 'nro_comprobante', 'INSERT', FALSE),
+    ('renglon_comprobante', 'cantidad', 'INSERT', FALSE),
     ('renglon_comprobante', 'precio_unitario', 'INSERT', FALSE),
     ('renglon_comprobante', 'descuento_porcentaje', 'INSERT', FALSE),
     ('renglon_comprobante', 'subtotal', 'INSERT', FALSE),
@@ -134,14 +137,14 @@ BEGIN
   END IF;
 END;
 $$;
-\echo 'OK: los privilegios por columna impiden enviar precios, importes, estados y fechas.'
+\echo 'OK: sin INSERT directo de ventas; los documentos no aceptan estados ni fechas.'
 
 -- Rutinas: sólo cálculos de lectura y procedimientos de estado.
 DO $$
 DECLARE
   v_esperado TEXT[] := ARRAY[
-    'fn_antiguedad_anios', 'fn_descuento_cliente', 'fn_stock_sala',
-    'fn_total_comprobante', 'fn_validar_transicion_estado',
+    'fn_antiguedad_anios', 'fn_descuento_cliente', 'fn_registrar_venta',
+    'fn_stock_sala', 'fn_total_comprobante', 'fn_validar_transicion_estado',
     'sp_procesar_ingreso', 'sp_procesar_transferencia',
     'sp_terminar_ingreso', 'sp_terminar_transferencia'
   ];
@@ -158,7 +161,7 @@ BEGIN
   END IF;
 END;
 $$;
-\echo 'OK: la API ejecuta sólo funciones de cálculo, la validación de estados y los procedimientos.'
+\echo 'OK: la API ejecuta sólo cálculos, la validación de estados, la venta y los procedimientos.'
 
 -- Secuencias: no hace falta USAGE para insertar en columnas IDENTITY
 -- (lo demuestra 005_roles.sql con un alta real).

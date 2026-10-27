@@ -8,10 +8,11 @@
 4. `004_reglas_negocio.sql` (propietario): un caso que funciona y uno que falla por cada RN-01 a RN-15, U6, totalidad de clientes y funciones.
 5. `005_roles.sql` (propietario con `SET LOCAL ROLE` a cada grupo): operaciones reales de la API y de reportes; lo prohibido debe dar 42501. También verifica las funciones `SECURITY DEFINER`.
 6. `006_conexion_reportes.sql` (cuenta de reportes): sólo lectura efectiva.
+7. `007_comprobante_emitido.sql` (propietario): un comprobante confirmado en una transacción anterior no admite renglones nuevos, ni siquiera para el propietario, y U1 (`fn_recalcular_comprobante`) sigue funcionando. Usa varias transacciones: borra restos de una ejecución interrumpida al empezar y sus datos al terminar.
 
 `ayudantes.sql` define `esperar_error` y `afirmar` en `pg_temp`; las pruebas lo incluyen con `\ir`. `esperar_error` exige el SQLSTATE y, si se indican, la constraint y un patrón del mensaje. Falla si la sentencia es aceptada.
 
-Las pruebas que escriben datos lo hacen dentro de una transacción que termina en `ROLLBACK`. Las reglas diferidas (constraint triggers) se verifican con `SET CONSTRAINTS ALL IMMEDIATE` dentro de un `SAVEPOINT`.
+Las pruebas que escriben datos lo hacen dentro de una transacción que termina en `ROLLBACK`, salvo `007`, que necesita datos confirmados y los elimina al terminar. Las reglas diferidas (constraint triggers) se verifican con `SET CONSTRAINTS ALL IMMEDIATE` dentro de un `SAVEPOINT`.
 
 Cada aserción falsa ejecuta `RAISE EXCEPTION`. No se usa `\quit 1`: psql ignora ese argumento y sale con código 0, de modo que una prueba fallida parecería exitosa. Con `ON_ERROR_STOP`, el error hace que psql termine con código 3.
 

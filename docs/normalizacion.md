@@ -177,6 +177,7 @@ Las redundancias controladas de la sección 6.3 quedan protegidas dentro de Post
 
 - `renglon_comprobante.subtotal`: el trigger `trg_renglon_comprobante_completar` lo calcula con la misma fórmula del `CHECK`, y el renglón no puede modificarse después.
 - Importes de `comprobante`: sólo los escribe `fn_recalcular_comprobante`, invocada al insertar cada renglón; `trg_comprobante_importes` rechaza cualquier otra escritura.
+- `comprobante.xact_alta` (columna técnica de la Etapa 2) depende sólo de la PK: `nro_comprobante -> xact_alta`. No introduce dependencias transitivas y no se modifica después del alta.
 - Saldos de `stock_sala` y `stock_deposito`: sólo cambian por la venta y por los procedimientos de ingreso y transferencia, que bloquean las filas; la API no tiene `UPDATE` sobre ellos.
 - `cliente.tipo` y subtipos: exclusividad por FK compuesta y totalidad por constraint triggers diferidos.
 

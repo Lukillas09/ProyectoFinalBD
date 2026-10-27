@@ -2,7 +2,7 @@
 
 ## 1. Convenciones y tipos propios
 
-Este diccionario corresponde exactamente a `db/migrations/001_esquema.sql` y `002_constraints.sql`. Se contrastó contra el catálogo de PostgreSQL (`pg_attribute`, `pg_attrdef` y `pg_constraint`) después de migrar: coinciden las 31 tablas, las 134 columnas, sus tipos, nulabilidad y defaults, y cada fila nombra todas las constraints que abarcan esa columna. “Nulo: No” significa `NOT NULL`. `IDENTITY ALWAYS` describe generación de identidad, no un `DEFAULT` editable. Todos los objetos están en el esquema `bodegas`.
+Este diccionario corresponde exactamente a `db/migrations/001_esquema.sql` y `002_constraints.sql`. Se contrastó contra el catálogo de PostgreSQL (`pg_attribute`, `pg_attrdef` y `pg_constraint`) después de migrar: coinciden las 31 tablas, las 135 columnas, sus tipos, nulabilidad y defaults, y cada fila nombra todas las constraints que abarcan esa columna. “Nulo: No” significa `NOT NULL`. `IDENTITY ALWAYS` describe generación de identidad, no un `DEFAULT` editable. Todos los objetos están en el esquema `bodegas`.
 
 | Tipo | Definición | Regla |
 |---|---|---|
@@ -220,6 +220,7 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 | `subtotal` | Importe bruto de cabecera | `NUMERIC(14,2)` | No | `0` | `>= 0`; parte de `ck_comprobante_importes` |
 | `descuento` | Descuento monetario total | `NUMERIC(14,2)` | No | `0` | `ck_comprobante_importes`: entre 0 y subtotal |
 | `total` | Importe neto | `NUMERIC(14,2)` | No | `0` | `ck_comprobante_importes`: `total = subtotal - descuento` |
+| `xact_alta` | Técnica (Etapa 2): transacción que creó el comprobante; cierra la venta para renglones nuevos (RN-12) | `xid8` | No | `pg_current_xact_id()` | La fuerza `trg_comprobante_alta` (ignora el valor enviado); `trg_comprobante_importes` impide modificarla |
 
 ### `renglon_comprobante`
 
@@ -315,12 +316,14 @@ Una fila registra un archivo aplicado. Es infraestructura, no una entidad de neg
 
 ## 8. Columnas mantenidas por la base (Etapa 2)
 
-Las tablas no cambiaron en la Etapa 2. Estas columnas existen desde la Etapa 1, pero ahora las escriben triggers y procedimientos, no los usuarios. La API ni siquiera tiene privilegio para enviarlas (`007_roles.sql`).
+La Etapa 2 sólo agregó la columna técnica `comprobante.xact_alta`. Estas columnas existen desde la Etapa 1, pero ahora las escriben triggers y procedimientos, no los usuarios. La API ni siquiera tiene privilegio para enviarlas (`007_roles.sql`).
 
 | Columna | Quién la escribe | Regla |
 |---|---|---|
 | `renglon_comprobante.precio_unitario`, `descuento_porcentaje`, `subtotal` | `trg_renglon_comprobante_completar`, que ignora los valores enviados | RN-06, RN-08 |
+| `comprobante` y `renglon_comprobante` (alta) | La API sólo vende con `fn_registrar_venta`, que crea cabecera y renglones juntos | RN-08, RN-09 |
 | `comprobante.subtotal`, `descuento`, `total` | `fn_recalcular_comprobante`, llamada por `trg_renglon_comprobante_impactar` | RN-08 |
+| `comprobante.xact_alta` | `trg_comprobante_alta` (transacción real); impide agregar renglones a una venta ya emitida | RN-12 |
 | `stock_sala.cantidad` | Venta (`trg_renglon_comprobante_impactar`) y `sp_procesar_transferencia` | RN-09, RN-11 |
 | `stock_deposito.cantidad` | `sp_procesar_ingreso` y `sp_procesar_transferencia` | RN-10, RN-11 |
 | `ingreso.estado`, `transferencia.estado` | `sp_terminar_*` y `sp_procesar_*`; `trg_*_estado` valida las transiciones | RN-10, RN-11 |

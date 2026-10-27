@@ -150,6 +150,7 @@ PERMISO_EXPORTACION(
 
 COMPROBANTE(
   nro_comprobante, fecha, id_cliente, id_sala, subtotal, descuento, total,
+  xact_alta,
   PK(nro_comprobante),
   FK(id_cliente) -> CLIENTE(id_cliente),
   FK(id_sala) -> SALA_VENTA(id_sala)
@@ -292,7 +293,7 @@ Todos sus componentes son `NOT NULL`, de modo que en PostgreSQL representan cand
 - La campaña coincide con el año de cosecha y el permiso vence después de su emisión.
 - Estado inicial de ingreso/transferencia: `en_confeccion`; alta/confección usan fecha actual; eventos usan instante actual; stocks e importes de cabecera empiezan en cero.
 
-Hay más de los mínimos exigidos. Conteo obtenido de `pg_constraint` y `pg_attrdef` sobre el esquema `bodegas`: 11 `UNIQUE`, 36 `CHECK` (34 de negocio, 1 de la tabla técnica y 1 del dominio `cuit_dom`) y 16 columnas con `DEFAULT`.
+Hay más de los mínimos exigidos. Conteo obtenido de `pg_constraint` y `pg_attrdef` sobre el esquema `bodegas`: 11 `UNIQUE`, 36 `CHECK` (34 de negocio, 1 de la tabla técnica y 1 del dominio `cuit_dom`) y 17 columnas con `DEFAULT` (incluida `comprobante.xact_alta`, agregada en la Etapa 2).
 
 ## 5. Acciones referenciales
 

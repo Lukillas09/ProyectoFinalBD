@@ -91,7 +91,7 @@ VALUES ('RN-P1', 910003, DATE '2025-01-01', DATE '2027-01-01'),
        ('RN-P6', 910004, DATE '2025-01-01', DATE '2027-01-01');
 
 INSERT INTO stock_sala (id_sala, cod_vino, cantidad)
-VALUES (910001, 910001, 5), (910001, 910002, 10);
+VALUES (910001, 910001, 5), (910001, 910002, 10), (910001, 910003, 4);
 
 INSERT INTO stock_deposito (cod_vino, cantidad) VALUES (910001, 100);
 
@@ -404,7 +404,97 @@ SELECT pg_temp.afirmar(
   NOT EXISTS (SELECT 1 FROM renglon_comprobante WHERE nro_comprobante = 910004)
   AND fn_stock_sala(910001, 910002) = 8,
   'D1: renglones borrados en cascada; stock sin reponer');
-\echo 'OK: RN-08 y RN-09'
+
+-- Funciona: la transacción que crea la cabecera queda registrada aunque se
+-- envíe otro valor, y los renglones de esa misma transacción se aceptan
+-- (también dentro de un SAVEPOINT).
+SAVEPOINT rn12_xact;
+INSERT INTO comprobante (nro_comprobante, id_cliente, id_sala, xact_alta)
+OVERRIDING SYSTEM VALUE
+VALUES (910007, 910001, 910001, '1');
+SELECT pg_temp.afirmar(
+  (SELECT xact_alta FROM comprobante WHERE nro_comprobante = 910007) = pg_current_xact_id(),
+  'RN-12: xact_alta = transacción actual, ignorando el valor enviado');
+ROLLBACK TO SAVEPOINT rn12_xact;
+
+-- Falla: modificar xact_alta para "reabrir" un comprobante.
+SELECT pg_temp.esperar_error(
+  $sql$ UPDATE comprobante SET xact_alta = '1' WHERE nro_comprobante = 910001 $sql$,
+  'P0001', NULL, 'RN-08: un comprobante emitido no se modifica.');
+
+-------------------------------------------------------------------------------
+-- RN-08 / RN-09: fn_registrar_venta, único camino de venta de la API.
+-------------------------------------------------------------------------------
+-- Funciona: venta de tres renglones enviados en cualquier orden. Se revierte
+-- al final para no alterar el stock que verifican las secciones siguientes.
+SAVEPOINT venta_ok;
+DO $$
+DECLARE
+  v_nro BIGINT;
+  v_antes INTEGER[];
+BEGIN
+  v_antes := ARRAY[fn_stock_sala(910001, 910001), fn_stock_sala(910001, 910002),
+                   fn_stock_sala(910001, 910003)];
+
+  v_nro := fn_registrar_venta(910001, 910001,
+                              ARRAY[910003, 910001, 910002]::BIGINT[],
+                              ARRAY[1, 1, 2]);
+
+  PERFORM pg_temp.afirmar(
+    (SELECT count(*) FROM renglon_comprobante WHERE nro_comprobante = v_nro) = 3,
+    'fn_registrar_venta: tres renglones');
+  -- Socio 10 %: 1 x 500 + 1 x 1000 + 2 x 2000 = 5500 bruto.
+  PERFORM pg_temp.afirmar(
+    (SELECT (subtotal, descuento, total) = (5500.00, 550.00, 4950.00)
+     FROM comprobante WHERE nro_comprobante = v_nro),
+    'fn_registrar_venta: importes calculados por la base');
+  PERFORM pg_temp.afirmar(
+    ARRAY[fn_stock_sala(910001, 910001), fn_stock_sala(910001, 910002),
+          fn_stock_sala(910001, 910003)]
+    = ARRAY[v_antes[1] - 1, v_antes[2] - 2, v_antes[3] - 1],
+    'fn_registrar_venta: stock descontado por renglón');
+END;
+$$;
+ROLLBACK TO SAVEPOINT venta_ok;
+
+-- Falla: un renglón sin stock. No queda ni la cabecera ni los renglones
+-- anteriores, y el stock de los otros vinos no cambia.
+DO $$
+DECLARE
+  v_comprobantes BIGINT;
+  v_stock INTEGER;
+BEGIN
+  SELECT count(*) INTO v_comprobantes FROM comprobante;
+  v_stock := fn_stock_sala(910001, 910001);
+
+  PERFORM pg_temp.esperar_error(
+    'SELECT fn_registrar_venta(910001, 910001, ARRAY[910001, 910002]::BIGINT[], ARRAY[1, 999])',
+    'P0001', NULL, 'RN-09: stock insuficiente del vino 910002 en la sala 910001.');
+
+  PERFORM pg_temp.afirmar(
+    (SELECT count(*) FROM comprobante) = v_comprobantes
+    AND fn_stock_sala(910001, 910001) = v_stock,
+    'fn_registrar_venta: la venta rechazada no dejó cabecera, renglones ni stock descontado');
+END;
+$$;
+
+-- Falla: validaciones de la entrada.
+SELECT pg_temp.esperar_error(
+  $sql$ SELECT fn_registrar_venta(910001, 910001, ARRAY[]::BIGINT[], ARRAY[]::INTEGER[]) $sql$,
+  'P0001', NULL, 'RN-08: una venta debe tener al menos un renglón.');
+SELECT pg_temp.esperar_error(
+  $sql$ SELECT fn_registrar_venta(910001, 910001, ARRAY[910001, 910002]::BIGINT[], ARRAY[1]) $sql$,
+  'P0001', NULL, 'RN-08: vinos y cantidades deben ser listas del mismo largo.');
+SELECT pg_temp.esperar_error(
+  $sql$ SELECT fn_registrar_venta(910001, 910001, ARRAY[910001]::BIGINT[], ARRAY[0]) $sql$,
+  'P0001', NULL, 'RN-15: las cantidades vendidas deben ser positivas.');
+SELECT pg_temp.esperar_error(
+  $sql$ SELECT fn_registrar_venta(910001, 910001, ARRAY[910001, 910001]::BIGINT[], ARRAY[1, 1]) $sql$,
+  'P0001', NULL, 'RN-08: un vino no puede repetirse en la misma venta.');
+SELECT pg_temp.esperar_error(
+  $sql$ SELECT fn_registrar_venta(910001, 910001, ARRAY[NULL]::BIGINT[], ARRAY[1]) $sql$,
+  'P0001', NULL, 'RN-08: todos los renglones deben indicar un vino.');
+\echo 'OK: RN-08 y RN-09 (incluida fn_registrar_venta)'
 
 -------------------------------------------------------------------------------
 -- RN-10: estados de ingreso e impacto único en el depósito.

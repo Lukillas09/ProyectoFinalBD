@@ -26,6 +26,7 @@ SELECT pg_temp.afirmar(
    FROM pg_proc
    WHERE pronamespace = 'bodegas'::regnamespace AND prosecdef)
   = ARRAY[
+      'fn_registrar_venta',
       'fn_trg_renglon_comprobante_completar', 'fn_trg_renglon_comprobante_impactar',
       'fn_trg_renglon_ingreso_bloqueo', 'fn_trg_renglon_transferencia_bloqueo',
       'fn_trg_vino_auditoria_precio', 'sp_procesar_ingreso',
@@ -111,15 +112,22 @@ RETURNING id_cliente AS cliente_api \gset
 INSERT INTO distribuidor (id_cliente, zona_cobertura, nro_habilitacion)
 VALUES (:cliente_api, 'Zona API', 'HAB-API');
 
--- Puede: vender. La base completa precio, descuento, stock e importes.
-INSERT INTO comprobante (id_cliente, id_sala) VALUES (:cliente_api, 920001)
-RETURNING nro_comprobante AS comprobante_api \gset
-INSERT INTO renglon_comprobante (nro_comprobante, cod_vino, cantidad)
-VALUES (:comprobante_api, 920001, 3);
+-- Puede: vender con fn_registrar_venta (único camino). La base completa
+-- precio, descuento, stock e importes.
+SELECT fn_registrar_venta(:cliente_api, 920001, ARRAY[920001]::BIGINT[], ARRAY[3])
+  AS comprobante_api \gset
 SELECT pg_temp.afirmar(
   (SELECT total FROM comprobante WHERE nro_comprobante = :comprobante_api) = 2400.00
   AND fn_stock_sala(920001, 920001) = 7,
   'API: venta con total calculado (20 %) y stock descontado');
+
+-- No puede: crear cabeceras ni renglones directamente (42501).
+SELECT pg_temp.esperar_error(
+  $sql$ INSERT INTO comprobante (id_cliente, id_sala) VALUES (920001, 920001) $sql$, '42501');
+SELECT pg_temp.esperar_error(
+  format($sql$ INSERT INTO renglon_comprobante (nro_comprobante, cod_vino, cantidad)
+               VALUES (%s, %s, 1) $sql$, :comprobante_api, :vino_api),
+  '42501');
 
 -- Puede: ingreso completo por procedimientos.
 INSERT INTO ingreso (cod_transportista, cuit_bodega) VALUES (920001, '30920000001')
@@ -206,6 +214,8 @@ SELECT pg_temp.esperar_error(
   $sql$ DELETE FROM cliente $sql$, '42501');
 SELECT pg_temp.esperar_error(
   'CALL sp_procesar_ingreso(1)', '42501');
+SELECT pg_temp.esperar_error(
+  $sql$ SELECT fn_registrar_venta(920001, 920001, ARRAY[920001]::BIGINT[], ARRAY[1]) $sql$, '42501');
 SELECT pg_temp.esperar_error(
   $sql$ SELECT archivo FROM schema_migration $sql$, '42501');
 \echo 'OK: reportes sólo lee.'
