@@ -9,6 +9,9 @@ set -eu
 : "${DB_OWNER_PASSWORD:?DB_OWNER_PASSWORD es obligatoria}"
 
 migrations_dir="${MIGRATIONS_DIR:-/opt/bodegas/db/migrations}"
+# Dentro del contenedor db la base escucha en 127.0.0.1; el servicio migrate
+# de Compose la alcanza por el nombre interno db.
+db_host="${DB_HOST:-127.0.0.1}"
 
 if [ ! -d "$migrations_dir" ]; then
   echo "No existe el directorio de migraciones: $migrations_dir" >&2
@@ -19,7 +22,7 @@ export PGPASSWORD="$DB_OWNER_PASSWORD"
 
 psql_owner() {
   psql \
-    --host=127.0.0.1 \
+    --host="$db_host" \
     --username="$DB_OWNER_USER" \
     --dbname="$POSTGRES_DB" \
     --set=ON_ERROR_STOP=1 \

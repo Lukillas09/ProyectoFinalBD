@@ -26,6 +26,25 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Tarea única: aplica las migraciones como propietario y termina. Usa la
+  # misma imagen de db (mismo build, capas en caché) y sólo recibe las
+  # credenciales del propietario, nunca las de bootstrap ni las de la API.
+  migrate:
+    build:
+      context: ./db
+    entrypoint: ["/opt/bodegas/db/migrate.sh"]
+    environment:
+      DB_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:?Defina POSTGRES_DB en .env}
+      DB_OWNER_USER: ${DB_OWNER_USER:?Defina DB_OWNER_USER en .env}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?Defina DB_OWNER_PASSWORD en .env}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - datos
+    restart: "no"
+
   api:
     build:
       context: ./api
@@ -41,7 +60,9 @@ services:
       DB_CONNECT_TIMEOUT_SECONDS: ${DB_CONNECT_TIMEOUT_SECONDS:-3}
     depends_on:
       db:
-        condition: service_started
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "${API_PORT:-8000}:8000"
     networks:

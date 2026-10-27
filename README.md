@@ -1,6 +1,6 @@
 # Bodegas del Atuel
 
-Repositorio ejecutable del Trabajo Práctico Integrador de Bases de Datos 2026. La infraestructura conecta tres servicios reales y el esquema de negocio se instala mediante migraciones SQL manuales:
+Repositorio ejecutable del Trabajo Práctico Integrador de Bases de Datos 2026. Un solo `docker compose up` levanta la base, aplica las migraciones SQL como propietario y arranca la API y el front:
 
 ```text
 Navegador http://localhost:8080
@@ -9,7 +9,7 @@ Navegador http://localhost:8080
 Nginx (front) -- /api/* --> FastAPI (api) --> Psycopg 3 pool --> PostgreSQL 16
                                       SELECT 1              rol limitado
 
-Propietario -- db/migrate.sh --> 001_esquema.sql --> 002_constraints.sql
+migrate (tarea única, propietario) -- db/migrate.sh --> 001_esquema.sql --> 002_constraints.sql
 ```
 
 El navegador nunca usa nombres internos de Docker: solicita `/api/salud` al mismo origen y Nginx lo reenvía a `api:8000` dentro de la red de Compose. FastAPI se conecta a `db:5432` con la cuenta limitada, no con el propietario.
@@ -24,7 +24,7 @@ Incluye:
 - modelo conceptual y relacional completo, normalización y diccionario;
 - 30 tablas de negocio y una tabla técnica de migraciones;
 - PK/FK compuestas, `NOT NULL`, 10 `UNIQUE`, 33 `CHECK` contando el dominio, `DEFAULT`, dos ENUM y un DOMAIN;
-- runner de migraciones con transacción, registro y SHA-256;
+- runner de migraciones con transacción, registro y SHA-256, ejecutado por el servicio de única ejecución `migrate`;
 - pruebas SQL de estructura, constraints y privilegios.
 
 No incluye todavía CRUD, funciones de negocio, procedimientos, triggers, vistas, índices de rendimiento, carga masiva, reportes, pantallas nuevas ni despliegue. En particular, las columnas para totales, descuentos, estados, stock y auditoría no sustituyen la lógica pendiente.
@@ -77,7 +77,7 @@ No hace falta instalar Python, PostgreSQL ni `psql` en el host.
    docker compose config
    ```
 
-## Iniciar los tres servicios
+## Iniciar el entorno
 
 Desde la raíz:
 
@@ -86,13 +86,20 @@ docker compose up --build -d
 docker compose ps
 ```
 
-El primer arranque de un volumen crea roles y el esquema vacío `bodegas`. Las migraciones no se ejecutan dentro del bootstrap: esa separación permite probar primero los permisos y obliga a aplicarlas conscientemente como propietario.
+El orden de arranque es:
+
+1. `db`: el primer arranque de un volumen ejecuta el bootstrap, que crea los roles y el esquema vacío `bodegas`;
+2. `migrate`: cuando `db` está saludable, aplica las migraciones como `DB_OWNER_USER` y termina. Sólo recibe las credenciales del propietario, nunca las de bootstrap ni las de la API, y sólo está en la red interna `datos`;
+3. `api`: arranca sólo si `migrate` terminó con código 0;
+4. `front`.
+
+En `docker compose ps -a`, `migrate` aparece como `Exited (0)`: es lo esperado. En arranques posteriores vuelve a ejecutarse, omite las migraciones ya registradas y termina. Si una migración falla, `api` no arranca; ver el motivo con `docker compose logs migrate`.
 
 Los servicios pueden aparecer temporalmente como `starting`; los healthchecks reintentan mientras PostgreSQL inicia.
 
-## Aplicar migraciones
+## Migraciones: funcionamiento y ejecución manual (opcional)
 
-Con `db` iniciado y saludable:
+Normalmente no hace falta aplicarlas a mano: lo hace el servicio `migrate`. Para diagnóstico se puede ejecutar el mismo runner dentro de `db`:
 
 ```bash
 docker compose exec db /opt/bodegas/db/migrate.sh
@@ -101,7 +108,7 @@ docker compose exec db /opt/bodegas/db/migrate.sh
 El script:
 
 1. ordena archivos `NNN_*.sql`;
-2. se conecta por TCP como `DB_OWNER_USER`;
+2. se conecta por TCP como `DB_OWNER_USER` a `DB_HOST` (`db` desde el servicio `migrate`, `127.0.0.1` por defecto dentro de `db`);
 3. usa `ON_ERROR_STOP` y una transacción por archivo;
 4. registra nombre, SHA-256 e instante en `bodegas.schema_migration`;
 5. omite una migración ya aplicada sin cambios;
@@ -109,12 +116,13 @@ El script:
 
 Nunca modificar una migración aplicada en un entorno compartido: agregar otra con el siguiente prefijo. No ejecutar el runner con la API ni con el superusuario de bootstrap.
 
-El Dockerfile copia los SQL dentro de la imagen. Si se agrega una migración a un contenedor ya creado, reconstruir `db` antes de ejecutar el runner:
+El Dockerfile copia los SQL dentro de la imagen. Al agregar una migración, reconstruir para que `migrate` la vea:
 
 ```bash
-docker compose up -d --build db
-docker compose exec db /opt/bodegas/db/migrate.sh
+docker compose up -d --build
 ```
+
+Si el runner informa que el checksum de una migración aplicada cambió, el volumen tiene una versión anterior de ese archivo. En un entorno compartido corresponde una migración correctiva nueva. En un entorno local descartable se puede recrear el volumen con `docker compose down -v`, que borra todos los datos.
 
 ## Ejecutar pruebas de base
 
@@ -209,18 +217,19 @@ Mientras la base está detenida, la API debe responder `503` sin credenciales ni
 Para no tocar el volumen habitual se puede usar un nombre de proyecto diferente:
 
 ```bash
-docker compose --env-file .env.example -p bda_etapa2_prueba up -d --build db
-docker compose --env-file .env.example -p bda_etapa2_prueba exec db /opt/bodegas/db/migrate.sh
+docker compose --env-file .env.example -p bda_etapa1_prueba up -d --build --wait
+docker compose --env-file .env.example -p bda_etapa1_prueba ps -a
+docker compose --env-file .env.example -p bda_etapa1_prueba exec db /opt/bodegas/db/tests/run_all.sh
 ```
 
-Luego ejecutar las pruebas posmigración agregando los mismos `--env-file` y `-p` a los comandos anteriores. Los valores de `.env.example` sirven sólo para este entorno local descartable, no para uso real.
+`--wait` termina con error si algún servicio no queda saludable o si `migrate` falla. Los valores de `.env.example` sirven sólo para este entorno local descartable, no para uso real. Si los puertos 8000/8080 están ocupados, definir antes `API_PORT` y `FRONT_PORT` en la shell; esas variables tienen prioridad sobre `--env-file`.
 
 Antes de eliminarlo, verificar que el nombre sea exactamente el aislado:
 
 ```bash
-docker compose --env-file .env.example -p bda_etapa2_prueba ps
-docker volume ls --filter label=com.docker.compose.project=bda_etapa2_prueba
-docker compose --env-file .env.example -p bda_etapa2_prueba down -v
+docker compose --env-file .env.example -p bda_etapa1_prueba ps
+docker volume ls --filter label=com.docker.compose.project=bda_etapa1_prueba
+docker compose --env-file .env.example -p bda_etapa1_prueba down -v
 ```
 
 El último comando borra únicamente el volumen del proyecto de prueba indicado.
@@ -245,12 +254,12 @@ Eliminar además el volumen y todos los datos de PostgreSQL:
 docker compose down -v
 ```
 
-`down -v` es destructivo. El siguiente arranque ejecutará nuevamente el bootstrap y será necesario volver a aplicar migraciones.
+`down -v` es destructivo. El siguiente `up` ejecutará nuevamente el bootstrap y el servicio `migrate` volverá a aplicar todas las migraciones.
 
 ## Roles y persistencia
 
 - `POSTGRES_BOOTSTRAP_USER`: superusuario técnico de la imagen oficial; no lo usa la aplicación.
-- `DB_OWNER_USER`: dueño no administrativo de la base/esquema y único ejecutor de migraciones.
+- `DB_OWNER_USER`: dueño no administrativo de la base/esquema y único ejecutor de migraciones (servicio `migrate`).
 - `DB_APP_USER`: puede conectar y usar el esquema, pero no crear objetos ni manipular tablas en esta etapa.
 
 PostgreSQL guarda datos en el volumen `postgres_data`. Las variables de inicialización y el bootstrap sólo se aplican cuando el volumen está vacío. Cambiar usuarios o contraseñas en `.env` después del primer arranque no modifica roles existentes.

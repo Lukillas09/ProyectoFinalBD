@@ -288,7 +288,7 @@ Decisión actual: las transacciones se clasifican como opcionales porque fueron 
 |---|---|
 | Estructura solicitada | Directorios reales; los reservados para etapas futuras llevan README explicativo, no archivos vacíos. |
 | PostgreSQL 16 persistente | Imagen `postgres:16-alpine` y volumen nombrado. |
-| Tres servicios con un comando | `db`, `api` y `front` en `docker-compose.yml`. |
+| Un solo comando levanta base, API y front | `docker compose up` arranca `db`, ejecuta la tarea única `migrate` y recién después `api` y `front`. |
 | Healthchecks | PostgreSQL con `pg_isready`, API llamando `/salud` y front comprobando Nginx. |
 | Propietario separado de API | Bootstrap crea cuenta de inicialización, propietario del proyecto y rol API. |
 | API sin DDL ni superusuario | `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, sin `CREATE` en base o esquema. |
@@ -297,7 +297,7 @@ Decisión actual: las transacciones se clasifican como opcionales porque fueron 
 | Estado visible en navegador | El front consulta `/api/salud` y muestra éxito o indisponibilidad. |
 | Sin nombres internos en el navegador | Nginx recibe `/api/*` y lo reenvía a `api:8000` dentro de Docker. |
 | Documentación operativa | README con configuración, arranque, verificación, parada y borrado explícito del volumen. |
-| Separación por etapas | La infraestructura no aplica migraciones automáticamente durante el bootstrap; el propietario usa el runner explícito. CRUD, triggers, carga masiva y reportes siguen pendientes. |
+| Separación por etapas | El bootstrap sólo crea roles y esquema; las migraciones las aplica el servicio `migrate` como propietario, en un contenedor aparte que sólo recibe las credenciales del propietario. CRUD, triggers, carga masiva y reportes siguen pendientes. |
 | Límites operativos | La regla general pide una rama por etapa y PR revisado, pero la instrucción específica de esta entrega prohíbe commit y push. El trabajo queda sin commit en `etapa-2-modelado`; no se despliega. |
 
 El rol de reportes de solo lectura se difiere hasta que existan tablas o vistas concretas a las que aplicar privilegios; sigue siendo un mínimo pendiente del PDF.
@@ -333,7 +333,7 @@ La temperatura de servicio no queda pendiente: el PDF la asigna al catálogo `Ma
 - Nginx traduce `/api/salud` a `http://api:8000/salud` dentro de la red de Compose.
 - La API también se publica en `localhost:8000` para `/salud` y `/docs` durante desarrollo.
 - PostgreSQL no publica el puerto 5432 al host en esta etapa; se accede desde la red interna o con `docker compose exec`.
-- El bootstrap crea un esquema vacío `bodegas`, propiedad del rol del proyecto. Las tablas sólo aparecen cuando se ejecuta `db/migrate.sh` como propietario.
+- El bootstrap crea un esquema vacío `bodegas`, propiedad del rol del proyecto. Las tablas aparecen cuando el servicio `migrate` ejecuta `db/migrate.sh` como propietario. Ese servicio depende de `db` saludable, y `api` depende de que `migrate` termine con código 0, de modo que la API nunca arranca contra un esquema a medio crear.
 - `db/migrate.sh` aplica archivos numerados, falla con `ON_ERROR_STOP`, usa una transacción por archivo, registra SHA-256, omite reaplicaciones idénticas y rechaza cambios en archivos ya registrados.
 - La API no recibe DML ni `EXECUTE` por la existencia de las tablas; la prueba posterior a migraciones verifica que conserva privilegios mínimos.
 - Los scripts de inicialización de PostgreSQL sólo corren con un volumen vacío; cualquier cambio de roles debe hacerse mediante una migración administrativa o una reinicialización explícita y consciente del volumen.

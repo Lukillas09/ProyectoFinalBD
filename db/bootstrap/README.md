@@ -13,6 +13,6 @@ El script usa la cuenta superusuaria de bootstrap para:
 
 La API no recibe DML ni ejecución de rutinas por anticipado. Las migraciones actuales crean el modelo sin ampliar esos permisos; una migración operativa posterior deberá conceder privilegios explícitos por objeto u operación y agregar su prueba correspondiente.
 
-El bootstrap no crea tablas de negocio. `db/migrate.sh` aplica las migraciones actuales con `DB_OWNER_USER`, nunca con `POSTGRES_BOOTSTRAP_USER` ni con `DB_APP_USER`.
+El bootstrap no crea tablas de negocio. El servicio `migrate` ejecuta `db/migrate.sh` con `DB_OWNER_USER`, nunca con `POSTGRES_BOOTSTRAP_USER` ni con `DB_APP_USER`.
 
 Cambiar `.env` no modifica un volumen ya inicializado. Ver `README.md` antes de eliminar el volumen, porque esa operación borra todos los datos.
