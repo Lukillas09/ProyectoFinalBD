@@ -86,7 +86,16 @@ No usar `FLOAT` para dinero. Usar `NUMERIC(p,s)`. No modelar estados como texto 
 
 ## Alcance de la etapa actual
 
-La infraestructura PostgreSQL -> API -> front, el modelo (Etapa 1), la lógica de negocio en la base (Etapa 2: migraciones 003 a 007) y la carga masiva reproducible (Etapa 3: `db/seed/`, servicio `seed` con perfil propio) ya existen. `001` a `007` están en `main`: cualquier corrección va en una migración nueva. No implementar todavía CRUD en la API, índices de rendimiento (`008_indices.sql`, Etapa 4), consultas de la Etapa 5 ni pantallas nuevas.
+Ya existen:
+- la infraestructura PostgreSQL -> API -> front;
+- el modelo (Etapa 1);
+- la lógica de negocio en la base (Etapa 2: migraciones 003 a 007);
+- la carga masiva reproducible (Etapa 3: `db/seed/`, servicio `seed` con perfil propio);
+- los índices de rendimiento (Etapa 4: `008_indices.sql`, medición en `db/perf/`, informe en `docs/rendimiento.md`).
+
+Una vez integradas en `main`, las migraciones no se modifican: cualquier corrección va en una migración nueva. La próxima es la Etapa 5, consultas avanzadas S9 a S12 con su `EXPLAIN (ANALYZE)`. No implementar todavía CRUD en la API ni pantallas nuevas.
+
+Un índice nuevo se justifica con una consulta medida antes y después con `db/perf/medir.sh`, y su costo de escritura se considera, como en `docs/rendimiento.md`. Los experimentos que crean índices o cambian datos van dentro de `BEGIN … ROLLBACK` o en un proyecto de Compose aislado.
 
 La carga masiva se conecta como propietario y deshabilita sólo los triggers que chocan con una historia, dentro de una única transacción. Cualquier cambio en el generador debe mantener la reproducibilidad (misma `SEMILLA`, `FECHA_REFERENCIA` y `ESCALA` producen las mismas huellas de `hashes.sql`) y hacer pasar `controles.sql`. No versionar datos generados ni volcados.
 
