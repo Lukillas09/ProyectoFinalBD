@@ -1,0 +1,123 @@
+Pager usage is off.
+SET
+BEGIN
+CREATE INDEX
+ANALYZE
+### Estadísticas de comprobante.fecha
+ n_distinct  | correlation  | limites_histograma |     primer_limite      |     ultimo_limite      
+-------------+--------------+--------------------+------------------------+------------------------
+ -0.99850124 | -0.009570255 |                101 | 2020-10-27 13:14:54+00 | 2026-10-27 23:42:20+00
+(1 row)
+
+ filas_5_anios | total  | porcentaje 
+---------------+--------+------------
+        125091 | 150125 |       83.3
+(1 row)
+
+### A. Último trimestre (pocas filas): usa el índice
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=521.34..521.84 rows=40 width=36) (actual time=1.389..1.395 rows=40 loops=1)
+   Group Key: id_sala
+   Batches: 1  Memory Usage: 32kB
+   Buffers: shared hit=1 read=34
+   ->  Index Only Scan using exp_fecha_incl on comprobante c  (cost=0.43..490.02 rows=6264 width=10) (actual time=0.034..0.777 rows=6343 loops=1)
+         Index Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+         Heap Fetches: 0
+         Buffers: shared hit=1 read=34
+ Planning:
+   Buffers: shared hit=48
+ Planning Time: 0.275 ms
+ Execution Time: 1.443 ms
+(12 rows)
+
+### B. Últimos 5 años (83 % de la tabla), consulta cubierta por el índice
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate  (cost=5464.85..5475.28 rows=40 width=36) (actual time=15.005..16.921 rows=40 loops=1)
+   Group Key: id_sala
+   Buffers: shared hit=50 read=586
+   ->  Gather Merge  (cost=5464.85..5474.18 rows=80 width=36) (actual time=14.997..16.861 rows=120 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=50 read=586
+         ->  Sort  (cost=4464.82..4464.92 rows=40 width=36) (actual time=12.363..12.365 rows=40 loops=3)
+               Sort Key: id_sala
+               Sort Method: quicksort  Memory: 28kB
+               Buffers: shared hit=50 read=586
+               Worker 0:  Sort Method: quicksort  Memory: 28kB
+               Worker 1:  Sort Method: quicksort  Memory: 28kB
+               ->  Partial HashAggregate  (cost=4463.26..4463.76 rows=40 width=36) (actual time=12.321..12.328 rows=40 loops=3)
+                     Group Key: id_sala
+                     Batches: 1  Memory Usage: 32kB
+                     Buffers: shared hit=36 read=586
+                     Worker 0:  Batches: 1  Memory Usage: 32kB
+                     Worker 1:  Batches: 1  Memory Usage: 32kB
+                     ->  Parallel Index Only Scan using exp_fecha_incl on comprobante c  (cost=0.43..4202.22 rows=52208 width=10) (actual time=0.129..6.471 rows=41697 loops=3)
+                           Index Cond: (fecha >= ((CURRENT_DATE - '5 years'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                           Heap Fetches: 0
+                           Buffers: shared hit=36 read=586
+ Planning Time: 0.064 ms
+ Execution Time: 16.978 ms
+(25 rows)
+
+### C. Últimos 5 años pidiendo id_cliente (no está en el índice): recorre la tabla
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=17298.60..17298.61 rows=1 width=8) (actual time=63.812..63.814 rows=1 loops=1)
+   Buffers: shared hit=3060
+   ->  Sort  (cost=16672.11..16985.36 rows=125298 width=8) (actual time=55.249..59.040 rows=125091 loops=1)
+         Sort Key: id_cliente
+         Sort Method: quicksort  Memory: 3073kB
+         Buffers: shared hit=3060
+         ->  Seq Scan on comprobante c  (cost=0.00..6062.50 rows=125298 width=8) (actual time=0.242..42.036 rows=125091 loops=1)
+               Filter: (fecha >= ((CURRENT_DATE - '5 years'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+               Rows Removed by Filter: 25034
+               Buffers: shared hit=3060
+ Planning:
+   Buffers: shared hit=6
+ Planning Time: 0.101 ms
+ Execution Time: 64.030 ms
+(14 rows)
+
+### D. Mismo caso forzando el índice (enable_seqscan = off, sólo para comparar costos)
+SET
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=20261.55..20261.56 rows=1 width=8) (actual time=37.768..37.769 rows=1 loops=1)
+   Buffers: shared hit=2276
+   ->  Sort  (cost=19635.06..19948.30 rows=125298 width=8) (actual time=29.917..33.486 rows=125091 loops=1)
+         Sort Key: id_cliente
+         Sort Method: quicksort  Memory: 3073kB
+         Buffers: shared hit=2276
+         ->  Bitmap Heap Scan on comprobante c  (cost=3459.49..9025.45 rows=125298 width=8) (actual time=4.317..15.696 rows=125091 loops=1)
+               Recheck Cond: (fecha >= ((CURRENT_DATE - '5 years'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+               Heap Blocks: exact=1657
+               Buffers: shared hit=2276
+               ->  Bitmap Index Scan on exp_fecha_incl  (cost=0.00..3428.16 rows=125298 width=0) (actual time=4.177..4.178 rows=125091 loops=1)
+                     Index Cond: (fecha >= ((CURRENT_DATE - '5 years'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                     Buffers: shared hit=619
+ Planning Time: 0.090 ms
+ Execution Time: 38.016 ms
+(15 rows)
+
+RESET
+### E. Sin forzar, con random_page_cost = 1.1 (valor habitual para SSD o datos en memoria)
+SET
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=17298.60..17298.61 rows=1 width=8) (actual time=60.600..60.603 rows=1 loops=1)
+   Buffers: shared hit=3060
+   ->  Sort  (cost=16672.11..16985.36 rows=125298 width=8) (actual time=52.750..56.330 rows=125091 loops=1)
+         Sort Key: id_cliente
+         Sort Method: quicksort  Memory: 3073kB
+         Buffers: shared hit=3060
+         ->  Seq Scan on comprobante c  (cost=0.00..6062.50 rows=125298 width=8) (actual time=0.272..40.111 rows=125091 loops=1)
+               Filter: (fecha >= ((CURRENT_DATE - '5 years'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+               Rows Removed by Filter: 25034
+               Buffers: shared hit=3060
+ Planning Time: 0.193 ms
+ Execution Time: 61.103 ms
+(12 rows)
+
+ROLLBACK

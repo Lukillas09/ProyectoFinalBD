@@ -1,0 +1,63 @@
+Pager usage is off.
+SET
+BEGIN
+SELECT 150125
+CREATE INDEX
+ANALYZE
+### A. Estadística inicial: la sala 1 es una de 40
+                                              valores_frecuentes_10                                               |                                              frecuencias                                              
+------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------
+ {40,4,34,17,10,38,28,16,23,20,24,27,18,35,37,39,3,36,31,2,11,33,32,15,6,1,8,30,7,25,29,19,22,26,12,14,9,5,21,13} | {0.041333333,0.0402,0.0385,0.038066667,0.037233334,0.035033334,0.034533333,0.0338,0.033466667,0.0333}
+(1 row)
+
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=1372.42..1372.43 rows=1 width=40) (actual time=3.207..3.208 rows=1 loops=1)
+   Buffers: local read=1163
+   ->  Bitmap Heap Scan on clon  (cost=36.89..1356.55 rows=3173 width=6) (actual time=0.333..2.857 rows=3333 loops=1)
+         Recheck Cond: (id_sala = 1)
+         Heap Blocks: exact=1159
+         Buffers: local read=1163
+         ->  Bitmap Index Scan on exp_clon_sala  (cost=0.00..36.09 rows=3173 width=0) (actual time=0.227..0.228 rows=3333 loops=1)
+               Index Cond: (id_sala = 1)
+               Buffers: local read=4
+ Planning:
+   Buffers: shared hit=25, local read=1
+ Planning Time: 0.319 ms
+ Execution Time: 3.271 ms
+(13 rows)
+
+### B. Cambio de distribución SIN ANALYZE: el 90 % de las filas pasa a la sala 1
+UPDATE 135113
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2579.82..2579.83 rows=1 width=40) (actual time=23.573..23.574 rows=1 loops=1)
+   Buffers: local hit=59 read=2337 written=994
+   ->  Bitmap Heap Scan on clon  (cost=70.50..2550.01 rows=5961 width=6) (actual time=2.205..14.330 rows=135440 loops=1)
+         Recheck Cond: (id_sala = 1)
+         Heap Blocks: exact=2286
+         Buffers: local hit=59 read=2337 written=994
+         ->  Bitmap Index Scan on exp_clon_sala  (cost=0.00..69.00 rows=5961 width=0) (actual time=1.964..1.965 rows=138446 loops=1)
+               Index Cond: (id_sala = 1)
+               Buffers: local hit=59 read=51 written=51
+ Planning Time: 0.055 ms
+ Execution Time: 23.828 ms
+(11 rows)
+
+### C. ANALYZE y el mismo plan otra vez
+ANALYZE
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=4958.53..4958.54 rows=1 width=40) (actual time=21.148..21.150 rows=1 loops=1)
+   Buffers: local read=2405
+   ->  Seq Scan on clon  (cost=0.00..4281.56 rows=135393 width=6) (actual time=0.035..12.571 rows=135440 loops=1)
+         Filter: (id_sala = 1)
+         Rows Removed by Filter: 14685
+         Buffers: local read=2405
+ Planning:
+   Buffers: shared hit=11, local read=1
+ Planning Time: 0.144 ms
+ Execution Time: 21.172 ms
+(10 rows)
+
+ROLLBACK

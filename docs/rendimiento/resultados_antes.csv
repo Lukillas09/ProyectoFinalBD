@@ -1,0 +1,8 @@
+codigo,primera_ms,mediana_ms,minimo_ms,maximo_ms,recorridos,filas_leidas,filas_descartadas_filtro,heap_fetches,shared_hit,shared_read,disparadores
+C1_S8,30.419,23.441,22.964,26.767,Parallel Seq Scan on comprobante; Seq Scan on localidad; Seq Scan on sala_venta,6498,143782,0,3064,0,
+C2_S3,6.863,6.515,6.402,6.673,Index Only Scan uq_cliente_id_tipo on cliente; Parallel Seq Scan on comprobante,12,150120,36,3083,0,
+C3_S5,0.262,0.242,0.236,0.268,Seq Scan on localidad; Seq Scan on sala_venta; Seq Scan on transferencia,84,5081,0,35,0,
+C4_D4,3360.782,3619.976,3460.041,3640.717,Seq Scan on cliente; Seq Scan on comprobante,155385,14740,0,4737,0,fk_socio_club_cliente 53.864 ms (695 llamadas); fk_distribuidor_cliente 15.875 ms (695 llamadas); fk_exportador_cliente 12.761 ms (695 llamadas); fk_comprobante_cliente 3517.329 ms (695 llamadas)
+C5_VENTAS_VINO,28.413,27.725,26.539,32.470,Parallel Seq Scan on comprobante; Parallel Seq Scan on renglon_comprobante,165252,523178,0,7565,0,
+C6_PRECIO_VIGENTE,741.853,693.220,677.431,734.176,Parallel Seq Scan on comprobante; Parallel Seq Scan on renglon_comprobante; Seq Scan on auditoria_precio,584985,27010309,0,290346,0,
+C7_S1,94.456,88.622,87.682,90.690,Parallel Seq Scan on renglon_comprobante; Seq Scan on bodega; Seq Scan on vino,540165,0,0,4513,0,

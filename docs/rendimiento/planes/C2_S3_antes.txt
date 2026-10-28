@@ -1,0 +1,33 @@
+GroupAggregate  (cost=6096.11..6096.22 rows=3 width=12) (actual time=4.908..6.454 rows=3 loops=1)
+  Group Key: t.tipo
+  Buffers: shared hit=3083
+  ->  Sort  (cost=6096.11..6096.14 rows=11 width=12) (actual time=4.903..6.448 rows=6 loops=1)
+        Sort Key: t.tipo, c.id_cliente
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=3083
+        ->  Hash Right Join  (cost=1000.36..6095.92 rows=11 width=12) (actual time=1.268..6.439 rows=6 loops=1)
+              Hash Cond: (cl.tipo = t.tipo)
+              Buffers: shared hit=3083
+              ->  Gather  (cost=1000.29..6095.70 rows=11 width=12) (actual time=1.241..6.406 rows=6 loops=1)
+                    Workers Planned: 1
+                    Workers Launched: 1
+                    Buffers: shared hit=3081
+                    ->  Nested Loop  (cost=0.29..5094.60 rows=6 width=12) (actual time=0.912..2.972 rows=3 loops=2)
+                          Buffers: shared hit=3081
+                          ->  Parallel Seq Scan on comprobante c  (cost=0.00..5046.95 rows=6 width=8) (actual time=0.878..2.928 rows=3 loops=2)
+                                Filter: ((id_sala = 2) AND (fecha >= ((CURRENT_DATE - '7 days'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))
+                                Rows Removed by Filter: 75060
+                                Buffers: shared hit=3060
+                          ->  Index Only Scan using uq_cliente_id_tipo on cliente cl  (cost=0.29..7.94 rows=1 width=12) (actual time=0.013..0.013 rows=1 loops=6)
+                                Index Cond: (id_cliente = c.id_cliente)
+                                Heap Fetches: 6
+                                Buffers: shared hit=21
+              ->  Hash  (cost=0.03..0.03 rows=3 width=4) (actual time=0.023..0.024 rows=3 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                    Buffers: shared hit=2
+                    ->  Function Scan on unnest t  (cost=0.01..0.03 rows=3 width=4) (actual time=0.019..0.020 rows=3 loops=1)
+                          Buffers: shared hit=2
+Planning:
+  Buffers: shared hit=9
+Planning Time: 0.190 ms
+Execution Time: 6.515 ms

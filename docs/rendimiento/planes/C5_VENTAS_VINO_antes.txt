@@ -1,0 +1,37 @@
+Sort  (cost=12636.41..12636.51 rows=40 width=52) (actual time=24.779..27.644 rows=40 loops=1)
+  Sort Key: (sum(r.cantidad)) DESC
+  Sort Method: quicksort  Memory: 27kB
+  Buffers: shared hit=7565
+  ->  Finalize GroupAggregate  (cost=12629.75..12635.35 rows=40 width=52) (actual time=24.734..27.635 rows=40 loops=1)
+        Group Key: c.id_sala
+        Buffers: shared hit=7565
+        ->  Gather Merge  (cost=12629.75..12634.35 rows=40 width=52) (actual time=24.724..27.595 rows=80 loops=1)
+              Workers Planned: 1
+              Workers Launched: 1
+              Buffers: shared hit=7565
+              ->  Sort  (cost=11629.74..11629.84 rows=40 width=52) (actual time=22.520..22.524 rows=40 loops=2)
+                    Sort Key: c.id_sala
+                    Sort Method: quicksort  Memory: 29kB
+                    Buffers: shared hit=7565
+                    Worker 0:  Sort Method: quicksort  Memory: 29kB
+                    ->  Partial HashAggregate  (cost=11628.17..11628.67 rows=40 width=52) (actual time=22.483..22.492 rows=40 loops=2)
+                          Group Key: c.id_sala
+                          Batches: 1  Memory Usage: 48kB
+                          Buffers: shared hit=7558
+                          Worker 0:  Batches: 1  Memory Usage: 48kB
+                          ->  Parallel Hash Join  (cost=7366.50..11541.41 rows=8676 width=14) (actual time=10.295..21.497 rows=7564 loops=2)
+                                Hash Cond: (c.nro_comprobante = r.nro_comprobante)
+                                Buffers: shared hit=7558
+                                ->  Parallel Seq Scan on comprobante c  (cost=0.00..3943.09 rows=88309 width=12) (actual time=0.320..5.162 rows=75062 loops=2)
+                                      Buffers: shared hit=3060
+                                ->  Parallel Hash  (cost=7289.68..7289.68 rows=6146 width=18) (actual time=9.741..9.742 rows=7564 loops=2)
+                                      Buckets: 16384  Batches: 1  Memory Usage: 992kB
+                                      Buffers: shared hit=4486
+                                      ->  Parallel Seq Scan on renglon_comprobante r  (cost=0.00..7289.68 rows=6146 width=18) (actual time=1.840..8.307 rows=7564 loops=2)
+                                            Filter: (cod_vino = 4)
+                                            Rows Removed by Filter: 261589
+                                            Buffers: shared hit=4486
+Planning:
+  Buffers: shared hit=16
+Planning Time: 0.191 ms
+Execution Time: 27.725 ms

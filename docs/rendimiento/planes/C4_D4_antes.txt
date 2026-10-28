@@ -1,0 +1,22 @@
+Delete on cliente c  (cost=752.23..6607.75 rows=0 width=0) (actual time=19.242..19.244 rows=0 loops=1)
+  Buffers: shared hit=4737
+  ->  Hash Right Anti Join  (cost=752.23..6607.75 rows=2405 width=12) (actual time=18.482..18.591 rows=695 loops=1)
+        Hash Cond: (x.id_cliente = c.id_cliente)
+        Buffers: shared hit=3347
+        ->  Seq Scan on comprobante x  (cost=0.00..4561.25 rows=150125 width=14) (actual time=0.186..7.301 rows=150125 loops=1)
+              Buffers: shared hit=3060
+        ->  Hash  (cost=687.00..687.00 rows=5218 width=14) (actual time=2.581..2.582 rows=5260 loops=1)
+              Buckets: 8192  Batches: 1  Memory Usage: 311kB
+              Buffers: shared hit=287
+              ->  Seq Scan on cliente c  (cost=0.00..687.00 rows=5218 width=14) (actual time=0.007..2.057 rows=5260 loops=1)
+                    Filter: ((tipo = 'socio'::tipo_cliente) AND (fecha_alta < (CURRENT_DATE - '5 years'::interval)))
+                    Rows Removed by Filter: 14740
+                    Buffers: shared hit=287
+Planning:
+  Buffers: shared hit=7
+Planning Time: 0.187 ms
+Trigger for constraint fk_socio_club_cliente: time=53.864 calls=695
+Trigger for constraint fk_distribuidor_cliente: time=15.875 calls=695
+Trigger for constraint fk_exportador_cliente: time=12.761 calls=695
+Trigger for constraint fk_comprobante_cliente: time=3517.329 calls=695
+Execution Time: 3619.976 ms
