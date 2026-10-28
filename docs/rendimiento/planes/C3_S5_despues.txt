@@ -1,0 +1,36 @@
+Limit  (cost=31.35..31.35 rows=1 width=23) (actual time=0.071..0.075 rows=33 loops=1)
+  Buffers: shared hit=4
+  ->  Sort  (cost=31.35..31.45 rows=40 width=23) (actual time=0.070..0.072 rows=34 loops=1)
+        Sort Key: (count(t.nro_transferencia))
+        Sort Method: quicksort  Memory: 26kB
+        Buffers: shared hit=4
+        ->  HashAggregate  (cost=30.75..31.15 rows=40 width=23) (actual time=0.059..0.062 rows=40 loops=1)
+              Group Key: s.id_sala, l.nombre
+              Batches: 1  Memory Usage: 24kB
+              Buffers: shared hit=4
+              ->  Hash Join  (cost=11.90..30.45 rows=40 width=23) (actual time=0.041..0.050 rows=40 loops=1)
+                    Hash Cond: (s.id_localidad = l.id_localidad)
+                    Buffers: shared hit=4
+                    ->  Hash Right Join  (cost=10.07..28.50 rows=40 width=16) (actual time=0.020..0.025 rows=40 loops=1)
+                          Hash Cond: (t.id_sala = s.id_sala)
+                          Buffers: shared hit=3
+                          ->  Bitmap Heap Scan on transferencia t  (cost=8.17..26.58 rows=7 width=12) (actual time=0.003..0.004 rows=7 loops=1)
+                                Recheck Cond: (estado <> 'procesado'::estado_documento)
+                                Heap Blocks: exact=1
+                                Buffers: shared hit=2
+                                ->  Bitmap Index Scan on idx_transferencia_pendientes  (cost=0.00..8.17 rows=7 width=0) (actual time=0.002..0.002 rows=7 loops=1)
+                                      Buffers: shared hit=1
+                          ->  Hash  (cost=1.40..1.40 rows=40 width=8) (actual time=0.010..0.010 rows=40 loops=1)
+                                Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                                Buffers: shared hit=1
+                                ->  Seq Scan on sala_venta s  (cost=0.00..1.40 rows=40 width=8) (actual time=0.001..0.003 rows=40 loops=1)
+                                      Buffers: shared hit=1
+                    ->  Hash  (cost=1.37..1.37 rows=37 width=15) (actual time=0.015..0.015 rows=37 loops=1)
+                          Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                          Buffers: shared hit=1
+                          ->  Seq Scan on localidad l  (cost=0.00..1.37 rows=37 width=15) (actual time=0.003..0.005 rows=37 loops=1)
+                                Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=10
+Planning Time: 0.236 ms
+Execution Time: 0.155 ms

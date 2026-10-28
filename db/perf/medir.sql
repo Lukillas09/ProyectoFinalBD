@@ -82,7 +82,7 @@ BEGIN
     IF v_m IS NOT NULL THEN
       v_loops := v_m[2]::BIGINT;
       v_m := regexp_match(v_linea,
-        '((?:Parallel )?(?:Seq Scan|Index Only Scan|Index Scan|Bitmap Heap Scan|Bitmap Index Scan)) (?:using (\S+) )?on (\S+)');
+        '((?:Parallel )?(?:Seq Scan|Index Only Scan(?: Backward)?|Index Scan(?: Backward)?|Bitmap Heap Scan|Bitmap Index Scan)) (?:using (\S+) )?on (\S+)');
       IF v_m IS NOT NULL THEN
         v_recorridos := v_recorridos || (v_m[1] || ' ' || COALESCE(v_m[2] || ' on ', 'on ') || v_m[3]);
         IF v_m[1] NOT LIKE 'Bitmap Index Scan' THEN

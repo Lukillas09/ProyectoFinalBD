@@ -1,0 +1,32 @@
+Sort  (cost=669.73..673.43 rows=1480 width=74) (actual time=2.527..2.529 rows=40 loops=1)
+  Sort Key: (sum(c.total)) DESC
+  Sort Method: quicksort  Memory: 28kB
+  Buffers: shared hit=37
+  ->  HashAggregate  (cost=573.30..591.80 rows=1480 width=74) (actual time=2.492..2.506 rows=40 loops=1)
+        Group Key: s.id_sala, l.nombre
+        Batches: 1  Memory Usage: 97kB
+        Buffers: shared hit=37
+        ->  Hash Join  (cost=4.16..512.95 rows=6035 width=40) (actual time=0.057..1.559 rows=6343 loops=1)
+              Hash Cond: (s.id_localidad = l.id_localidad)
+              Buffers: shared hit=37
+              ->  Hash Join  (cost=2.33..493.46 rows=6035 width=33) (actual time=0.031..0.987 rows=6343 loops=1)
+                    Hash Cond: (c.id_sala = s.id_sala)
+                    Buffers: shared hit=36
+                    ->  Index Only Scan using idx_comprobante_fecha on comprobante c  (cost=0.43..474.04 rows=6035 width=10) (actual time=0.014..0.394 rows=6343 loops=1)
+                          Index Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                          Heap Fetches: 0
+                          Buffers: shared hit=35
+                    ->  Hash  (cost=1.40..1.40 rows=40 width=27) (actual time=0.011..0.011 rows=40 loops=1)
+                          Buckets: 1024  Batches: 1  Memory Usage: 11kB
+                          Buffers: shared hit=1
+                          ->  Seq Scan on sala_venta s  (cost=0.00..1.40 rows=40 width=27) (actual time=0.001..0.003 rows=40 loops=1)
+                                Buffers: shared hit=1
+              ->  Hash  (cost=1.37..1.37 rows=37 width=15) (actual time=0.018..0.018 rows=37 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                    Buffers: shared hit=1
+                    ->  Seq Scan on localidad l  (cost=0.00..1.37 rows=37 width=15) (actual time=0.004..0.007 rows=37 loops=1)
+                          Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=14
+Planning Time: 0.293 ms
+Execution Time: 2.687 ms

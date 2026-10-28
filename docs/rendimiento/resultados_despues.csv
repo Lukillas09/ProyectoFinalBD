@@ -1,0 +1,8 @@
+codigo,primera_ms,mediana_ms,minimo_ms,maximo_ms,recorridos,filas_leidas,filas_descartadas_filtro,heap_fetches,shared_hit,shared_read,disparadores
+C1_S8,2.741,2.687,2.535,2.855,Index Only Scan idx_comprobante_fecha on comprobante; Seq Scan on localidad; Seq Scan on sala_venta,6420,0,0,37,0,
+C2_S3,0.187,0.124,0.114,0.134,Bitmap Heap Scan on comprobante; Bitmap Index Scan on idx_comprobante_id_sala_fecha; Index Only Scan uq_cliente_id_tipo on cliente,12,0,36,30,0,
+C3_S5,0.142,0.155,0.120,0.216,Bitmap Heap Scan on transferencia; Bitmap Index Scan on idx_transferencia_pendientes; Seq Scan on localidad; Seq Scan on sala_venta,84,0,0,4,0,
+C4_D4,53.153,53.594,48.678,57.007,Index Scan idx_comprobante_id_cliente on comprobante; Seq Scan on cliente,10520,14740,0,16762,0,fk_socio_club_cliente 11.919 ms (695 llamadas); fk_distribuidor_cliente 10.510 ms (695 llamadas); fk_exportador_cliente 10.839 ms (695 llamadas); fk_comprobante_cliente 11.344 ms (695 llamadas)
+C5_VENTAS_VINO,22.719,17.766,16.978,19.135,Bitmap Index Scan on idx_renglon_comprobante_cod_vino; Parallel Bitmap Heap Scan on renglon_comprobante; Parallel Seq Scan on comprobante,165252,0,0,3222,0,
+C6_PRECIO_VIGENTE,32.604,29.241,28.572,30.641,Bitmap Index Scan on idx_comprobante_fecha; Index Scan Backward idx_auditoria_precio_cod_vino_fecha on auditoria_precio; Parallel Bitmap Heap Scan on comprobante; Parallel Seq Scan on renglon_comprobante,547790,0,0,28095,0,
+C7_S1,78.146,78.050,75.559,79.767,Parallel Seq Scan on renglon_comprobante; Seq Scan on bodega; Seq Scan on vino,540165,0,0,4551,0,

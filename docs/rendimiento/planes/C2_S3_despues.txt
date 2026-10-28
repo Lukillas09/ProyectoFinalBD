@@ -1,0 +1,38 @@
+GroupAggregate  (cost=146.61..147.12 rows=3 width=12) (actual time=0.062..0.063 rows=3 loops=1)
+  Group Key: t.tipo
+  Buffers: shared hit=30
+  ->  Incremental Sort  (cost=146.61..147.03 rows=12 width=12) (actual time=0.059..0.060 rows=6 loops=1)
+        Sort Key: t.tipo, c.id_cliente
+        Presorted Key: t.tipo
+        Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+        Buffers: shared hit=30
+        ->  Merge Left Join  (cost=146.50..146.70 rows=12 width=12) (actual time=0.052..0.054 rows=6 loops=1)
+              Merge Cond: (t.tipo = cl.tipo)
+              Buffers: shared hit=30
+              ->  Sort  (cost=0.06..0.07 rows=3 width=4) (actual time=0.022..0.023 rows=3 loops=1)
+                    Sort Key: t.tipo
+                    Sort Method: quicksort  Memory: 25kB
+                    Buffers: shared hit=2
+                    ->  Function Scan on unnest t  (cost=0.01..0.03 rows=3 width=4) (actual time=0.018..0.018 rows=3 loops=1)
+                          Buffers: shared hit=2
+              ->  Sort  (cost=146.44..146.47 rows=12 width=12) (actual time=0.029..0.029 rows=6 loops=1)
+                    Sort Key: cl.tipo
+                    Sort Method: quicksort  Memory: 25kB
+                    Buffers: shared hit=28
+                    ->  Nested Loop  (cost=4.84..146.23 rows=12 width=12) (actual time=0.015..0.024 rows=6 loops=1)
+                          Buffers: shared hit=28
+                          ->  Bitmap Heap Scan on comprobante c  (cost=4.55..50.57 rows=12 width=8) (actual time=0.007..0.010 rows=6 loops=1)
+                                Recheck Cond: ((id_sala = 2) AND (fecha >= ((CURRENT_DATE - '7 days'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))
+                                Heap Blocks: exact=6
+                                Buffers: shared hit=9
+                                ->  Bitmap Index Scan on idx_comprobante_id_sala_fecha  (cost=0.00..4.55 rows=12 width=0) (actual time=0.005..0.005 rows=6 loops=1)
+                                      Index Cond: ((id_sala = 2) AND (fecha >= ((CURRENT_DATE - '7 days'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))
+                                      Buffers: shared hit=3
+                          ->  Index Only Scan using uq_cliente_id_tipo on cliente cl  (cost=0.29..7.97 rows=1 width=12) (actual time=0.002..0.002 rows=1 loops=6)
+                                Index Cond: (id_cliente = c.id_cliente)
+                                Heap Fetches: 6
+                                Buffers: shared hit=19
+Planning:
+  Buffers: shared hit=19
+Planning Time: 0.280 ms
+Execution Time: 0.124 ms
