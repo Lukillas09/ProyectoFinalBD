@@ -86,7 +86,9 @@ No usar `FLOAT` para dinero. Usar `NUMERIC(p,s)`. No modelar estados como texto 
 
 ## Alcance de la etapa actual
 
-La infraestructura PostgreSQL -> API -> front, el modelo (Etapa 1) y la lógica de negocio en la base (Etapa 2: funciones, procedimientos, triggers, vistas y roles, migraciones 003 a 007) ya existen. `001` a `007` están en `main` o en un PR compartido: cualquier corrección va en una migración nueva. No implementar todavía CRUD en la API, índices de rendimiento (`008_indices.sql`, Etapa 4), carga masiva (Etapa 3), consultas de la Etapa 5 ni pantallas nuevas.
+La infraestructura PostgreSQL -> API -> front, el modelo (Etapa 1), la lógica de negocio en la base (Etapa 2: migraciones 003 a 007) y la carga masiva reproducible (Etapa 3: `db/seed/`, servicio `seed` con perfil propio) ya existen. `001` a `007` están en `main`: cualquier corrección va en una migración nueva. No implementar todavía CRUD en la API, índices de rendimiento (`008_indices.sql`, Etapa 4), consultas de la Etapa 5 ni pantallas nuevas.
+
+La carga masiva se conecta como propietario y deshabilita sólo los triggers que chocan con una historia, dentro de una única transacción. Cualquier cambio en el generador debe mantener la reproducibilidad (misma `SEMILLA`, `FECHA_REFERENCIA` y `ESCALA` producen las mismas huellas de `hashes.sql`) y hacer pasar `controles.sql`. No versionar datos generados ni volcados.
 
 Las escrituras de stock, importes, estados y auditoría pertenecen a triggers y procedimientos. Una etapa posterior no debe otorgar a la API privilegios directos sobre esas columnas ni duplicar esos cálculos fuera de PostgreSQL.
 

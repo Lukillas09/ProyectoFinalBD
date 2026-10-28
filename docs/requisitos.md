@@ -9,7 +9,7 @@ Este documento separa cuatro cosas que no deben confundirse:
 - la aclaración posterior del profesor sobre temas aún no vistos;
   - el alcance incremental de cada etapa implementada.
 
-La infraestructura inicial conecta PostgreSQL 16 -> FastAPI -> front. La Etapa 1 agregó el modelo conceptual y relacional, la normalización, el diccionario y el esquema físico con constraints. La Etapa 2 agrega la lógica de negocio dentro de la base: funciones, procedimientos, triggers, vistas y roles con privilegios mínimos (secciones 9 y `docs/trazabilidad.md`). Todavía no se implementan el CRUD de la API, índices de rendimiento, carga masiva, consultas de la Etapa 5 ni pantallas nuevas.
+La infraestructura inicial conecta PostgreSQL 16 -> FastAPI -> front. La Etapa 1 agregó el modelo conceptual y relacional, la normalización, el diccionario y el esquema físico con constraints. La Etapa 2 agrega la lógica de negocio dentro de la base: funciones, procedimientos, triggers, vistas y roles con privilegios mínimos (secciones 9 y `docs/trazabilidad.md`). La Etapa 3 agrega la carga masiva reproducible (sección 10 y `docs/carga_masiva.md`). Todavía no se implementan el CRUD de la API, índices de rendimiento, consultas de la Etapa 5 ni pantallas nuevas.
 
 ## 2. Fuentes revisadas
 
@@ -401,3 +401,34 @@ Valores obtenidos con consultas a `pg_proc`, `pg_trigger`, `pg_views`, `pg_roles
 | CHECK | 8 (uno entre columnas) | 36 contando el dominio; varios entre columnas |
 | DEFAULT | 3 | 17 columnas |
 | PK / FK | todas | 31 / 35 |
+
+## 10. Estado de la Etapa 3: carga masiva
+
+### 10.1 Entregables
+
+- `db/seed/`: catálogos CSV con fuentes, `generar_datos.py`, `requirements.txt` y `Dockerfile` con versiones exactas, `controles.sql`, `post_carga.sql`, `hashes.sql` y README con los pasos.
+- Servicio `seed` en `docker-compose.yml` (perfil `seed`, red `datos`, sólo credenciales del propietario, después de `migrate`).
+- `docs/carga_masiva.md`, el reporte de la etapa:
+  - catálogos y fuentes;
+  - orden de carga según las FK;
+  - estrategia frente a los triggers y sus riesgos;
+  - conteos;
+  - tiempos fila por fila, por lotes y con `COPY`;
+  - controles;
+  - reproducibilidad;
+  - volcado.
+- `dump_completo.sql.gz`: **no se versiona**, porque `.gitignore` excluye `*.sql.gz` (7,8 MB). El README de `db/seed` explica cómo generarlo y restaurarlo.
+
+No se agregaron migraciones: la carga usa los objetos de 001 a 007.
+
+### 10.2 Criterios de aceptación
+
+| Criterio | Evidencia |
+|---|---|
+| Se cumplen los mínimos de volumen | Las 30 tablas tienen filas. Seis superan las 10.000 filas. `renglon_comprobante` tiene 538.306 y `comprobante` 150.125. Control de volumen de `controles.sql` sin violaciones. |
+| Dos ejecuciones con la misma semilla producen los mismos datos | Tres cargas desde volúmenes vacíos (una de ellas con las secuencias ya consumidas por las pruebas) dieron las mismas huellas md5 en las 30 tablas. La tabla está en `docs/carga_masiva.md`, sección 8. |
+| Las consultas de control no encuentran inconsistencias | `controles.sql`: 55 controles y 35 FK revisadas, 0 violaciones. Una alteración provocada se detecta con código 3. |
+| El informe compara la carga fila por fila con la carga por lotes | `docs/carga_masiva.md`, sección 7.2: fila por fila con y sin `COMMIT` por fila, `executemany` y `COPY`. |
+| Está documentado cómo se manejaron los triggers | `docs/carga_masiva.md`, sección 3: se deshabilitan sólo 7 triggers por nombre, en una transacción. Están verificadas las FK activas, la rehabilitación por `ROLLBACK` y el control de `tgenabled`; se documentan los riesgos y cómo se compensan. |
+
+Después de la carga, `db/tests/run_all.sh` sigue pasando completo, y `post_carga.sql` demuestra las reglas activas por el camino normal.
