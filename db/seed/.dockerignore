@@ -1,0 +1,6 @@
+**
+!Dockerfile
+!requirements.txt
+!generar_datos.py
+!catalogos/
+!catalogos/*.csv
