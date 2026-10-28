@@ -31,11 +31,12 @@ Incluye:
   - 4 vistas;
   - privilegios mínimos para la API (`bodegas_rw`) y para reportes (`bodegas_ro`);
 - runner de migraciones con transacción, registro y SHA-256, ejecutado por el servicio de única ejecución `migrate`;
-- pruebas SQL de estructura, reglas RN-01 a RN-15, privilegios y roles.
+- pruebas SQL de estructura, reglas RN-01 a RN-15, privilegios y roles;
+- carga masiva reproducible (Etapa 3): 6 años de historia, más de 150.000 ventas y 530.000 renglones, con catálogos reales, consultas de control y volcado; ver [Carga masiva](#carga-masiva-etapa-3).
 
 Todos los conteos se tomaron del catálogo (`pg_constraint`, `pg_attrdef`, `pg_proc`, `pg_trigger`, `pg_views`).
 
-No incluye todavía CRUD en la API, índices de rendimiento, carga masiva, consultas de la Etapa 5, pantallas nuevas ni despliegue.
+No incluye todavía CRUD en la API, índices de rendimiento, consultas de la Etapa 5, pantallas nuevas ni despliegue.
 
 Documentos académicos:
 
@@ -46,6 +47,7 @@ Documentos académicos:
 - [Diccionario de datos](docs/diccionario_datos.md)
 - [Trazabilidad regla → mecanismo → prueba](docs/trazabilidad.md)
 - [Concurrencia: la última botella](docs/concurrencia.md)
+- [Carga masiva: informe de la Etapa 3](docs/carga_masiva.md)
 
 La consigna y los apuntes de la cátedra se guardan en `material/`, pero esa carpeta está ignorada por Git: es material docente y no se publica. Cada integrante debe copiar los PDF localmente.
 
@@ -301,10 +303,25 @@ PostgreSQL guarda datos en el volumen `postgres_data`. Las variables de iniciali
 
 **Cambio de la Etapa 2:** el bootstrap ahora crea la cuenta de reportes y los roles de grupo. Un volumen inicializado antes de este cambio no los tiene: agregar `DB_REPORT_USER` y `DB_REPORT_PASSWORD` al `.env` y recrear el volumen con `docker compose down -v` (borra los datos locales).
 
+## Carga masiva (Etapa 3)
+
+Con el entorno levantado y la base **sin datos de negocio**:
+
+```bash
+docker compose --profile seed run --rm seed
+docker compose exec db sh -c 'PGPASSWORD="$DB_OWNER_PASSWORD" psql -h 127.0.0.1 -U "$DB_OWNER_USER" -d "$POSTGRES_DB" -v fecha_referencia=2026-10-27 -f /opt/bodegas/db/seed/controles.sql'
+```
+
+- El servicio `seed` tiene el perfil `seed` y no corre con un `up` normal. Recibe sólo las credenciales del propietario.
+- La carga completa tarda alrededor de un minuto.
+- Parámetros: `SEMILLA`, `FECHA_REFERENCIA` y `ESCALA`.
+- **Antes de la demo hay que regenerar con la fecha del día**, porque las consultas usan `CURRENT_DATE`.
+
+Pasos completos, reproducibilidad, volcado y restauración: [db/seed/README.md](db/seed/README.md). Decisiones y resultados: [docs/carga_masiva.md](docs/carga_masiva.md).
+
 ## Pendientes para las próximas etapas
 
-- Carga masiva (Etapa 3): los triggers obligan a cargar la historia respetando las reglas. Los documentos nacen en confección, la fecha de transferencia se fuerza a la actual, las ventas descuentan stock y los comprobantes recalculan importes. Habrá que decidir entre cargar por los procedimientos o desactivar temporalmente sólo triggers de usuario como propietario (`DISABLE TRIGGER USER`) y verificar la coherencia después, documentando los riesgos.
-- Índices (Etapa 4): medir si `v_ventas_mensuales_sala` conviene materializada.
+- Índices (Etapa 4): medir con la base cargada las consultas candidatas de `docs/carga_masiva.md` (sección 10), y si `v_ventas_mensuales_sala` conviene materializada.
 - U1 (Etapa 5): decidir si "aplicar el descuento del tipo de cliente" recalcula sólo cabeceras con `fn_recalcular_comprobante` o también reaplica el descuento en renglones históricos, que hoy son inmutables.
 - Participaciones mínimas no exigidas por una RN: al menos un maridaje por vino, un análisis por lote y un empleado por sala.
 

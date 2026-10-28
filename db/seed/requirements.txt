@@ -1,0 +1,4 @@
+# Versiones exactas: la reproducibilidad de los datos depende de ellas
+# (Faker genera nombres distintos entre versiones).
+psycopg[binary]==3.2.3
+Faker==33.1.0

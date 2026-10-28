@@ -47,6 +47,28 @@ services:
       - datos
     restart: "no"
 
+  # Carga masiva (Etapa 3). Perfil "seed": no corre con un `up` normal.
+  # Uso: docker compose --profile seed run --rm seed
+  # Sólo recibe las credenciales del propietario y sólo está en la red datos.
+  seed:
+    build:
+      context: ./db/seed
+    profiles: ["seed"]
+    environment:
+      DB_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:?Defina POSTGRES_DB en .env}
+      DB_OWNER_USER: ${DB_OWNER_USER:?Defina DB_OWNER_USER en .env}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?Defina DB_OWNER_PASSWORD en .env}
+      SEMILLA: ${SEMILLA:-20260427}
+      FECHA_REFERENCIA: ${FECHA_REFERENCIA:-2026-10-27}
+      ESCALA: ${ESCALA:-1}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - datos
+    restart: "no"
+
   api:
     build:
       context: ./api
