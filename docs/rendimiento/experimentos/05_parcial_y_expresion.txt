@@ -1,0 +1,84 @@
+Pager usage is off.
+SET
+BEGIN
+### A. Índice parcial de 008 (estado <> procesado) y distintas formas de pedir pendientes
+CREATE INDEX
+ANALYZE
+A1. Mismo predicado que el índice:
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=0.13..8.33 rows=6 width=12) (actual time=0.129..0.218 rows=7 loops=1)
+   Group Key: id_sala
+   ->  Index Only Scan using exp_pendientes on transferencia  (cost=0.13..8.24 rows=7 width=4) (actual time=0.099..0.103 rows=7 loops=1)
+         Heap Fetches: 0
+ Planning Time: 0.722 ms
+ Execution Time: 0.483 ms
+(6 rows)
+
+A2. Predicado equivalente para el negocio pero escrito con IN:
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=26.68..26.80 rows=6 width=12) (actual time=0.057..0.060 rows=7 loops=1)
+   Group Key: id_sala
+   ->  Sort  (cost=26.68..26.70 rows=7 width=4) (actual time=0.049..0.050 rows=7 loops=1)
+         Sort Key: id_sala
+         Sort Method: quicksort  Memory: 25kB
+         ->  Bitmap Heap Scan on transferencia  (cost=8.17..26.58 rows=7 width=4) (actual time=0.021..0.023 rows=7 loops=1)
+               Recheck Cond: (estado <> 'procesado'::estado_documento)
+               Filter: (estado = ANY ('{en_confeccion,terminado}'::estado_documento[]))
+               Heap Blocks: exact=1
+               ->  Bitmap Index Scan on exp_pendientes  (cost=0.00..8.17 rows=7 width=0) (actual time=0.007..0.007 rows=7 loops=1)
+ Planning Time: 0.365 ms
+ Execution Time: 0.146 ms
+(12 rows)
+
+### B. Parcial con fecha fija ("del año actual" en el apunte): WHERE fecha >= 2026-01-01
+CREATE INDEX
+ANALYZE
+B1. Consulta con fecha literal posterior al límite: el planificador prueba la implicación
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=18.53..18.54 rows=1 width=8) (actual time=0.071..0.072 rows=1 loops=1)
+   ->  Index Only Scan using exp_parcial_fecha on comprobante  (cost=0.29..17.25 rows=512 width=0) (actual time=0.021..0.055 rows=493 loops=1)
+         Index Cond: (fecha >= '2026-10-21 03:00:00+00'::timestamp with time zone)
+         Heap Fetches: 0
+ Planning Time: 0.260 ms
+ Execution Time: 0.091 ms
+(6 rows)
+
+B2. La misma idea con CURRENT_DATE: no puede probarla al planificar
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=5827.04..5827.05 rows=1 width=8) (actual time=20.075..21.998 rows=1 loops=1)
+   ->  Gather  (cost=5826.93..5827.04 rows=1 width=8) (actual time=19.927..21.992 rows=2 loops=1)
+         Workers Planned: 1
+         Workers Launched: 1
+         ->  Partial Aggregate  (cost=4826.93..4826.94 rows=1 width=8) (actual time=18.288..18.289 rows=1 loops=2)
+               ->  Parallel Seq Scan on comprobante  (cost=0.00..4826.18 rows=301 width=0) (actual time=0.259..18.267 rows=246 loops=2)
+                     Filter: (fecha >= ((CURRENT_DATE - '7 days'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                     Rows Removed by Filter: 74816
+ Planning Time: 0.187 ms
+ Execution Time: 22.021 ms
+(10 rows)
+
+### C. Índice de expresión por mes
+C1. date_trunc(month, fecha) con fecha TIMESTAMPTZ: el resultado depende de TimeZone
+SAVEPOINT
+ERROR:  functions in index expression must be marked IMMUTABLE
+ROLLBACK
+Volatilidad de las funciones involucradas (i = IMMUTABLE, s = STABLE):
+                   funcion                    | provolatile 
+----------------------------------------------+-------------
+ timezone(text,timestamp with time zone)      | i
+ date_trunc(text,timestamp with time zone)    | s
+ date_trunc(text,timestamp without time zone) | i
+(3 rows)
+
+C2. Alternativa: fijar la zona horaria antes de truncar (timestamp sin zona)
+CREATE INDEX
+ tamano  
+---------
+ 1064 kB
+(1 row)
+
+ROLLBACK

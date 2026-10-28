@@ -432,3 +432,41 @@ No se agregaron migraciones: la carga usa los objetos de 001 a 007.
 | Está documentado cómo se manejaron los triggers | `docs/carga_masiva.md`, sección 3: se deshabilitan sólo 7 triggers por nombre, en una transacción. Están verificadas las FK activas, la rehabilitación por `ROLLBACK` y el control de `tgenabled`; se documentan los riesgos y cómo se compensan. |
 
 Después de la carga, `db/tests/run_all.sh` sigue pasando completo, y `post_carga.sql` demuestra las reglas activas por el camino normal.
+
+## 11. Estado de la Etapa 4: índices y rendimiento
+
+### 11.1 Entregables
+
+- `db/migrations/008_indices.sql`: 6 índices, cada uno comentado con la consulta que acelera, su tipo, el orden de columnas, su tamaño y su tiempo de creación. Usa `CREATE INDEX` y no `CONCURRENTLY`, porque el runner aplica cada migración dentro de una transacción.
+- `db/perf/`:
+  - `consultas_candidatas.sql`: 7 consultas;
+  - `medir.sql` y `medir.sh`: protocolo de medición;
+  - `experimentos.sh` y `experimentos/`: 6 experimentos, todos en `BEGIN … ROLLBACK`.
+- `docs/rendimiento.md`: el informe de la etapa.
+- `docs/rendimiento/`: el anexo, con los planes completos antes y después, las métricas, el contexto y la salida de los experimentos.
+
+**Conteo en `pg_indexes`** (esquema `bodegas`, después de aplicar 008): **48 índices**, de los cuales 31 son de PK, 11 de `UNIQUE` y 6 de `008_indices.sql`. La línea base tenía 42, sólo de PK y `UNIQUE`.
+
+| Exigencia de la consigna | Índice |
+|---|---|
+| Compuesto | `idx_comprobante_id_sala_fecha (id_sala, fecha)` |
+| Parcial | `idx_transferencia_pendientes (id_sala) WHERE estado <> 'procesado'` |
+| Sobre FK | `idx_comprobante_id_cliente`, `idx_renglon_comprobante_cod_vino` |
+| Otro tipo o variante | `idx_comprobante_fecha (fecha) INCLUDE (id_sala, total)` |
+| Adicional | `idx_auditoria_precio_cod_vino_fecha (cod_vino, fecha_hora)` |
+
+**BRIN y expresión.** Se evaluaron y no se adoptaron:
+- BRIN, porque la correlación de `comprobante.fecha` es −0,005;
+- el índice de expresión por mes, porque ninguna consulta medida lo usa.
+
+Las razones están en `docs/rendimiento.md`, secciones 6 y 7.
+
+### 11.2 Criterios de aceptación
+
+| Criterio | Evidencia |
+|---|---|
+| Al menos cinco índices justificados, con los tipos pedidos | 6 índices en `008_indices.sql` (tabla anterior). Cada uno tiene su justificación, tamaño y tiempo de creación en `docs/rendimiento.md`, sección 3. |
+| Mejora medida en al menos tres consultas, con planes antes y después | 6 de 7 consultas mejoran. Las mayores son D4, de 3.620 a 53,6 ms; el precio vigente, de 693 a 29,2 ms; S8, de 23,4 a 2,7 ms; y S3, de 6,5 a 0,12 ms. Los planes están en `docs/rendimiento/planes/` y la comparación en `docs/rendimiento.md`, sección 4. C7 (S1) se informa como caso sin mejora. |
+| Índice descartado, índice no usado y costo de escritura documentados | `docs/rendimiento.md`: descartados (BRIN, Hash) en la sección 6; índice no usado por baja selectividad y estadísticas desactualizadas en la sección 8; carga de clones con y sin índices y ventas con `fn_registrar_venta` en la sección 9. |
+
+**Verificación posterior.** Después de aplicar 008, `run_all.sh`, `controles.sql` (55 controles, 0 violaciones) y `post_carga.sql` terminan sin fallas. Desde un volumen vacío, en un proyecto aislado con `ESCALA=0.1`, la migración 008 se aplica y las mismas pruebas pasan.

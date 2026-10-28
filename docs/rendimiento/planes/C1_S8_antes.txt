@@ -1,0 +1,41 @@
+Sort  (cost=6166.97..6170.67 rows=1480 width=74) (actual time=21.250..23.275 rows=40 loops=1)
+  Sort Key: (sum(c.total)) DESC
+  Sort Method: quicksort  Memory: 28kB
+  Buffers: shared hit=3064
+  ->  Finalize HashAggregate  (cost=6070.53..6089.03 rows=1480 width=74) (actual time=21.223..23.257 rows=40 loops=1)
+        Group Key: s.id_sala, l.nombre
+        Batches: 1  Memory Usage: 97kB
+        Buffers: shared hit=3064
+        ->  Gather  (cost=5885.53..6052.03 rows=1480 width=74) (actual time=21.033..23.188 rows=80 loops=1)
+              Workers Planned: 1
+              Workers Launched: 1
+              Buffers: shared hit=3064
+              ->  Partial HashAggregate  (cost=4885.53..4904.03 rows=1480 width=74) (actual time=18.801..18.814 rows=40 loops=2)
+                    Group Key: s.id_sala, l.nombre
+                    Batches: 1  Memory Usage: 97kB
+                    Buffers: shared hit=3064
+                    Worker 0:  Batches: 1  Memory Usage: 97kB
+                    ->  Hash Join  (cost=3.73..4850.39 rows=3514 width=40) (actual time=0.319..18.243 rows=3172 loops=2)
+                          Hash Cond: (s.id_localidad = l.id_localidad)
+                          Buffers: shared hit=3064
+                          ->  Hash Join  (cost=1.90..4838.28 rows=3514 width=33) (actual time=0.292..17.923 rows=3172 loops=2)
+                                Hash Cond: (c.id_sala = s.id_sala)
+                                Buffers: shared hit=3062
+                                ->  Parallel Seq Scan on comprobante c  (cost=0.00..4826.18 rows=3514 width=10) (actual time=0.261..17.531 rows=3172 loops=2)
+                                      Filter: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                                      Rows Removed by Filter: 71891
+                                      Buffers: shared hit=3060
+                                ->  Hash  (cost=1.40..1.40 rows=40 width=27) (actual time=0.015..0.015 rows=40 loops=2)
+                                      Buckets: 1024  Batches: 1  Memory Usage: 11kB
+                                      Buffers: shared hit=2
+                                      ->  Seq Scan on sala_venta s  (cost=0.00..1.40 rows=40 width=27) (actual time=0.004..0.007 rows=40 loops=2)
+                                            Buffers: shared hit=2
+                          ->  Hash  (cost=1.37..1.37 rows=37 width=15) (actual time=0.019..0.019 rows=37 loops=2)
+                                Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                                Buffers: shared hit=2
+                                ->  Seq Scan on localidad l  (cost=0.00..1.37 rows=37 width=15) (actual time=0.008..0.010 rows=37 loops=2)
+                                      Buffers: shared hit=2
+Planning:
+  Buffers: shared hit=14
+Planning Time: 0.280 ms
+Execution Time: 23.441 ms

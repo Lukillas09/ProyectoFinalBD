@@ -1,0 +1,184 @@
+Pager usage is off.
+SET
+BEGIN
+### A1. Correlación entre el orden físico y la fecha (1 = ordenada, 0 = al azar)
+  tablename  |     attname     |  correlation  
+-------------+-----------------+---------------
+ comprobante | nro_comprobante |  -0.005124258
+ comprobante | fecha           | -0.0051160804
+(2 rows)
+
+### A2. BRIN sobre la tabla real
+CREATE INDEX
+ANALYZE
+ tamano_brin 
+-------------
+ 24 kB
+(1 row)
+
+Plan elegido por el planificador:
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate  (cost=5847.23..5852.63 rows=40 width=36) (actual time=20.149..22.444 rows=40 loops=1)
+   Group Key: id_sala
+   Buffers: shared hit=3067
+   ->  Gather Merge  (cost=5847.23..5851.83 rows=40 width=36) (actual time=20.135..22.391 rows=80 loops=1)
+         Workers Planned: 1
+         Workers Launched: 1
+         Buffers: shared hit=3067
+         ->  Sort  (cost=4847.22..4847.32 rows=40 width=36) (actual time=18.040..18.043 rows=40 loops=2)
+               Sort Key: id_sala
+               Sort Method: quicksort  Memory: 28kB
+               Buffers: shared hit=3067
+               Worker 0:  Sort Method: quicksort  Memory: 28kB
+               ->  Partial HashAggregate  (cost=4845.66..4846.16 rows=40 width=36) (actual time=17.998..18.005 rows=40 loops=2)
+                     Group Key: id_sala
+                     Batches: 1  Memory Usage: 32kB
+                     Buffers: shared hit=3060
+                     Worker 0:  Batches: 1  Memory Usage: 32kB
+                     ->  Parallel Seq Scan on comprobante c  (cost=0.00..4826.18 rows=3896 width=10) (actual time=0.255..17.575 rows=3172 loops=2)
+                           Filter: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                           Rows Removed by Filter: 71891
+                           Buffers: shared hit=3060
+ Planning:
+   Buffers: shared hit=51
+ Planning Time: 0.462 ms
+ Execution Time: 22.528 ms
+(25 rows)
+
+Forzando el uso del BRIN (enable_seqscan = off, sólo para comparar):
+SET
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate  (cost=5861.66..5867.06 rows=40 width=36) (actual time=22.608..25.090 rows=40 loops=1)
+   Group Key: id_sala
+   Buffers: shared hit=1792
+   ->  Gather Merge  (cost=5861.66..5866.26 rows=40 width=36) (actual time=22.599..25.050 rows=80 loops=1)
+         Workers Planned: 1
+         Workers Launched: 1
+         Buffers: shared hit=1792
+         ->  Sort  (cost=4861.65..4861.75 rows=40 width=36) (actual time=19.416..19.418 rows=40 loops=2)
+               Sort Key: id_sala
+               Sort Method: quicksort  Memory: 28kB
+               Buffers: shared hit=1792
+               Worker 0:  Sort Method: quicksort  Memory: 28kB
+               ->  Partial HashAggregate  (cost=4860.09..4860.59 rows=40 width=36) (actual time=19.377..19.384 rows=40 loops=2)
+                     Group Key: id_sala
+                     Batches: 1  Memory Usage: 32kB
+                     Buffers: shared hit=1785
+                     Worker 0:  Batches: 1  Memory Usage: 32kB
+                     ->  Parallel Bitmap Heap Scan on comprobante c  (cost=14.43..4840.61 rows=3896 width=10) (actual time=0.521..18.934 rows=3172 loops=2)
+                           Recheck Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                           Rows Removed by Index Recheck: 71891
+                           Heap Blocks: lossy=1065
+                           Buffers: shared hit=1785
+                           ->  Bitmap Index Scan on exp_brin_fecha  (cost=0.00..12.78 rows=150125 width=0) (actual time=0.605..0.606 rows=17800 loops=1)
+                                 Index Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                                 Buffers: shared hit=5
+ Planning:
+   Buffers: shared hit=1
+ Planning Time: 0.218 ms
+ Execution Time: 25.219 ms
+(29 rows)
+
+RESET
+### A3. La misma tabla copiada en orden de fecha
+SELECT 150125
+ANALYZE
+ attname | correlation 
+---------+-------------
+ fecha   |           1
+(1 row)
+
+CREATE INDEX
+CREATE INDEX
+ tamano_brin | tamano_btree 
+-------------+--------------
+ 24 kB       | 3320 kB
+(1 row)
+
+DROP INDEX
+ANALYZE
+ count 
+-------
+  6343
+(1 row)
+
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=1624.72..1625.22 rows=40 width=36) (actual time=4.002..4.009 rows=40 loops=1)
+   Group Key: id_sala
+   Batches: 1  Memory Usage: 32kB
+   Buffers: local hit=130
+   ->  Bitmap Heap Scan on comprobante_ordenado  (cost=13.58..1593.82 rows=6180 width=10) (actual time=1.498..3.254 rows=6343 loops=1)
+         Recheck Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+         Rows Removed by Index Recheck: 5542
+         Heap Blocks: lossy=128
+         Buffers: local hit=130
+         ->  Bitmap Index Scan on exp_brin_fecha_ordenado  (cost=0.00..12.04 rows=15012 width=0) (actual time=0.031..0.032 rows=1280 loops=1)
+               Index Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+               Buffers: local hit=2
+ Planning:
+   Buffers: shared hit=7, local hit=1
+ Planning Time: 0.241 ms
+ Execution Time: 4.077 ms
+(16 rows)
+
+### B. Hash frente a B-tree sobre comprobante.id_cliente
+CREATE INDEX
+CREATE INDEX
+ tamano_btree | tamano_hash 
+--------------+-------------
+ 1352 kB      | 4632 kB
+(1 row)
+
+ANALYZE
+Igualdad (cliente 1500): el planificador puede elegir cualquiera de los dos
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on comprobante  (cost=4.10..53.72 rows=13 width=8) (actual time=0.023..0.028 rows=4 loops=1)
+   Recheck Cond: (id_cliente = 1500)
+   Heap Blocks: exact=4
+   Buffers: shared hit=6
+   ->  Bitmap Index Scan on exp_hash_cliente  (cost=0.00..4.10 rows=13 width=0) (actual time=0.016..0.017 rows=4 loops=1)
+         Index Cond: (id_cliente = 1500)
+         Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=13 read=1
+ Planning Time: 0.138 ms
+ Execution Time: 0.046 ms
+(11 rows)
+
+DROP INDEX
+Sólo con Hash: igualdad
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on comprobante  (cost=4.10..53.72 rows=13 width=8) (actual time=0.016..0.019 rows=4 loops=1)
+   Recheck Cond: (id_cliente = 1500)
+   Heap Blocks: exact=4
+   Buffers: shared hit=5
+   ->  Bitmap Index Scan on exp_hash_cliente  (cost=0.00..4.10 rows=13 width=0) (actual time=0.011..0.011 rows=4 loops=1)
+         Index Cond: (id_cliente = 1500)
+         Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.065 ms
+ Execution Time: 0.034 ms
+(11 rows)
+
+Sólo con Hash: rango (no lo puede usar)
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=5312.37..5312.38 rows=1 width=8) (actual time=5.167..5.168 rows=1 loops=1)
+   Buffers: shared hit=3060
+   ->  Seq Scan on comprobante  (cost=0.00..5311.88 rows=197 width=0) (actual time=0.313..5.152 rows=269 loops=1)
+         Filter: ((id_cliente >= 1500) AND (id_cliente <= 1510))
+         Rows Removed by Filter: 149856
+         Buffers: shared hit=3060
+ Planning:
+   Buffers: shared hit=13
+ Planning Time: 0.094 ms
+ Execution Time: 5.179 ms
+(10 rows)
+
+ROLLBACK

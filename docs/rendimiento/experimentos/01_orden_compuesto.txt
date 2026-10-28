@@ -1,0 +1,114 @@
+Pager usage is off.
+SET
+BEGIN
+### A. Índice (id_sala, fecha): igualdad primero, rango después
+CREATE INDEX
+ANALYZE
+ count 
+-------
+     6
+(1 row)
+
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on comprobante c  (cost=4.54..46.81 rows=11 width=8) (actual time=0.023..0.031 rows=6 loops=1)
+   Recheck Cond: ((id_sala = 2) AND (fecha >= ((CURRENT_DATE - '7 days'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))
+   Heap Blocks: exact=6
+   Buffers: shared hit=9
+   ->  Bitmap Index Scan on exp_sala_fecha  (cost=0.00..4.54 rows=11 width=0) (actual time=0.019..0.019 rows=6 loops=1)
+         Index Cond: ((id_sala = 2) AND (fecha >= ((CURRENT_DATE - '7 days'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))
+         Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=3
+ Planning Time: 0.078 ms
+ Execution Time: 0.061 ms
+(11 rows)
+
+### B. Orden inverso (fecha, id_sala): rango primero
+DROP INDEX
+CREATE INDEX
+ANALYZE
+ count 
+-------
+     6
+(1 row)
+
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on comprobante c  (cost=13.56..63.31 rows=13 width=8) (actual time=0.022..0.031 rows=6 loops=1)
+   Recheck Cond: ((fecha >= ((CURRENT_DATE - '7 days'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)) AND (id_sala = 2))
+   Heap Blocks: exact=6
+   Buffers: shared hit=11
+   ->  Bitmap Index Scan on exp_fecha_sala  (cost=0.00..13.56 rows=13 width=0) (actual time=0.018..0.019 rows=6 loops=1)
+         Index Cond: ((fecha >= ((CURRENT_DATE - '7 days'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)) AND (id_sala = 2))
+         Buffers: shared hit=5
+ Planning:
+   Buffers: shared hit=7
+ Planning Time: 0.157 ms
+ Execution Time: 0.057 ms
+(11 rows)
+
+### C. Orden inverso con un período largo (último año): el rango abarca miles de filas de otras salas
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on comprobante c  (cost=643.38..2240.84 rows=652 width=8) (actual time=2.313..2.919 rows=604 loops=1)
+   Recheck Cond: ((fecha >= ((CURRENT_DATE - '1 year'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)) AND (id_sala = 2))
+   Heap Blocks: exact=522
+   Buffers: shared hit=526 read=95
+   ->  Bitmap Index Scan on exp_fecha_sala  (cost=0.00..643.22 rows=652 width=0) (actual time=2.268..2.268 rows=604 loops=1)
+         Index Cond: ((fecha >= ((CURRENT_DATE - '1 year'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)) AND (id_sala = 2))
+         Buffers: shared hit=4 read=95
+ Planning Time: 0.089 ms
+ Execution Time: 2.987 ms
+(9 rows)
+
+### D. Mismo período largo con (id_sala, fecha)
+DROP INDEX
+CREATE INDEX
+ANALYZE
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on comprobante c  (cost=18.81..1566.56 rows=623 width=8) (actual time=0.242..1.527 rows=604 loops=1)
+   Recheck Cond: ((id_sala = 2) AND (fecha >= ((CURRENT_DATE - '1 year'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))
+   Heap Blocks: exact=522
+   Buffers: shared hit=522 read=6
+   ->  Bitmap Index Scan on exp_sala_fecha  (cost=0.00..18.66 rows=623 width=0) (actual time=0.194..0.196 rows=604 loops=1)
+         Index Cond: ((id_sala = 2) AND (fecha >= ((CURRENT_DATE - '1 year'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))
+         Buffers: shared read=6
+ Planning:
+   Buffers: shared hit=13 read=1
+ Planning Time: 0.511 ms
+ Execution Time: 1.622 ms
+(11 rows)
+
+### E. (id_sala, fecha) para S8 (todas las salas, sólo rango de fechas): la primera columna no está fijada
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate  (cost=5846.22..5851.62 rows=40 width=36) (actual time=25.931..28.312 rows=40 loops=1)
+   Group Key: id_sala
+   Buffers: shared hit=3067
+   ->  Gather Merge  (cost=5846.22..5850.82 rows=40 width=36) (actual time=25.921..28.272 rows=80 loops=1)
+         Workers Planned: 1
+         Workers Launched: 1
+         Buffers: shared hit=3067
+         ->  Sort  (cost=4846.21..4846.31 rows=40 width=36) (actual time=23.529..23.531 rows=40 loops=2)
+               Sort Key: id_sala
+               Sort Method: quicksort  Memory: 28kB
+               Buffers: shared hit=3067
+               Worker 0:  Sort Method: quicksort  Memory: 28kB
+               ->  Partial HashAggregate  (cost=4844.65..4845.15 rows=40 width=36) (actual time=23.479..23.487 rows=40 loops=2)
+                     Group Key: id_sala
+                     Batches: 1  Memory Usage: 32kB
+                     Buffers: shared hit=3060
+                     Worker 0:  Batches: 1  Memory Usage: 32kB
+                     ->  Parallel Seq Scan on comprobante c  (cost=0.00..4826.18 rows=3694 width=10) (actual time=0.312..22.753 rows=3172 loops=2)
+                           Filter: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                           Rows Removed by Filter: 71891
+                           Buffers: shared hit=3060
+ Planning:
+   Buffers: shared hit=38
+ Planning Time: 0.525 ms
+ Execution Time: 28.383 ms
+(25 rows)
+
+ROLLBACK

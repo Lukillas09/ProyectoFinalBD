@@ -1,0 +1,38 @@
+Aggregate  (cost=660477.63..660477.64 rows=1 width=16) (actual time=692.323..692.536 rows=1 loops=1)
+  Buffers: shared hit=290346
+  ->  Nested Loop Left Join  (cost=5932.80..660425.09 rows=7006 width=12) (actual time=137.426..691.523 rows=7439 loops=1)
+        Buffers: shared hit=290346
+        ->  Gather  (cost=5840.54..13858.86 rows=7006 width=22) (actual time=137.308..138.513 rows=7439 loops=1)
+              Workers Planned: 2
+              Workers Launched: 2
+              Buffers: shared hit=7664
+              ->  Parallel Hash Join  (cost=4840.54..12158.26 rows=2919 width=22) (actual time=126.247..145.441 rows=2480 loops=3)
+                    Hash Cond: (r.nro_comprobante = c.nro_comprobante)
+                    Buffers: shared hit=7664
+                    ->  Parallel Seq Scan on renglon_comprobante r  (cost=0.00..6728.94 rows=224294 width=22) (actual time=0.008..8.186 rows=179435 loops=3)
+                          Buffers: shared hit=4486
+                    ->  Parallel Hash  (cost=4826.18..4826.18 rows=1149 width=16) (actual time=125.635..125.635 rows=682 loops=3)
+                          Buckets: 2048  Batches: 1  Memory Usage: 144kB
+                          Buffers: shared hit=3060
+                          ->  Parallel Seq Scan on comprobante c  (cost=0.00..4826.18 rows=1149 width=16) (actual time=114.152..125.462 rows=682 loops=3)
+                                Filter: (fecha >= ((CURRENT_DATE - '1 mon'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                                Rows Removed by Filter: 49360
+                                Buffers: shared hit=3060
+        ->  Limit  (cost=92.27..92.27 rows=1 width=14) (actual time=0.074..0.074 rows=1 loops=7439)
+              Buffers: shared hit=282682
+              ->  Sort  (cost=92.27..92.27 rows=2 width=14) (actual time=0.074..0.074 rows=1 loops=7439)
+                    Sort Key: a.fecha_hora DESC
+                    Sort Method: top-N heapsort  Memory: 25kB
+                    Buffers: shared hit=282682
+                    ->  Seq Scan on auditoria_precio a  (cost=0.00..92.25 rows=2 width=14) (actual time=0.019..0.073 rows=6 loops=7439)
+                          Filter: ((fecha_hora <= c.fecha) AND (cod_vino = r.cod_vino))
+                          Rows Removed by Filter: 3611
+                          Buffers: shared hit=282682
+Planning:
+  Buffers: shared hit=16
+Planning Time: 0.217 ms
+JIT:
+  Functions: 48
+  Options: Inlining true, Optimization true, Expressions true, Deforming true
+  Timing: Generation 1.407 ms, Inlining 105.226 ms, Optimization 149.294 ms, Emission 87.317 ms, Total 343.244 ms
+Execution Time: 693.220 ms

@@ -1,0 +1,34 @@
+Limit  (cost=101.37..101.37 rows=1 width=23) (actual time=0.193..0.197 rows=33 loops=1)
+  Buffers: shared hit=35
+  ->  Sort  (cost=101.37..101.47 rows=40 width=23) (actual time=0.192..0.194 rows=34 loops=1)
+        Sort Key: (count(t.nro_transferencia))
+        Sort Method: quicksort  Memory: 26kB
+        Buffers: shared hit=35
+        ->  HashAggregate  (cost=100.77..101.17 rows=40 width=23) (actual time=0.182..0.185 rows=40 loops=1)
+              Group Key: s.id_sala, l.nombre
+              Batches: 1  Memory Usage: 24kB
+              Buffers: shared hit=35
+              ->  Hash Join  (cost=3.73..100.47 rows=40 width=23) (actual time=0.165..0.174 rows=40 loops=1)
+                    Hash Cond: (s.id_localidad = l.id_localidad)
+                    Buffers: shared hit=35
+                    ->  Hash Right Join  (cost=1.90..98.52 rows=40 width=16) (actual time=0.149..0.154 rows=40 loops=1)
+                          Hash Cond: (t.id_sala = s.id_sala)
+                          Buffers: shared hit=34
+                          ->  Seq Scan on transferencia t  (cost=0.00..96.60 rows=7 width=12) (actual time=0.134..0.135 rows=7 loops=1)
+                                Filter: (estado <> 'procesado'::estado_documento)
+                                Rows Removed by Filter: 5081
+                                Buffers: shared hit=33
+                          ->  Hash  (cost=1.40..1.40 rows=40 width=8) (actual time=0.008..0.008 rows=40 loops=1)
+                                Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                                Buffers: shared hit=1
+                                ->  Seq Scan on sala_venta s  (cost=0.00..1.40 rows=40 width=8) (actual time=0.001..0.003 rows=40 loops=1)
+                                      Buffers: shared hit=1
+                    ->  Hash  (cost=1.37..1.37 rows=37 width=15) (actual time=0.011..0.011 rows=37 loops=1)
+                          Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                          Buffers: shared hit=1
+                          ->  Seq Scan on localidad l  (cost=0.00..1.37 rows=37 width=15) (actual time=0.002..0.004 rows=37 loops=1)
+                                Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=10
+Planning Time: 0.155 ms
+Execution Time: 0.242 ms

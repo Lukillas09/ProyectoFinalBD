@@ -1,0 +1,19 @@
+Delete on cliente c  (cost=0.29..3774.99 rows=0 width=0) (actual time=8.742..8.743 rows=0 loops=1)
+  Buffers: shared hit=16762
+  ->  Nested Loop Anti Join  (cost=0.29..3774.99 rows=2399 width=12) (actual time=0.018..8.158 rows=695 loops=1)
+        Buffers: shared hit=15372
+        ->  Seq Scan on cliente c  (cost=0.00..687.00 rows=5218 width=14) (actual time=0.007..2.681 rows=5260 loops=1)
+              Filter: ((tipo = 'socio'::tipo_cliente) AND (fecha_alta < (CURRENT_DATE - '5 years'::interval)))
+              Rows Removed by Filter: 14740
+              Buffers: shared hit=287
+        ->  Index Scan using idx_comprobante_id_cliente on comprobante x  (cost=0.29..3.02 rows=14 width=14) (actual time=0.001..0.001 rows=1 loops=5260)
+              Index Cond: (id_cliente = c.id_cliente)
+              Buffers: shared hit=15085
+Planning:
+  Buffers: shared hit=13
+Planning Time: 0.181 ms
+Trigger for constraint fk_socio_club_cliente: time=11.919 calls=695
+Trigger for constraint fk_distribuidor_cliente: time=10.510 calls=695
+Trigger for constraint fk_exportador_cliente: time=10.839 calls=695
+Trigger for constraint fk_comprobante_cliente: time=11.344 calls=695
+Execution Time: 53.594 ms

@@ -1,0 +1,32 @@
+Aggregate  (cost=48861.71..48861.72 rows=1 width=16) (actual time=27.259..29.160 rows=1 loops=1)
+  Buffers: shared hit=28095
+  ->  Nested Loop Left Join  (cost=3938.05..48808.57 rows=7085 width=12) (actual time=2.391..28.424 rows=7439 loops=1)
+        Buffers: shared hit=28095
+        ->  Gather  (cost=3937.77..12001.99 rows=7085 width=22) (actual time=2.369..20.206 rows=7439 loops=1)
+              Workers Planned: 2
+              Workers Launched: 2
+              Buffers: shared hit=5778
+              ->  Parallel Hash Join  (cost=2937.77..10293.49 rows=2952 width=22) (actual time=0.855..20.467 rows=2480 loops=3)
+                    Hash Cond: (r.nro_comprobante = c.nro_comprobante)
+                    Buffers: shared hit=5778
+                    ->  Parallel Seq Scan on renglon_comprobante r  (cost=0.00..6766.94 rows=224294 width=22) (actual time=0.006..8.336 rows=179435 loops=3)
+                          Buffers: shared hit=4524
+                    ->  Parallel Hash  (cost=2923.24..2923.24 rows=1162 width=16) (actual time=0.440..0.442 rows=682 loops=3)
+                          Buckets: 2048  Batches: 1  Memory Usage: 112kB
+                          Buffers: shared hit=1194
+                          ->  Parallel Bitmap Heap Scan on comprobante c  (cost=55.74..2923.24 rows=1162 width=16) (actual time=0.262..1.131 rows=2046 loops=1)
+                                Recheck Cond: (fecha >= ((CURRENT_DATE - '1 mon'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                                Heap Blocks: exact=1181
+                                Buffers: shared hit=1194
+                                ->  Bitmap Index Scan on idx_comprobante_fecha  (cost=0.00..55.25 rows=1976 width=0) (actual time=0.156..0.156 rows=2046 loops=1)
+                                      Index Cond: (fecha >= ((CURRENT_DATE - '1 mon'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                                      Buffers: shared hit=13
+        ->  Limit  (cost=0.28..5.17 rows=1 width=14) (actual time=0.001..0.001 rows=1 loops=7439)
+              Buffers: shared hit=22317
+              ->  Index Scan Backward using idx_auditoria_precio_cod_vino_fecha on auditoria_precio a  (cost=0.28..10.07 rows=2 width=14) (actual time=0.001..0.001 rows=1 loops=7439)
+                    Index Cond: ((cod_vino = r.cod_vino) AND (fecha_hora <= c.fecha))
+                    Buffers: shared hit=22317
+Planning:
+  Buffers: shared hit=42
+Planning Time: 0.277 ms
+Execution Time: 29.241 ms

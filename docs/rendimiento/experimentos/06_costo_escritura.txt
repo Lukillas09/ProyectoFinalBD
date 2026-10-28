@@ -1,0 +1,72 @@
+Pager usage is off.
+SET
+BEGIN
+CREATE TABLE
+CREATE FUNCTION
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+ cargar 
+--------
+ 
+(1 row)
+
+ cargar 
+--------
+ 
+(1 row)
+
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+ cargar 
+--------
+ 
+(1 row)
+
+ cargar 
+--------
+ 
+(1 row)
+
+### A. Carga masiva en clones (segundos por corrida)
+                 prueba                  |       corridas        | mediana 
+-----------------------------------------+-----------------------+---------
+ comprobante: PK + 3 índices de 008      | 1.182 / 1.656 / 1.223 |   1.223
+ comprobante: sólo PK                    | 0.187 / 0.172 / 0.166 |   0.172
+ renglon_comprobante: PK + índice de 008 | 1.249 / 1.230 / 1.185 |   1.230
+ renglon_comprobante: sólo PK            | 1.070 / 1.099 / 1.146 |   1.099
+(4 rows)
+
+### Tamaño de tablas e índices en los clones
+     tabla     | tabla_tamano | indices_tamano | indices 
+---------------+--------------+----------------+---------
+ c_comprobante | 13 MB        | 19 MB          |       4
+ c_renglon     | 35 MB        | 25 MB          |       2
+(2 rows)
+
+### B. Ventas por el camino real (fn_registrar_venta): 300 ventas de 3 vinos
+SELECT 9
+UPDATE 9
+CREATE FUNCTION
+SAVEPOINT
+ROLLBACK
+ROLLBACK
+ROLLBACK
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+SAVEPOINT
+ROLLBACK
+ROLLBACK
+INSERT 0 4
+           prueba           | segundos_300_ventas | ms_por_venta 
+----------------------------+---------------------+--------------
+ ventas: sin índices de 008 | 0.359 / 0.355       |         1.19
+ ventas: con índices de 008 | 0.489 / 0.476       |         1.61
+(2 rows)
+
+ROLLBACK

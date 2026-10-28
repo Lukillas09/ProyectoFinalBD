@@ -1,0 +1,40 @@
+Sort  (cost=10123.46..10123.56 rows=40 width=52) (actual time=15.652..17.679 rows=40 loops=1)
+  Sort Key: (sum(r.cantidad)) DESC
+  Sort Method: quicksort  Memory: 27kB
+  Buffers: shared hit=3222
+  ->  Finalize GroupAggregate  (cost=10116.80..10122.40 rows=40 width=52) (actual time=15.599..17.670 rows=40 loops=1)
+        Group Key: c.id_sala
+        Buffers: shared hit=3222
+        ->  Gather Merge  (cost=10116.80..10121.40 rows=40 width=52) (actual time=15.589..17.623 rows=80 loops=1)
+              Workers Planned: 1
+              Workers Launched: 1
+              Buffers: shared hit=3222
+              ->  Sort  (cost=9116.79..9116.89 rows=40 width=52) (actual time=13.298..13.301 rows=40 loops=2)
+                    Sort Key: c.id_sala
+                    Sort Method: quicksort  Memory: 29kB
+                    Buffers: shared hit=3222
+                    Worker 0:  Sort Method: quicksort  Memory: 29kB
+                    ->  Partial HashAggregate  (cost=9115.22..9115.72 rows=40 width=52) (actual time=13.267..13.275 rows=40 loops=2)
+                          Group Key: c.id_sala
+                          Batches: 1  Memory Usage: 48kB
+                          Buffers: shared hit=3215
+                          Worker 0:  Batches: 1  Memory Usage: 48kB
+                          ->  Parallel Hash Join  (cost=4852.28..9027.19 rows=8803 width=14) (actual time=1.943..12.281 rows=7564 loops=2)
+                                Hash Cond: (c.nro_comprobante = r.nro_comprobante)
+                                Buffers: shared hit=3215
+                                ->  Parallel Seq Scan on comprobante c  (cost=0.00..3943.09 rows=88309 width=12) (actual time=0.183..4.547 rows=75062 loops=2)
+                                      Buffers: shared hit=3060
+                                ->  Parallel Hash  (cost=4774.35..4774.35 rows=6235 width=18) (actual time=1.603..1.604 rows=7564 loops=2)
+                                      Buckets: 16384  Batches: 1  Memory Usage: 960kB
+                                      Buffers: shared hit=143
+                                      ->  Parallel Bitmap Heap Scan on renglon_comprobante r  (cost=172.40..4774.35 rows=6235 width=18) (actual time=0.189..1.278 rows=15128 loops=1)
+                                            Recheck Cond: (cod_vino = 4)
+                                            Heap Blocks: exact=128
+                                            Buffers: shared hit=143
+                                            ->  Bitmap Index Scan on idx_renglon_comprobante_cod_vino  (cost=0.00..168.66 rows=14965 width=0) (actual time=0.171..0.171 rows=15128 loops=1)
+                                                  Index Cond: (cod_vino = 4)
+                                                  Buffers: shared hit=15
+Planning:
+  Buffers: shared hit=38
+Planning Time: 0.226 ms
+Execution Time: 17.766 ms

@@ -1,0 +1,63 @@
+                                         version                                          
+------------------------------------------------------------------------------------------
+ PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+
+ fecha_medicion | ultima_venta_cargada 
+----------------+----------------------
+ 2026-10-28     | 2026-10-27
+
+              name               | setting | unit 
+---------------------------------+---------+------
+ default_statistics_target       | 100     | 
+ effective_cache_size            | 524288  | 8kB
+ jit                             | on      | 
+ max_parallel_workers_per_gather | 2       | 
+ random_page_cost                | 4       | 
+ shared_buffers                  | 16384   | 8kB
+ work_mem                        | 4096    | kB
+
+        tablename        |            indexname             | tamano  
+-------------------------+----------------------------------+---------
+ analisis_calidad        | pk_analisis_calidad              | 152 kB
+ auditoria_precio        | pk_auditoria_precio              | 96 kB
+ bodega                  | pk_bodega                        | 16 kB
+ cepa                    | pk_cepa                          | 16 kB
+ cepa                    | uq_cepa_nombre                   | 16 kB
+ cliente                 | pk_cliente                       | 456 kB
+ cliente                 | uq_cliente_documento             | 896 kB
+ cliente                 | uq_cliente_id_tipo               | 632 kB
+ composicion_vino        | pk_composicion_vino              | 48 kB
+ comprobante             | pk_comprobante                   | 6608 kB
+ departamento            | pk_departamento                  | 16 kB
+ departamento            | uq_departamento_nombre_provincia | 16 kB
+ distribuidor            | pk_distribuidor                  | 104 kB
+ distribuidor            | uq_distribuidor_habilitacion     | 144 kB
+ empleado                | pk_empleado                      | 16 kB
+ exportador              | pk_exportador                    | 64 kB
+ finca                   | pk_finca                         | 16 kB
+ ingreso                 | pk_ingreso                       | 112 kB
+ localidad               | pk_localidad                     | 16 kB
+ localidad               | uq_localidad_provincia_nombre_cp | 16 kB
+ lote_uva                | pk_lote_uva                      | 88 kB
+ lote_uva                | uq_lote_uva_parcela_campania     | 144 kB
+ maridaje                | pk_maridaje                      | 16 kB
+ maridaje                | uq_maridaje_nombre               | 16 kB
+ parcela                 | pk_parcela                       | 32 kB
+ permiso_exportacion     | pk_permiso_exportacion           | 240 kB
+ renglon_comprobante     | pk_renglon_comprobante           | 21 MB
+ renglon_ingreso         | pk_renglon_ingreso               | 344 kB
+ renglon_transferencia   | pk_renglon_transferencia         | 496 kB
+ sala_venta              | pk_sala_venta                    | 16 kB
+ sala_venta              | uq_sala_venta_direccion          | 16 kB
+ schema_migration        | pk_schema_migration              | 16 kB
+ socio_club              | pk_socio_club                    | 328 kB
+ stock_deposito          | pk_stock_deposito                | 32 kB
+ stock_sala              | pk_stock_sala                    | 160 kB
+ transferencia           | pk_transferencia                 | 128 kB
+ transportista           | pk_transportista                 | 16 kB
+ transportista           | uq_transportista_cuit            | 16 kB
+ transportista_localidad | pk_transportista_localidad       | 16 kB
+ vino                    | pk_vino                          | 32 kB
+ vino                    | uq_vino_identidad_comercial      | 56 kB
+ vino_maridaje           | pk_vino_maridaje                 | 56 kB
+

@@ -32,11 +32,12 @@ Incluye:
   - privilegios mínimos para la API (`bodegas_rw`) y para reportes (`bodegas_ro`);
 - runner de migraciones con transacción, registro y SHA-256, ejecutado por el servicio de única ejecución `migrate`;
 - pruebas SQL de estructura, reglas RN-01 a RN-15, privilegios y roles;
-- carga masiva reproducible (Etapa 3): 6 años de historia, más de 150.000 ventas y 530.000 renglones, con catálogos reales, consultas de control y volcado; ver [Carga masiva](#carga-masiva-etapa-3).
+- carga masiva reproducible (Etapa 3): 6 años de historia, más de 150.000 ventas y 530.000 renglones, con catálogos reales, consultas de control y volcado; ver [Carga masiva](#carga-masiva-etapa-3);
+- índices y rendimiento (Etapa 4): 6 índices en `008_indices.sql` (48 en total en el esquema, contando los de PK y `UNIQUE`), medidos antes y después con `EXPLAIN (ANALYZE, BUFFERS)`; ver [Medir el rendimiento](#medir-el-rendimiento-etapa-4).
 
-Todos los conteos se tomaron del catálogo (`pg_constraint`, `pg_attrdef`, `pg_proc`, `pg_trigger`, `pg_views`).
+Todos los conteos se tomaron del catálogo (`pg_constraint`, `pg_attrdef`, `pg_proc`, `pg_trigger`, `pg_views`, `pg_indexes`).
 
-No incluye todavía CRUD en la API, índices de rendimiento, consultas de la Etapa 5, pantallas nuevas ni despliegue.
+No incluye todavía CRUD en la API, consultas de la Etapa 5, pantallas nuevas ni despliegue.
 
 Documentos académicos:
 
@@ -48,6 +49,7 @@ Documentos académicos:
 - [Trazabilidad regla → mecanismo → prueba](docs/trazabilidad.md)
 - [Concurrencia: la última botella](docs/concurrencia.md)
 - [Carga masiva: informe de la Etapa 3](docs/carga_masiva.md)
+- [Índices y rendimiento: informe de la Etapa 4](docs/rendimiento.md)
 
 La consigna y los apuntes de la cátedra se guardan en `material/`, pero esa carpeta está ignorada por Git: es material docente y no se publica. Cada integrante debe copiar los PDF localmente.
 
@@ -319,9 +321,26 @@ docker compose exec db sh -c 'PGPASSWORD="$DB_OWNER_PASSWORD" psql -h 127.0.0.1 
 
 Pasos completos, reproducibilidad, volcado y restauración: [db/seed/README.md](db/seed/README.md). Decisiones y resultados: [docs/carga_masiva.md](docs/carga_masiva.md).
 
+## Medir el rendimiento (Etapa 4)
+
+Con el entorno levantado y la base cargada, desde la raíz del repositorio (en Windows, con Git Bash):
+
+```bash
+REPETICIONES=5 db/perf/medir.sh despues   # o "antes", sin los índices de 008
+db/perf/experimentos.sh                   # todos; "db/perf/experimentos.sh 04" corre sólo el 04
+```
+
+- `medir.sh` ejecuta `ANALYZE` y mide cada consulta de `db/perf/consultas_candidatas.sql` con `EXPLAIN (ANALYZE, BUFFERS)`: una ejecución inicial y `REPETICIONES` más, informando la mediana. Guarda los planes en `docs/rendimiento/planes/<consulta>_<etiqueta>.txt`, las métricas en `resultados_<etiqueta>.csv` y la configuración en `contexto_<etiqueta>.txt`. Las sentencias que modifican datos se revierten.
+- `experimentos.sh` corre los experimentos de `db/perf/experimentos/`, todos dentro de `BEGIN … ROLLBACK`, y guarda la salida en `docs/rendimiento/experimentos/`. Al terminar muestra el conteo de índices, para confirmar que no quedó ninguno de prueba.
+- Los tiempos dependen de la máquina y de la fecha de carga: comparar sólo mediciones tomadas en el mismo entorno.
+- La línea base "antes" se tomó sin `008_indices.sql`. Para repetirla hay que usar una base migrada hasta 007, por ejemplo en un proyecto aislado (`-p`).
+
+Resultados y decisiones: [docs/rendimiento.md](docs/rendimiento.md).
+
 ## Pendientes para las próximas etapas
 
-- Índices (Etapa 4): medir con la base cargada las consultas candidatas de `docs/carga_masiva.md` (sección 10), y si `v_ventas_mensuales_sala` conviene materializada.
+- Consultas avanzadas (Etapa 5): medir S9 a S12 con `EXPLAIN (ANALYZE)`, y evaluar si `v_ventas_mensuales_sala` conviene materializada (no se evaluó en la Etapa 4).
+- Carga (mejora opcional): calcular los importes en el `INSERT` del generador en lugar de un `UPDATE` posterior, que desordena `comprobante` y deja páginas vacías (`docs/rendimiento.md`, sección 6.1). Requiere recargar y volver a medir.
 - U1 (Etapa 5): decidir si "aplicar el descuento del tipo de cliente" recalcula sólo cabeceras con `fn_recalcular_comprobante` o también reaplica el descuento en renglones históricos, que hoy son inmutables.
 - Participaciones mínimas no exigidas por una RN: al menos un maridaje por vino, un análisis por lote y un empleado por sala.
 
