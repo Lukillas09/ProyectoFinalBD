@@ -108,3 +108,103 @@ JOIN bodega AS b ON b.cuit = v.cuit_bodega
 GROUP BY v.cod_vino, v.nombre, v.anada, v.volumen_ml, b.razon_social
 ORDER BY botellas DESC
 LIMIT 10;
+
+-- @consulta C8_S9
+-- S9. Ficha completa de un vino: datos, cepas y porcentajes, bodega,
+-- maridajes y stock total. Usa la vista v_ficha_vino (JOIN y agregación
+-- interna con string_agg de corte y maridajes, sin duplicar stock).
+-- Parámetro: cod_vino = 990001.
+SELECT *
+  FROM v_ficha_vino
+ WHERE cod_vino = 990001;
+
+-- @consulta C9_S10
+-- S10. Rendimiento kg/ha por parcela/campaña y parcelas cuyo rendimiento está
+-- por debajo del promedio de su finca en esa campaña. Usa CTE y subconsulta
+-- correlacionada real para el promedio de finca.
+WITH rendimiento_parcela AS (
+  SELECT l.id_finca, l.nro_parcela, l.campania,
+         SUM(l.kilos) / NULLIF(SUM(p.superficie_ha), 0) AS kg_ha
+    FROM lote_uva l
+    JOIN parcela p
+      ON p.id_finca = l.id_finca
+     AND p.nro_parcela = l.nro_parcela
+   GROUP BY l.id_finca, l.nro_parcela, l.campania
+)
+SELECT rp.id_finca, rp.nro_parcela, rp.campania, rp.kg_ha,
+       (SELECT AVG(rp2.kg_ha)
+          FROM rendimiento_parcela rp2
+         WHERE rp2.id_finca = rp.id_finca
+           AND rp2.campania = rp.campania) AS prom_kg_ha,
+       f.nombre AS finca
+  FROM rendimiento_parcela rp
+  JOIN finca f ON f.id_finca = rp.id_finca
+ WHERE rp.kg_ha < (
+   SELECT AVG(rp2.kg_ha)
+     FROM rendimiento_parcela rp2
+    WHERE rp2.id_finca = rp.id_finca
+      AND rp2.campania = rp.campania
+ )
+ ORDER BY rp.id_finca, rp.nro_parcela, rp.campania;
+
+-- @consulta C10_S11
+-- S11. Ranking de vinos dentro de cada sala (RANK() particionado por sala/mes)
+-- y ventas acumuladas mensuales por sala (SUM(...) OVER con ROWS UNBOUNDED
+-- PRECEDING). Período: último año desde CURRENT_DATE.
+WITH ventas_mensuales_vino AS (
+  SELECT c.id_sala,
+         date_trunc('month', c.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE AS mes,
+         rc.cod_vino,
+         v.nombre AS vino,
+         SUM(rc.cantidad) AS botellas
+    FROM comprobante c
+    JOIN renglon_comprobante rc ON rc.nro_comprobante = c.nro_comprobante
+    JOIN vino v ON v.cod_vino = rc.cod_vino
+   WHERE c.fecha >= CURRENT_DATE - INTERVAL '1 year'
+   GROUP BY c.id_sala,
+            date_trunc('month', c.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'),
+            rc.cod_vino, v.nombre
+),
+ranked AS (
+  SELECT *,
+         RANK() OVER (PARTITION BY id_sala, mes ORDER BY botellas DESC) AS rnk_mes,
+         SUM(botellas) OVER (PARTITION BY id_sala ORDER BY mes
+                             ROWS UNBOUNDED PRECEDING) AS ventas_acumuladas_sala
+    FROM ventas_mensuales_vino
+)
+SELECT id_sala, mes, cod_vino, vino, botellas, rnk_mes, ventas_acumuladas_sala
+  FROM ranked
+ WHERE rnk_mes <= 10
+ ORDER BY id_sala, mes, rnk_mes;
+
+-- @consulta C11_S12A
+-- S12 parte A. Clientes que compraron todos los vinos de una bodega. División
+-- relacional con doble NOT EXISTS (no existen vinos de la bodega que el
+-- cliente no haya comprado). Parámetro: cuit_bodega = '30990000001'.
+SELECT c.id_cliente, c.nombre_razon_social, c.tipo,
+       'compro_todos_vinos_bodega' AS criterio
+  FROM cliente c
+ WHERE NOT EXISTS (
+   SELECT 1 FROM vino v
+    WHERE v.cuit_bodega = '30990000001'
+      AND NOT EXISTS (
+        SELECT 1 FROM comprobante cmp
+        JOIN renglon_comprobante rc ON rc.nro_comprobante = cmp.nro_comprobante
+         WHERE cmp.id_cliente = c.id_cliente
+           AND rc.cod_vino = v.cod_vino
+      )
+ );
+
+-- @consulta C12_S12B
+-- S12 parte B. Clientes que nunca compraron vinos tintos. Anti-join con NOT
+-- EXISTS (no existe compra del cliente de un vino de tipo 'tinto').
+SELECT c.id_cliente, c.nombre_razon_social, c.tipo,
+       'nunca_compro_tintos' AS criterio
+  FROM cliente c
+ WHERE NOT EXISTS (
+   SELECT 1 FROM comprobante cmp
+   JOIN renglon_comprobante rc ON rc.nro_comprobante = cmp.nro_comprobante
+   JOIN vino v ON v.cod_vino = rc.cod_vino
+    WHERE cmp.id_cliente = c.id_cliente
+      AND v.tipo = 'tinto'
+ );

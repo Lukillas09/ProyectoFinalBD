@@ -1,0 +1,24 @@
+Nested Loop Anti Join  (cost=0.00..9.27 rows=1 width=54) (actual time=0.053..0.057 rows=2 loops=1)
+  Join Filter: (NOT (hashed SubPlan 2))
+  Rows Removed by Join Filter: 4
+  Buffers: shared hit=4
+  ->  Seq Scan on cliente c  (cost=0.00..1.02 rows=2 width=22) (actual time=0.005..0.006 rows=2 loops=1)
+        Buffers: shared hit=1
+  ->  Materialize  (cost=0.00..1.03 rows=2 width=8) (actual time=0.003..0.003 rows=2 loops=2)
+        Buffers: shared hit=1
+        ->  Seq Scan on vino v  (cost=0.00..1.02 rows=2 width=8) (actual time=0.004..0.004 rows=2 loops=1)
+              Filter: ((cuit_bodega)::text = '30990000001'::text)
+              Buffers: shared hit=1
+  SubPlan 2
+    ->  Hash Join  (cost=1.07..2.15 rows=5 width=16) (actual time=0.031..0.033 rows=5 loops=1)
+          Hash Cond: (rc.nro_comprobante = cmp.nro_comprobante)
+          Buffers: shared hit=2
+          ->  Seq Scan on renglon_comprobante rc  (cost=0.00..1.05 rows=5 width=16) (actual time=0.002..0.003 rows=5 loops=1)
+                Buffers: shared hit=1
+          ->  Hash  (cost=1.03..1.03 rows=3 width=16) (actual time=0.015..0.015 rows=3 loops=1)
+                Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                Buffers: shared hit=1
+                ->  Seq Scan on comprobante cmp  (cost=0.00..1.03 rows=3 width=16) (actual time=0.004..0.005 rows=3 loops=1)
+                      Buffers: shared hit=1
+Planning Time: 0.269 ms
+Execution Time: 0.137 ms
