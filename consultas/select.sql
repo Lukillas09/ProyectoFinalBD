@@ -804,33 +804,33 @@ SELECT *
 WITH rendimiento_parcela AS (
   SELECT l.id_finca,
          l.nro_parcela,
-         l.campana,
+         l.campania,
          SUM(l.kilos) / NULLIF(SUM(p.superficie_ha), 0) AS kg_ha
     FROM bodegas.lote_uva l
     JOIN bodegas.parcela p
       ON p.id_finca = l.id_finca
      AND p.nro_parcela = l.nro_parcela
-   GROUP BY l.id_finca, l.nro_parcela, l.campana
-),
-promedio_finca AS (
-  SELECT id_finca, campana, AVG(kg_ha) AS prom_kg_ha
-    FROM rendimiento_parcela
-   GROUP BY id_finca, campana
+   GROUP BY l.id_finca, l.nro_parcela, l.campania
 )
 SELECT rp.id_finca,
        rp.nro_parcela,
-       rp.campana,
+       rp.campania,
        rp.kg_ha,
-       pf.prom_kg_ha,
+       (SELECT AVG(rp2.kg_ha)
+          FROM rendimiento_parcela rp2
+         WHERE rp2.id_finca = rp.id_finca
+           AND rp2.campania = rp.campania) AS prom_kg_ha,
        f.nombre AS finca
   FROM rendimiento_parcela rp
-  JOIN promedio_finca pf
-    ON pf.id_finca = rp.id_finca
-   AND pf.campana = rp.campana
   JOIN bodegas.finca f
     ON f.id_finca = rp.id_finca
- WHERE rp.kg_ha < pf.prom_kg_ha
- ORDER BY rp.id_finca, rp.nro_parcela, rp.campana;
+ WHERE rp.kg_ha < (
+   SELECT AVG(rp2.kg_ha)
+     FROM rendimiento_parcela rp2
+    WHERE rp2.id_finca = rp.id_finca
+      AND rp2.campania = rp.campania
+ )
+ ORDER BY rp.id_finca, rp.nro_parcela, rp.campania;
 
 -- -----------------------------------------------------------------------------
 -- 4. EXPLAIN ANALYZE (OBLIGATORIO PARA S10)
@@ -839,40 +839,42 @@ EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 WITH rendimiento_parcela AS (
   SELECT l.id_finca,
          l.nro_parcela,
-         l.campana,
+         l.campania,
          SUM(l.kilos) / NULLIF(SUM(p.superficie_ha), 0) AS kg_ha
     FROM bodegas.lote_uva l
     JOIN bodegas.parcela p
       ON p.id_finca = l.id_finca
      AND p.nro_parcela = l.nro_parcela
-   GROUP BY l.id_finca, l.nro_parcela, l.campana
-),
-promedio_finca AS (
-  SELECT id_finca, campana, AVG(kg_ha) AS prom_kg_ha
-    FROM rendimiento_parcela
-   GROUP BY id_finca, campana
+   GROUP BY l.id_finca, l.nro_parcela, l.campania
 )
 SELECT rp.id_finca,
        rp.nro_parcela,
-       rp.campana,
+       rp.campania,
        rp.kg_ha,
-       pf.prom_kg_ha,
+       (SELECT AVG(rp2.kg_ha)
+          FROM rendimiento_parcela rp2
+         WHERE rp2.id_finca = rp.id_finca
+           AND rp2.campania = rp.campania) AS prom_kg_ha,
        f.nombre AS finca
   FROM rendimiento_parcela rp
-  JOIN promedio_finca pf
-    ON pf.id_finca = rp.id_finca
-   AND pf.campana = rp.campana
   JOIN bodegas.finca f
     ON f.id_finca = rp.id_finca
- WHERE rp.kg_ha < pf.prom_kg_ha
- ORDER BY rp.id_finca, rp.nro_parcela, rp.campana;
+ WHERE rp.kg_ha < (
+   SELECT AVG(rp2.kg_ha)
+     FROM rendimiento_parcela rp2
+    WHERE rp2.id_finca = rp.id_finca
+      AND rp2.campania = rp.campania
+ )
+ ORDER BY rp.id_finca, rp.nro_parcela, rp.campania;
 
 -- -----------------------------------------------------------------------------
 -- 5. OBSERVACIONES
 -- -----------------------------------------------------------------------------
 -- NULLIF evita división por cero si superficie_ha es 0 (no debería ocurrir por CHECK).
--- CTEs separan el cálculo de rendimiento del cálculo de promedios.
--- La consulta final usa JOIN entre CTEs (equivalente a subconsulta correlacionada).
+-- CTE rendimiento_parcela calcula kg/ha por parcela/campaña.
+-- La subconsulta correlacionada (referencia rp.id_finca y rp.campana del nivel
+-- externo) calcula el promedio de kg/ha de cada finca en la misma campaña y la
+-- usa tanto para mostrarlo como para filtrar parcelas por debajo de ese promedio.
 
 
 -- =============================================================================
