@@ -1,0 +1,12 @@
+GroupAggregate  (cost=22189.29..28559.48 rows=149720 width=112) (actual time=155.608..210.961 rows=2920 loops=1)
+  Group Key: c.id_sala, ((date_trunc('month'::text, (c.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date)
+  Buffers: shared hit=3060, temp read=705 written=707
+  ->  Sort  (cost=22189.29..22564.60 rows=150125 width=26) (actual time=155.586..175.293 rows=150125 loops=1)
+        Sort Key: c.id_sala, ((date_trunc('month'::text, (c.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date)
+        Sort Method: external merge  Disk: 5640kB
+        Buffers: shared hit=3060, temp read=705 written=707
+        ->  Seq Scan on comprobante c  (cost=0.00..5687.19 rows=150125 width=26) (actual time=0.415..77.277 rows=150125 loops=1)
+              Buffers: shared hit=3060
+Planning Time: 0.081 ms
+Execution Time: 212.068 ms
+

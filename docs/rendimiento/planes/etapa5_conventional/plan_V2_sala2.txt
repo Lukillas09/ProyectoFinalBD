@@ -1,0 +1,17 @@
+GroupAggregate  (cost=3677.10..3830.42 rows=3833 width=112) (actual time=4.804..5.536 rows=73 loops=1)
+  Group Key: ((date_trunc('month'::text, (c.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date)
+  Buffers: shared hit=1516
+  ->  Sort  (cost=3677.10..3686.68 rows=3833 width=26) (actual time=4.786..4.924 rows=3725 loops=1)
+        Sort Key: ((date_trunc('month'::text, (c.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date)
+        Sort Method: quicksort  Memory: 300kB
+        Buffers: shared hit=1516
+        ->  Bitmap Heap Scan on comprobante c  (cost=150.13..3448.96 rows=3833 width=26) (actual time=0.531..4.017 rows=3725 loops=1)
+              Recheck Cond: (id_sala = 2)
+              Heap Blocks: exact=1485
+              Buffers: shared hit=1516
+              ->  Bitmap Index Scan on idx_comprobante_id_sala_fecha  (cost=0.00..149.17 rows=3833 width=0) (actual time=0.379..0.380 rows=3725 loops=1)
+                    Index Cond: (id_sala = 2)
+                    Buffers: shared hit=31
+Planning Time: 0.097 ms
+Execution Time: 5.684 ms
+

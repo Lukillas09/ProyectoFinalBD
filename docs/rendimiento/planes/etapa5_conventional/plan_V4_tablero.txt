@@ -1,0 +1,28 @@
+Sort  (cost=32440.27..32440.77 rows=200 width=68) (actual time=478.506..478.512 rows=40 loops=1)
+  Sort Key: (sum((sum(c.total)))) DESC
+  Sort Method: quicksort  Memory: 26kB
+  Buffers: shared hit=6120
+  InitPlan 1 (returns $0)
+    ->  Aggregate  (cost=19796.17..19796.18 rows=1 width=4) (actual time=193.910..193.912 rows=1 loops=1)
+          Buffers: shared hit=3060
+          ->  HashAggregate  (cost=14131.72..17924.67 rows=149720 width=112) (actual time=192.011..193.747 rows=2920 loops=1)
+                Group Key: c_1.id_sala, (date_trunc('month'::text, (c_1.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date
+                Planned Partitions: 4  Batches: 1  Memory Usage: 3217kB
+                Buffers: shared hit=3060
+                ->  Seq Scan on comprobante c_1  (cost=0.00..5687.19 rows=150125 width=8) (actual time=0.199..131.534 rows=150125 loops=1)
+                      Buffers: shared hit=3060
+  ->  HashAggregate  (cost=12633.44..12636.44 rows=200 width=68) (actual time=478.451..478.465 rows=40 loops=1)
+        Group Key: c.id_sala
+        Batches: 1  Memory Usage: 64kB
+        Buffers: shared hit=6120
+        ->  HashAggregate  (cost=10269.15..11758.16 rows=50016 width=112) (actual time=477.955..478.306 rows=520 loops=1)
+              Group Key: c.id_sala, (date_trunc('month'::text, (c.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date
+              Planned Partitions: 4  Batches: 1  Memory Usage: 1041kB
+              Buffers: shared hit=6120
+              ->  Seq Scan on comprobante c  (cost=0.00..6813.13 rows=50042 width=14) (actual time=194.333..431.466 rows=26914 loops=1)
+                    Filter: ((date_trunc('month'::text, (fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date >= ($0 - '1 year'::interval))
+                    Rows Removed by Filter: 123211
+                    Buffers: shared hit=6120
+Planning Time: 0.141 ms
+Execution Time: 480.517 ms
+

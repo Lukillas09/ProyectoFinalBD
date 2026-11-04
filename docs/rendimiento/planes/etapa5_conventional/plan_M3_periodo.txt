@@ -1,0 +1,10 @@
+Sort  (cost=59.98..60.01 rows=9 width=112) (actual time=0.239..0.245 rows=120 loops=1)
+  Sort Key: id_sala, mes
+  Sort Method: quicksort  Memory: 32kB
+  Buffers: shared hit=32
+  ->  Seq Scan on mv_ventas_mensuales_sala  (cost=0.00..59.84 rows=9 width=112) (actual time=0.010..0.208 rows=120 loops=1)
+        Filter: ((mes >= '2026-01-01'::date) AND (mes < '2026-04-01'::date))
+        Rows Removed by Filter: 2800
+        Buffers: shared hit=32
+Planning Time: 0.050 ms
+Execution Time: 0.295 ms

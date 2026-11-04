@@ -1,0 +1,22 @@
+Finalize GroupAggregate  (cost=6732.01..6829.24 rows=751 width=112) (actual time=71.478..76.004 rows=120 loops=1)
+  Group Key: c.id_sala, ((date_trunc('month'::text, (c.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date)
+  Buffers: shared hit=3104
+  ->  Gather Merge  (cost=6732.01..6800.52 rows=442 width=112) (actual time=71.312..75.080 rows=240 loops=1)
+        Workers Planned: 1
+        Workers Launched: 1
+        Buffers: shared hit=3104
+        ->  Partial GroupAggregate  (cost=5732.00..5750.79 rows=442 width=112) (actual time=66.978..69.079 rows=120 loops=2)
+              Group Key: c.id_sala, ((date_trunc('month'::text, (c.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date)
+              Buffers: shared hit=3104
+              ->  Sort  (cost=5732.00..5733.11 rows=442 width=26) (actual time=66.952..67.133 rows=3114 loops=2)
+                    Sort Key: c.id_sala, ((date_trunc('month'::text, (c.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date)
+                    Sort Method: quicksort  Memory: 283kB
+                    Buffers: shared hit=3104
+                    Worker 0:  Sort Method: quicksort  Memory: 250kB
+                    ->  Parallel Seq Scan on comprobante c  (cost=0.00..5712.58 rows=442 width=26) (actual time=0.574..65.179 rows=3114 loops=2)
+                          Filter: (((date_trunc('month'::text, (fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date >= '2026-01-01'::date) AND ((date_trunc('month'::text, (fecha AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)))::date < '2026-04-01'::date))
+                          Rows Removed by Filter: 71948
+                          Buffers: shared hit=3060
+Planning Time: 0.321 ms
+Execution Time: 76.188 ms
+

@@ -237,3 +237,115 @@ Cada venta inserta un comprobante, que actualiza 4 índices en lugar de 1, y tre
 - Medir con `EXPLAIN (ANALYZE)` las consultas avanzadas S9 a S12, como pide la consigna. S9 y S12 deberían aprovechar `idx_renglon_comprobante_cod_vino`, y S12 también `idx_comprobante_id_cliente`.
 - U1: el recálculo de todos los comprobantes recorre toda la tabla; no se espera que un índice lo cambie.
 - Mejora opcional de la Etapa 3: calcular los importes en el `INSERT` en lugar de un `UPDATE` posterior (sección 6.1). Si se hace, hay que recargar los datos y repetir estas mediciones.
+
+## 13. Etapa 5 — Evaluación de materialización de `v_ventas_mensuales_sala`
+
+### 13.1 Objetivo
+
+Evaluar técnicamente si conviene reemplazar o complementar la vista convencional
+`v_ventas_mensuales_sala` (definida en `db/migrations/006_vistas.sql`) con una
+vista materializada de PostgreSQL. La decisión se fundamenta en mediciones
+reales de rendimiento, costos de mantenimiento, frecuencia de actualización y
+necesidades de la aplicación. No se asume que materializar es la mejor solución.
+
+### 13.2 Estado inicial de la vista
+
+`v_ventas_mensuales_sala` agrega `comprobante` por `id_sala` y mes (zona
+`America/Argentina/Buenos_Aires`), devolviendo `comprobantes`,
+`importe_bruto`, `descuento` e `importe_neto`. Es una vista común: no guarda
+datos, se ejecuta en cada consulta y no tiene índice propio. Su comentario de
+definición ya advierte que no se materializa porque cambia con cada venta y una
+copia quedaría desactualizada entre refrescos.
+
+Consumidores identificados:
+- Privilegio `SELECT` para `bodegas_rw` (API) en `db/migrations/007_roles.sql`.
+- Control de privilegios en `db/tests/003_privilegios_api.sql` y conteo en
+  `db/tests/005_roles.sql`.
+- `consultas/select.sql` la menciona para S8 y S11, pero **ninguna de esas
+  consultas la usa directamente**: S8 consulta `comprobante` con filtro de
+  fechas, y S11 recomputa ventas por sala/vino/mes con un CTE propio porque
+  necesita el desglose por vino, que la vista no provee.
+- No existe todavía un tablero (Etapa 7) que la consuma; el front actual solo
+  hace el chequeo de salud `/api/salud`.
+
+### 13.3 Contexto de la medición
+
+| Dato | Valor |
+|---|---|
+| Base | Carga de la Etapa 3: `SEMILLA=20260427`, `FECHA_REFERENCIA=2026-10-27`, `ESCALA=1`. `comprobante` = 150.125 filas (24 MB), `renglon_comprobante` = 538.306. |
+| `v_ventas_mensuales_sala` | 2.920 filas (combinaciones sala × mes), 6 años de historial. |
+| Índices aplicados | `db/migrations/008_indices.sql` (Etapa 4): `idx_comprobante_id_sala_fecha`, `idx_comprobante_fecha`, etc. |
+| PostgreSQL | 16.15 (`postgres:16-alpine`), `shared_buffers` 128 MB, datos en caché. |
+| Protocolo | `EXPLAIN (ANALYZE, BUFFERS)`, 7 repeticiones por consulta, se informa la mediana. Los planes se guardan en `docs/rendimiento/planes/etapa5_conventional/`. |
+
+Los datos disponibles **sí permiten** una comparación representativa: el volumen
+coincide con la referencia documentada de la Etapa 4 (150.125 comprobantes).
+
+### 13.4 Consultas utilizadas
+
+Se midieron cuatro consultas representativas del uso de la vista, idénticas para
+la versión convencional y la versión materializada:
+
+| Código | Consulta |
+|---|---|
+| `V1_full` / `M1_full` | Ventas mensuales por sala (todo el historial), ordenado por sala y mes. |
+| `V2_sala2` / `M2_sala2` | Misma consulta filtrada por `id_sala = 2`. |
+| `V3_periodo` / `M3_periodo` | Misma consulta filtrada por período (`mes` entre 2026-01-01 y 2026-03-31). |
+| `V4_tablero` / `M4_tablero` | Consulta tipo tablero: importe neto y comprobantes por sala en el último año. |
+
+### 13.5 Resultados comparativos
+
+Mediana de 7 repeticiones. `EXPLAIN (ANALYZE, BUFFERS)`.
+
+| Consulta | Convencional (ms) | Materializada (ms) | Diferencia (ms) | Mejora | Filas | Buffers conv. | Buffers mat. |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| V1_full / M1_full | 212,1 | 0,6 | −211,5 | −99,7 % | 2.920 | 3.060 (hit) / 705 (read) | 35 (hit) |
+| V2_sala2 / M2_sala2 | 5,7 | 0,1 | −5,6 | −98,0 % | 73 | 1.516 (hit) | 35 (hit) |
+| V3_periodo / M3_periodo | 76,2 | 0,2 | −76,0 | −99,8 % | 120 | 3.104 (hit) | 32 (hit) |
+| V4_tablero / M4_tablero | 480,5 | 1,0 | −479,5 | −99,8 % | 40 | 6.120 (hit) | 67 (hit) |
+
+**Observaciones del plan:**
+- Vista convencional: `Seq Scan` sobre `comprobante` (150.125 filas) + `HashAggregate`/`GroupAggregate` por cada consulta. Filtrar por `mes` en la vista **no empuja** el filtro a `comprobante.fecha`, así que `V3_periodo` recorre toda la tabla y descarta filas (`Rows Removed by Filter: 123.211`). Filtrar por `id_sala` sí usa `idx_comprobante_id_sala_fecha` (`V2_sala2`).
+- Vista materializada: `Seq Scan` sobre la materializada (2.920 filas, 256 kB) + `Sort`. Nunca toca `comprobante`. Buffers del orden de las decenas de páginas.
+
+Ambas versiones devuelven **resultados idénticos**: 2.920 filas, mismos importes, agrupaciones, períodos y manejo de NULL (`EXCEPT` en ambas direcciones = 0 filas).
+
+### 13.6 Costo de creación, refresco y almacenamiento
+
+Medido dentro de `BEGIN … ROLLBACK` (salvo `CONCURRENTLY`, que no permite bloque explícito) y en una ejecución aislada con `DROP` final, por lo que no quedaron objetos experimentales.
+
+| Operación | Tiempo | Nota |
+|---|---:|---|
+| `CREATE MATERIALIZED VIEW` (población) | ~189 ms | Escanea y agrega los 150.125 comprobantes. |
+| `CREATE UNIQUE INDEX (id_sala, mes)` | ~8 ms | Requisito para `REFRESH … CONCURRENTLY`. |
+| Almacenamiento materializada | 256 kB | Frente a 24 MB de `comprobante`. |
+| `REFRESH MATERIALIZED VIEW` | ~182 ms | Recalcula desde cero; bloqueo exclusivo. |
+| `REFRESH MATERIALIZED VIEW CONCURRENTLY` | ~219 ms | Viable: existe índice único válido en `(id_sala, mes)`. No puede ir dentro de un bloque `BEGIN … COMMIT`. |
+
+### 13.7 Consideraciones de consistencia y actualización
+
+- `comprobante` cambia con cada venta (`fn_registrar_venta`). Una copia materializada queda desactualizada hasta el próximo `REFRESH`.
+- Para mantenerla actualizada en tiempo real habría que refrescar en cada venta (~182 ms de costo de escritura por venta), lo cual añade latencia al camino de venta.
+- Un refresco periódico implica mostrar datos obsoletos entre refrescos, inaceptable para un reporte que se espera corriente.
+- No hay todavía un consumidor de alta frecuencia ni un tablero que exija lecturas en submilisegundo.
+
+### 13.8 Decisión final
+
+**NO MATERIALIZAR.** Se conserva la vista convencional `v_ventas_mensuales_sala`.
+
+### 13.9 Justificación técnica
+
+Aunque la vista materializada lee entre 98 % y 99,8 % más rápido que la convencional, el beneficio absoluto es pequeño para el uso real:
+
+- Las consultas típicas (por sala o por período) ya resuelven en 5,7 ms y 76,2 ms con la vista convencional gracias a los índices de la Etapa 4.
+- La única consulta que se beneficia de forma masiva es el escaneo completo del historial (`V1_full`: 212,1 → 0,6 ms), una operación de reporte poco frecuente.
+- Materializar introduce datos obsoletos entre refrescos y un costo de escritura (~182 ms por refresco) en el camino de venta, que se ejecuta con cada venta.
+- No existe todavía un tablero (Etapa 7) ni un consumidor de alta frecuencia que justifique la complejidad operativa (índice único, estrategia de refresco, monitoreo de staleness).
+
+La vista convencional cumple el requisito de lectura sin exponer las tablas base y con resultados siempre actuales. Se re-evaluará la materialización si aparece un consumidor de lecturas frecuentes en tiempo real o si el volumen de ventas crece de forma que el escaneo de `comprobante` deje de ser aceptable.
+
+### 13.10 Posibles mejoras futuras
+
+- Si se crea un tablero que consulte la vista con alta frecuencia, se puede crear una materializada con refresco programado fuera de las horas pico y aceptar staleness controlado.
+- Si se necesita `REFRESH … CONCURRENTLY` en producción, ya está validado el índice único en `(id_sala, mes)`; solo falta definir el programador del refresco (fuera del alcance de esta etapa, sin agregar tareas programadas ni infraestructura nueva).
+- Los planes de ejecución quedan guardados en `docs/rendimiento/planes/etapa5_conventional/`.
