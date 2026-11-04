@@ -37,7 +37,7 @@ Incluye:
 
 Todos los conteos se tomaron del catálogo (`pg_constraint`, `pg_attrdef`, `pg_proc`, `pg_trigger`, `pg_views`, `pg_indexes`).
 
-No incluye todavía CRUD en la API, consultas de la Etapa 5, pantallas nuevas ni despliegue.
+No incluye todavía CRUD en la API, pantallas nuevas ni despliegue.
 
 Documentos académicos:
 
@@ -50,6 +50,7 @@ Documentos académicos:
 - [Concurrencia: la última botella](docs/concurrencia.md)
 - [Carga masiva: informe de la Etapa 3](docs/carga_masiva.md)
 - [Índices y rendimiento: informe de la Etapa 4](docs/rendimiento.md)
+- [Consultas SQL: informe de la Etapa 5](docs/consultas.md)
 
 La consigna y los apuntes de la cátedra se guardan en `material/`, pero esa carpeta está ignorada por Git: es material docente y no se publica. Cada integrante debe copiar los PDF localmente.
 
@@ -337,9 +338,26 @@ db/perf/experimentos.sh                   # todos; "db/perf/experimentos.sh 04" 
 
 Resultados y decisiones: [docs/rendimiento.md](docs/rendimiento.md).
 
+## Consultas SQL (Etapa 5)
+
+Las consultas de la Etapa 5 están implementadas en `consultas/`:
+
+- `consultas/select.sql`: S1 a S12 (consultas de análisis y reportes; S9-S12 con `EXPLAIN (ANALYZE, BUFFERS)` y planes en `docs/consultas/planes/`).
+- `consultas/insert.sql`: I1 a I6 (inserciones en transacción con `ROLLBACK`).
+- `consultas/update.sql`: U1 a U6 (actualizaciones en transacción con `ROLLBACK`).
+- `consultas/delete.sql`: D1 a D6 (eliminaciones controladas en transacción con `ROLLBACK`).
+- `consultas/plantilla_consultas.sql`: plantilla común y convenciones de ejecución.
+
+Se ejecutan como propietario contra la base cargada (fecha de referencia `FECHA_REFERENCIA=2026-10-27`), por ejemplo:
+
+```bash
+docker compose exec db sh -c 'PGPASSWORD="$DB_OWNER_PASSWORD" psql -h 127.0.0.1 -U "$DB_OWNER_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /opt/bodegas/consultas/select.sql'
+```
+
+Los parámetros de estilo psql (`:id_sala`, `:cod_vino`, `:cuit_bodega`, …) se pasan con `-v`. Las modificaciones terminan en `ROLLBACK` para no dejar cambios persistentes. El informe detallado, la verificación de S9 a S12 y el checklist de aceptación están en [docs/consultas.md](docs/consultas.md). Los planes de rendimiento se miden con `db/perf/medir.sh` y se documentan en [docs/rendimiento.md](docs/rendimiento.md); la demostración de concurrencia en [docs/concurrencia.md](docs/concurrencia.md).
+
 ## Pendientes para las próximas etapas
 
-- Consultas avanzadas (Etapa 5): medir S9 a S12 con `EXPLAIN (ANALYZE)`, y evaluar si `v_ventas_mensuales_sala` conviene materializada (no se evaluó en la Etapa 4).
 - Carga (mejora opcional): calcular los importes en el `INSERT` del generador en lugar de un `UPDATE` posterior, que desordena `comprobante` y deja páginas vacías (`docs/rendimiento.md`, sección 6.1). Requiere recargar y volver a medir.
 - U1 (Etapa 5): decidir si "aplicar el descuento del tipo de cliente" recalcula sólo cabeceras con `fn_recalcular_comprobante` o también reaplica el descuento en renglones históricos, que hoy son inmutables.
 - Participaciones mínimas no exigidas por una RN: al menos un maridaje por vino, un análisis por lote y un empleado por sala.

@@ -116,8 +116,12 @@ SELECT tl.cod_transportista, t.razon_social, l.nombre AS localidad
   JOIN bodegas.localidad l ON l.id_localidad = tl.id_localidad
  WHERE l.nombre ILIKE 'General Alvear';
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -280,8 +284,12 @@ SELECT v.cod_vino, v.nombre, v.graduacion, m.nombre AS maridaje, m.temperatura_s
    AND m.nombre ILIKE 'cordero al disco'
  ORDER BY v.graduacion DESC;
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -451,8 +459,12 @@ SELECT v.cod_vino, v.nombre, s.cantidad AS stock_sala_despues
  WHERE s.id_sala = 1
    AND v.cod_vino IN (:vino1, :vino2, :vino3);
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -576,8 +588,12 @@ VALUES (:cuit_bodega, :razon_social, :domicilio);
 -- Control posterior
 SELECT cuit, razon_social, domicilio FROM bodegas.bodega WHERE cuit = :cuit_bodega;
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -681,8 +697,12 @@ SELECT sv.id_sala, sv.calle, sv.numero, sv.dia_cierre, l.nombre AS localidad
   JOIN bodegas.localidad l ON l.id_localidad = sv.id_localidad
  WHERE sv.id_sala = (SELECT max(id_sala) FROM bodegas.sala_venta);
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -801,8 +821,12 @@ SELECT i.cod_ingreso, i.fecha, i.estado, i.cod_transportista, i.cuit_bodega,
   JOIN bodegas.vino v ON v.cod_vino = ri.cod_vino
  WHERE i.cod_ingreso = (SELECT max(cod_ingreso) FROM bodegas.ingreso);
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
