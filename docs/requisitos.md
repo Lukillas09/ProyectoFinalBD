@@ -9,7 +9,7 @@ Este documento separa cuatro cosas que no deben confundirse:
 - la aclaración posterior del profesor sobre temas aún no vistos;
   - el alcance incremental de cada etapa implementada.
 
-La infraestructura inicial conecta PostgreSQL 16 -> FastAPI -> front. La Etapa 1 agregó el modelo conceptual y relacional, la normalización, el diccionario y el esquema físico con constraints. La Etapa 2 agrega la lógica de negocio dentro de la base: funciones, procedimientos, triggers, vistas y roles con privilegios mínimos (secciones 9 y `docs/trazabilidad.md`). La Etapa 3 agrega la carga masiva reproducible (sección 10 y `docs/carga_masiva.md`). Todavía no se implementan el CRUD de la API, índices de rendimiento, consultas de la Etapa 5 ni pantallas nuevas.
+La infraestructura inicial conecta PostgreSQL 16 -> FastAPI -> front. La Etapa 1 agregó el modelo conceptual y relacional, la normalización, el diccionario y el esquema físico con constraints. La Etapa 2 agrega la lógica de negocio dentro de la base: funciones, procedimientos, triggers, vistas y roles con privilegios mínimos (secciones 9 y `docs/trazabilidad.md`). La Etapa 3 agrega la carga masiva reproducible (sección 10 y `docs/carga_masiva.md`). Todavía no se implementan el CRUD de la API ni pantallas nuevas; las consultas de la Etapa 5 sí están implementadas (ver `docs/consultas.md` y `consultas/`).
 
 ## 2. Fuentes revisadas
 
@@ -215,6 +215,21 @@ Se entregan `consultas/update.sql`, `insert.sql`, `delete.sql` y `select.sql`. C
 | S12 | Clientes que compraron todos los vinos de una bodega y quienes nunca compraron tintos, con `NOT EXISTS` y anti-join. |
 
 Las consultas candidatas de rendimiento y S9-S12 también requieren `EXPLAIN (ANALYZE)`.
+
+#### Estado de implementación - Etapa 5 (consultas SQL)
+
+| Consigna | Archivo / consulta | Estado | Evidencia de validación |
+|----------|--------------------|--------|-------------------------|
+| U1 a U6 | `consultas/update.sql` | Implementado (con observación) | U1 activa la regla de negocio `RN-08` (comprobante emitido no se modifica), caso negativo esperado. Las modificaciones se envuelven en `BEGIN … control previo → sentencia → control posterior → ROLLBACK` y `GET DIAGNOSTICS ROW_COUNT`. |
+| I1 a I6 | `consultas/insert.sql` | Implementado (con observación) | 5 de 6 consultas ejecutadas sin error; 1 consulta tiene una tensión de diseño en `:cuit_bodega` (bodega nueva vs. FK de `ingreso`). Cada consulta individual es válida con su parámetro adecuado. |
+| D1 a D6 | `consultas/delete.sql` | Implementado | 6 de 6 consultas ejecutadas sin error, dentro de `BEGIN … ROLLBACK`, sin cambios persistentes. |
+| S1 a S8 | `consultas/select.sql` | Implementado | Ejecutadas sin errores; devuelven resultados coherentes sobre el dataset cargado. |
+| S9 | `consultas/select.sql` | Implementado | Usa `JOIN`, agregación y vista `v_ficha_vino`; stock total sin duplicación; `EXPLAIN (ANALYZE)` ejecutado. Resultado: 1 fila (cod_vino=100). |
+| S10 | `consultas/select.sql` | Implementado | CTE + subconsulta correlacionada real; `NULLIF` contra división por cero; resultado: 1532 filas (dataset completo). |
+| S11 | `consultas/select.sql` | Implementado | `RANK() OVER (PARTITION BY...)`, `SUM() OVER` acumulado; resultado: 4969 filas. |
+| S12 | `consultas/select.sql` | Implementado | Doble `NOT EXISTS` (división relacional) y `NOT EXISTS` (anti-join tintos); resultado: S12A=20000, S12B=7169. |
+
+Todas las consultas avanzadas (S9-S12) incluyen `EXPLAIN (ANALYZE, BUFFERS)` y sus planes se conservan en `docs/consultas/planes/`. Los resultados y el checklist de aceptación de la Etapa 5 se documentan en `docs/consultas.md`.
 
 ### 3.8 API REST completa
 

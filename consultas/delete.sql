@@ -112,8 +112,12 @@ SELECT count(*) AS comprobantes_remanentes
  WHERE c.fecha < CURRENT_DATE - INTERVAL '5 years'
    AND cl.tipo = 'socio';
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -281,8 +285,12 @@ SELECT c.id_cepa, c.nombre, c.tipo,
  WHERE NOT EXISTS (SELECT 1 FROM bodegas.composicion_vino cv WHERE cv.id_cepa = c.id_cepa)
    AND NOT EXISTS (SELECT 1 FROM bodegas.parcela p WHERE p.id_cepa = c.id_cepa);
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -391,8 +399,12 @@ SELECT cuit, nombre, fecha_ingreso, salario,
  WHERE id_sala = :id_sala
  ORDER BY anios_antiguedad;
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -505,8 +517,12 @@ SELECT c.id_cliente, c.nombre_razon_social, c.fecha_alta
  WHERE c.fecha_alta < CURRENT_DATE - INTERVAL '5 years'
    AND NOT EXISTS (SELECT 1 FROM bodegas.comprobante cmp WHERE cmp.id_cliente = c.id_cliente);
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -625,8 +641,12 @@ SELECT count(*) AS ingresos_remanentes
  WHERE estado = 'procesado'
    AND fecha < CURRENT_DATE - INTERVAL '365 days';
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -743,8 +763,12 @@ SELECT c.id_cliente, c.nombre_razon_social, c.id_localidad, l.nombre AS localida
  WHERE c.id_localidad = :id_localidad
    AND NOT EXISTS (SELECT 1 FROM bodegas.comprobante cmp WHERE cmp.id_cliente = c.id_cliente);
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 

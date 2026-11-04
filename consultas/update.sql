@@ -92,8 +92,12 @@ SELECT count(*) AS total_comprobantes,
   FROM bodegas.comprobante;
 
 -- Verificar filas afectadas
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -211,8 +215,12 @@ SELECT cuit, nombre, fecha_ingreso, salario,
  WHERE bodegas.fn_antiguedad_anios(fecha_ingreso) > 5
  ORDER BY anios_antiguedad DESC;
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -324,8 +332,12 @@ SELECT ap.cod_vino, v.nombre, ap.precio_anterior, ap.precio_nuevo,
    AND v.cuit_bodega = :cuit_bodega
  ORDER BY ap.fecha_hora DESC;
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -432,8 +444,12 @@ SELECT dia_cierre, count(*) AS cantidad
  GROUP BY dia_cierre
  ORDER BY dia_cierre;
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -569,8 +585,12 @@ SELECT ap.cod_vino, v.nombre, ap.precio_anterior, ap.precio_nuevo,
  WHERE ap.fecha_hora >= (SELECT max(fecha_hora) FROM bodegas.auditoria_precio) - INTERVAL '1 minute'
  ORDER BY ap.fecha_hora DESC;
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 
@@ -705,8 +725,12 @@ SELECT c.id_cliente, c.nombre_razon_social, c.descuento_excepcion AS desc_despue
  HAVING count(pe.codigo_permiso) > 3
  ORDER BY num_permisos DESC;
 
-GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+DO $body$
+DECLARE filas_afectadas integer;
+BEGIN
+  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
+  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
+END $body$;
 
 ROLLBACK;
 

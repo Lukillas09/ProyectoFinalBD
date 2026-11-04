@@ -93,7 +93,18 @@ Ya existen:
 - la carga masiva reproducible (Etapa 3: `db/seed/`, servicio `seed` con perfil propio);
 - los índices de rendimiento (Etapa 4: `008_indices.sql`, medición en `db/perf/`, informe en `docs/rendimiento.md`).
 
-Una vez integradas en `main`, las migraciones no se modifican: cualquier corrección va en una migración nueva. La próxima es la Etapa 5, consultas avanzadas S9 a S12 con su `EXPLAIN (ANALYZE)`. No implementar todavía CRUD en la API ni pantallas nuevas.
+Una vez integradas en `main`, las migraciones no se modifican: cualquier corrección va en una migración nueva. La Etapa 5 (consultas S1-S12, U1-U6, I1-I6, D1-D6) está implementada y documentada en `consultas/` e `docs/consultas.md`; no se implementa todavía CRUD en la API ni pantallas nuevas.
+
+Convenciones de ejecución de la Etapa 5:
+- Los cuatro archivos SQL son `consultas/select.sql`, `consultas/insert.sql`, `consultas/update.sql`, `consultas/delete.sql` (plantilla en `consultas/plantilla_consultas.sql`).
+- Se ejecutan como propietario contra la base cargada (`FECHA_REFERENCIA=2026-10-27`, `SEMILLA=20260427`, `ESCALA=1`), pasando los parámetros psql (`:id_sala`, `:cod_vino`, `:cuit_bodega`, …) con `-v`.
+- Las consultas de modificación terminan en `ROLLBACK`; no se permiten cambios persistentes fuera de un entorno de prueba controlado. Las escrituras de stock, importes, estados y auditoría pertenecen a triggers y procedimientos.
+- S9-S12 requieren `EXPLAIN (ANALYZE, BUFFERS)`; los planes se guardan en `docs/consultas/planes/`.
+
+Estado de la documentación:
+- `docs/consultas.md`: sección 6 del informe final (introducción, consultas representativas, S9-S12, modificaciones, conclusión y checklist de aceptación).
+- `docs/requisitos.md`: estado de implementación de la Etapa 5 actualizado.
+- `README.md`: sección de consultas y pendientes actualizados.
 
 Un índice nuevo se justifica con una consulta medida antes y después con `db/perf/medir.sh`, y su costo de escritura se considera, como en `docs/rendimiento.md`. Los experimentos que crean índices o cambian datos van dentro de `BEGIN … ROLLBACK` o en un proyecto de Compose aislado.
 
