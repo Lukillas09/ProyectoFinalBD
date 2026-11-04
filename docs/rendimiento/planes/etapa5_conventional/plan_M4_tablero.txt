@@ -1,0 +1,21 @@
+Sort  (cost=130.03..130.52 rows=195 width=68) (actual time=1.139..1.143 rows=40 loops=1)
+  Sort Key: (sum(mv_ventas_mensuales_sala.importe_neto)) DESC
+  Sort Method: quicksort  Memory: 26kB
+  Buffers: shared hit=67
+  InitPlan 1 (returns $0)
+    ->  Aggregate  (cost=55.20..55.21 rows=1 width=4) (actual time=0.368..0.369 rows=1 loops=1)
+          Buffers: shared hit=32
+          ->  Seq Scan on mv_ventas_mensuales_sala mv_ventas_mensuales_sala_1  (cost=0.00..50.56 rows=1856 width=4) (actual time=0.004..0.194 rows=2920 loops=1)
+                Buffers: shared hit=32
+  ->  HashAggregate  (cost=64.48..67.41 rows=195 width=68) (actual time=1.033..1.048 rows=40 loops=1)
+        Group Key: mv_ventas_mensuales_sala.id_sala
+        Batches: 1  Memory Usage: 64kB
+        Buffers: shared hit=64
+        ->  Seq Scan on mv_ventas_mensuales_sala  (cost=0.00..59.84 rows=619 width=44) (actual time=0.387..0.855 rows=520 loops=1)
+              Filter: (mes >= ($0 - '1 year'::interval))
+              Rows Removed by Filter: 2400
+              Buffers: shared hit=64
+Planning:
+  Buffers: shared hit=24
+Planning Time: 0.342 ms
+Execution Time: 1.249 ms

@@ -1,0 +1,10 @@
+Sort  (cost=55.34..55.37 rows=9 width=112) (actual time=0.208..0.210 rows=73 loops=1)
+  Sort Key: mes
+  Sort Method: quicksort  Memory: 29kB
+  Buffers: shared hit=32
+  ->  Seq Scan on mv_ventas_mensuales_sala  (cost=0.00..55.20 rows=9 width=112) (actual time=0.008..0.188 rows=73 loops=1)
+        Filter: (id_sala = 2)
+        Rows Removed by Filter: 2847
+        Buffers: shared hit=32
+Planning Time: 0.046 ms
+Execution Time: 0.241 ms
