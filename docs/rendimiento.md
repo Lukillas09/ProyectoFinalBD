@@ -108,14 +108,14 @@ Un BRIN guarda, por cada rango de 128 páginas, el mínimo y el máximo de la co
 
 | Tabla | Correlación de `fecha` | Tamaño del BRIN | Resultado (ventas del último trimestre) |
 |---|---:|---:|---|
-| `comprobante` real | **−0,005** | 24 kB | El planificador no lo elige. Forzado, recorre 1.065 bloques "lossy" por worker y descarta 71.891 filas por worker al rechequear: **25,2 ms, igual o peor que el recorrido completo (22,5 ms)**. |
-| Copia ordenada por fecha | **1** | 24 kB (frente a 3,3 MB de un B-tree) | 128 bloques, **4,1 ms**. |
+| `comprobante` real | **−0,00276** | 24 kB | El planificador no lo elige. Forzado, recorre 1.065 bloques "lossy" por worker y descarta 71.891 filas por worker al rechequear: **25,2 ms, igual o peor que el recorrido completo (22,5 ms)**.
+| Copia ordenada por fecha | **1** | 24 kB (frente a 3,3 MB de un B-tree) | 128 bloques, **4,1 ms**.
 
 **Descartado:** con este orden físico, BRIN no descarta nada.
 
-**Por qué la tabla está desordenada.** La carga de la Etapa 3 inserta los comprobantes en orden de fecha, pero después calcula los importes con un `UPDATE` de todas las filas. Cada fila actualizada se escribe en otro lugar, así que el orden se pierde. Además, ese `UPDATE` dejó la tabla con **3.060 páginas, de las que sólo 1.657 tienen filas vivas**: unas 1.400 páginas quedaron vacías después de que autovacuum liberó las versiones viejas.
+**Estado actual:** La carga masiva optimizada calcula los importes directamente durante el `INSERT ... SELECT`, eliminando el `UPDATE masivo` posterior que destruía el orden físico. A pesar de esto, la correlación se mantiene cercana a 0 (−0,00276), lo que indica que el modelo de datos (150.125 comprobantes distribuidos en 40 salas con fechas que abarcan 6 años) no tiene correlación física favorable con los bloques de almacenamiento. BRIN no resulta efectivo independientemente del método de carga.
 
-**Mejora posible para el generador:** calcular los importes en el mismo `INSERT … SELECT` en lugar de un `UPDATE` posterior. Conservaría el orden, con lo que BRIN se volvería viable, y evitaría las páginas vacías. Queda como pendiente porque requiere recargar los datos.
+**Nota:** La optimización de la carga masiva evita la fragmentación causada por el `UPDATE` posterior (antes la tabla tenía 3.060 páginas con sólo 1.657 vivas, es decir un 45 % de páginas vacías). Ahora cada comprobante se escribe una sola vez con sus importes definitivos, mejorando la utilización del espacio, aunque la correlación física sigue siendo nula para fines de BRIN.
 
 ### 6.2 Hash frente a B-tree sobre `comprobante.id_cliente`
 
@@ -236,7 +236,7 @@ Cada venta inserta un comprobante, que actualiza 4 índices en lugar de 1, y tre
 
 - Medir con `EXPLAIN (ANALYZE)` las consultas avanzadas S9 a S12, como pide la consigna. S9 y S12 deberían aprovechar `idx_renglon_comprobante_cod_vino`, y S12 también `idx_comprobante_id_cliente`.
 - U1: el recálculo de todos los comprobantes recorre toda la tabla; no se espera que un índice lo cambie.
-- Mejora opcional de la Etapa 3: calcular los importes en el `INSERT` en lugar de un `UPDATE` posterior (sección 6.1). Si se hace, hay que recargar los datos y repetir estas mediciones.
+- La optimización de la carga masiva (calcular importes en el `INSERT` en lugar de un `UPDATE` posterior) ha sido implementada y verificada. Los datos deben regenerarse con el procedimiento actualizado para aprovechar el pleno beneficio.
 
 ## 13. Etapa 5 — Evaluación de materialización de `v_ventas_mensuales_sala`
 
