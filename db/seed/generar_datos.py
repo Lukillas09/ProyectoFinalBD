@@ -60,6 +60,7 @@ TRIGGERS_HISTORICOS = [
     ("renglon_ingreso", "trg_renglon_ingreso_bloqueo"),            # renglones sólo en confección
     ("renglon_transferencia", "trg_renglon_transferencia_bloqueo"),
     ("transferencia", "trg_transferencia_fecha"),                  # fuerza la fecha de hoy
+    ("comprobante", "trg_comprobante_importes"),                   # bloquea importes no cero en INSERT; necesario para carga histórica
 ]
 
 TABLAS_NEGOCIO = [
@@ -723,6 +724,29 @@ FROM (
 WHERE r.nro_comprobante = c.nro_comprobante
 """
 
+# Cálculo de importes durante INSERT ... SELECT: los importes definitivos se
+# computan desde stg_renglon y la auditoría de precios, insertándose directamente
+# en la tabla comprobante para evitar un UPDATE masivo posterior.
+SQL_COMPROBANTES = """
+INSERT INTO comprobante (nro_comprobante, fecha, id_cliente, id_sala, subtotal, descuento, total)
+SELECT
+  stg_c.nro_comprobante,
+  stg_c.fecha,
+  stg_c.id_cliente,
+  stg_c.id_sala,
+  ROUND(SUM(r.cantidad * p.precio), 2) AS subtotal,                       -- bruto (sin descuento)
+  ROUND(SUM(r.cantidad * p.precio), 2)
+    - ROUND(SUM(ROUND(r.cantidad * p.precio * (1 - d.descuento / 100), 2)), 2) AS descuento, -- bruto - neto
+  ROUND(SUM(ROUND(r.cantidad * p.precio * (1 - d.descuento / 100), 2)), 2) AS total          -- neto
+FROM stg_comprobante AS stg_c
+JOIN stg_renglon AS r ON r.nro_comprobante = stg_c.nro_comprobante
+JOIN (SELECT id_cliente, fn_descuento_cliente(id_cliente) AS descuento FROM cliente) AS d
+  ON d.id_cliente = stg_c.id_cliente
+JOIN ({SQL_INTERVALOS_PRECIO}) AS p
+  ON p.cod_vino = r.cod_vino AND stg_c.fecha >= p.desde AND stg_c.fecha < p.hasta
+GROUP BY stg_c.nro_comprobante, stg_c.fecha, stg_c.id_cliente, stg_c.id_sala
+"""
+
 # Stocks finales a partir de los movimientos procesados.
 SQL_STOCK_DEPOSITO = """
 INSERT INTO stock_deposito (cod_vino, cantidad)
@@ -820,19 +844,19 @@ def cargar(p: Parametros) -> None:
             for tabla, trigger in TRIGGERS_HISTORICOS:
                 cur.execute(f"ALTER TABLE {tabla} DISABLE TRIGGER {trigger}")
             cur.execute("CREATE TEMP TABLE stg_renglon (nro_comprobante BIGINT, cod_vino BIGINT, cantidad INTEGER) ON COMMIT DROP")
+            cur.execute("CREATE TEMP TABLE stg_comprobante (nro_comprobante BIGINT, fecha TIMESTAMPTZ, id_cliente BIGINT, id_sala INTEGER) ON COMMIT DROP")
+
+            copiar(cur, "stg_comprobante", ["nro_comprobante", "fecha", "id_cliente", "id_sala"], datos.filas["comprobante"])
+            copiar(cur, "stg_renglon", Datos.COLUMNAS["stg_renglon"], datos.filas["stg_renglon"])
 
             for tabla in TABLAS_NEGOCIO:
-                if tabla == "renglon_comprobante":
-                    reloj.medir("COPY stg_renglon (staging de renglones)",
-                                lambda: copiar(cur, "stg_renglon", Datos.COLUMNAS["stg_renglon"], datos.filas["stg_renglon"]))
-                    reloj.medir("renglon_comprobante: precio, descuento y subtotal en SQL",
-                                lambda: cur.execute(SQL_RENGLONES))
+                if tabla == "comprobante":
+                    reloj.medir("comprobante: importes en INSERT ... SELECT", lambda: cur.execute(SQL_COMPROBANTES))
+                elif tabla == "renglon_comprobante":
+                    reloj.medir("renglon_comprobante: precio, descuento y subtotal en SQL", lambda: cur.execute(SQL_RENGLONES))
                     if cur.rowcount != len(datos.filas["stg_renglon"]):
                         raise RuntimeError(f"Se insertaron {cur.rowcount} renglones de {len(datos.filas['stg_renglon'])}: "
                                            "algún renglón no encontró un precio vigente.")
-                    cur.execute("SELECT set_config('bodegas.recalculo_importes', 'on', true)")
-                    reloj.medir("comprobante: importes agregados en SQL", lambda: cur.execute(SQL_IMPORTES))
-                    cur.execute("SELECT set_config('bodegas.recalculo_importes', 'off', true)")
                 elif tabla == "stock_deposito":
                     reloj.medir("stock_deposito desde movimientos", lambda: cur.execute(SQL_STOCK_DEPOSITO))
                 elif tabla == "stock_sala":
