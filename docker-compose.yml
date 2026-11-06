@@ -4,6 +4,9 @@ services:
   db:
     build:
       context: ./db
+      # Contexto adicional: el Dockerfile copia consultas/ a /opt/bodegas/consultas.
+      additional_contexts:
+        consultas: ./consultas
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?Defina POSTGRES_DB en .env}
       POSTGRES_USER: ${POSTGRES_BOOTSTRAP_USER:?Defina POSTGRES_BOOTSTRAP_USER en .env}
@@ -34,6 +37,9 @@ services:
   migrate:
     build:
       context: ./db
+      # Contexto adicional: el Dockerfile copia consultas/ a /opt/bodegas/consultas.
+      additional_contexts:
+        consultas: ./consultas
     entrypoint: ["/opt/bodegas/db/migrate.sh"]
     environment:
       DB_HOST: db

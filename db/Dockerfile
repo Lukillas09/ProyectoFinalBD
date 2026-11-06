@@ -11,3 +11,9 @@ COPY migrations /opt/bodegas/db/migrations
 COPY seed /opt/bodegas/db/seed
 COPY tests /opt/bodegas/db/tests
 COPY --chmod=755 tests/run_all.sh /opt/bodegas/db/tests/run_all.sh
+
+# Consultas de la Etapa 5. consultas/ está fuera de ./db: llega como contexto
+# adicional "consultas" (additional_contexts en docker-compose.yml), así el
+# contexto de build de db no se amplía a todo el repositorio.
+COPY --from=consultas --chmod=644 select.sql insert.sql update.sql delete.sql /opt/bodegas/consultas/
+COPY --from=consultas --chmod=755 ejecutar.sh /opt/bodegas/consultas/ejecutar.sh
