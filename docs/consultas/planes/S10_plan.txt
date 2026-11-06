@@ -1,28 +1,54 @@
-Sort  (cost=0.17..0.18 rows=1 width=332) (actual time=0.009..0.010 rows=0 loops=1)
+Incremental Sort  (cost=2752.14..3609.41 rows=107 width=332) (actual time=389.207..567.937 rows=1597 loops=1)
   Sort Key: rp.id_finca, rp.nro_parcela, rp.campania
-  Sort Method: quicksort  Memory: 25kB
+  Presorted Key: rp.id_finca
+  Full-sort Groups: 29  Sort Method: quicksort  Average Memory: 29kB  Peak Memory: 29kB
+  Pre-sorted Groups: 3  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB
+  Buffers: shared hit=4571
   CTE rendimiento_parcela
-    ->  HashAggregate  (cost=0.03..0.05 rows=1 width=42) (actual time=0.004..0.005 rows=0 loops=1)
+    ->  HashAggregate  (cost=139.05..145.45 rows=320 width=42) (actual time=4.113..5.444 rows=3201 loops=1)
           Group Key: l.id_finca, l.nro_parcela, l.campania
-          Batches: 1  Memory Usage: 24kB
-          ->  Nested Loop  (cost=0.00..0.01 rows=1 width=42) (actual time=0.003..0.003 rows=0 loops=1)
-                Join Filter: ((l.id_finca = p.id_finca) AND (l.nro_parcela = p.nro_parcela))
-                ->  Seq Scan on lote_uva l  (cost=0.00..0.00 rows=1 width=26) (actual time=0.002..0.003 rows=0 loops=1)
-                ->  Seq Scan on parcela p  (cost=0.00..0.00 rows=1 width=24) (never executed)
-  ->  Nested Loop  (cost=0.00..0.11 rows=1 width=332) (actual time=0.005..0.006 rows=0 loops=1)
-        Join Filter: (f.id_finca = rp.id_finca)
-        ->  CTE Scan on rendimiento_parcela rp  (cost=0.00..0.06 rows=1 width=42) (actual time=0.005..0.005 rows=0 loops=1)
-              Filter: (kg_ha < (SubPlan 3))
-              SubPlan 3
-                ->  Aggregate  (cost=0.03..0.04 rows=1 width=32) (never executed)
-                      ->  CTE Scan on rendimiento_parcela rp2_1  (cost=0.00..0.03 rows=1 width=32) (never executed)
-                            Filter: ((id_finca = rp.id_finca) AND (campania = rp.campania))
-        ->  Seq Scan on finca f  (cost=0.00..0.00 rows=1 width=262) (never executed)
+          Batches: 1  Memory Usage: 2417kB
+          Buffers: shared hit=4570
+          ->  Nested Loop  (cost=0.29..99.04 rows=3201 width=24) (actual time=0.030..2.319 rows=3201 loops=1)
+                Buffers: shared hit=4570
+                ->  Seq Scan on parcela p  (cost=0.00..11.82 rows=682 width=14) (actual time=0.009..0.059 rows=682 loops=1)
+                      Buffers: shared hit=5
+                ->  Memoize  (cost=0.29..0.66 rows=4 width=18) (actual time=0.001..0.003 rows=5 loops=682)
+                      Cache Key: p.id_finca, p.nro_parcela
+                      Cache Mode: logical
+                      Hits: 0  Misses: 682  Evictions: 0  Overflows: 0  Memory Usage: 208kB
+                      Buffers: shared hit=4565
+                      ->  Index Scan using uq_lote_uva_parcela_campania on lote_uva l  (cost=0.28..0.65 rows=4 width=18) (actual time=0.001..0.002 rows=5 loops=682)
+                            Index Cond: ((id_finca = p.id_finca) AND (nro_parcela = p.nro_parcela))
+                            Buffers: shared hit=4565
+  ->  Merge Join  (cost=2598.64..3459.15 rows=107 width=332) (actual time=382.819..567.274 rows=1597 loops=1)
+        Merge Cond: (rp.id_finca = f.id_finca)
+        Buffers: shared hit=4571
+        ->  Sort  (cost=2575.61..2575.87 rows=107 width=42) (actual time=382.658..382.879 rows=1597 loops=1)
+              Sort Key: rp.id_finca
+              Sort Method: quicksort  Memory: 124kB
+              Buffers: shared hit=4570
+              ->  CTE Scan on rendimiento_parcela rp  (cost=0.00..2572.00 rows=107 width=42) (actual time=6.074..382.184 rows=1597 loops=1)
+                    Filter: (kg_ha < (SubPlan 3))
+                    Rows Removed by Filter: 1604
+                    Buffers: shared hit=4570
+                    SubPlan 3
+                      ->  Aggregate  (cost=8.00..8.01 rows=1 width=32) (actual time=0.117..0.118 rows=1 loops=3201)
+                            ->  CTE Scan on rendimiento_parcela rp2_1  (cost=0.00..8.00 rows=1 width=32) (actual time=0.005..0.115 rows=22 loops=3201)
+                                  Filter: ((id_finca = rp.id_finca) AND (campania = rp.campania))
+                                  Rows Removed by Filter: 3179
+        ->  Sort  (cost=23.03..23.68 rows=260 width=262) (actual time=0.033..0.041 rows=30 loops=1)
+              Sort Key: f.id_finca
+              Sort Method: quicksort  Memory: 26kB
+              Buffers: shared hit=1
+              ->  Seq Scan on finca f  (cost=0.00..12.60 rows=260 width=262) (actual time=0.018..0.020 rows=30 loops=1)
+                    Buffers: shared hit=1
         SubPlan 2
-          ->  Aggregate  (cost=0.03..0.04 rows=1 width=32) (never executed)
-                ->  CTE Scan on rendimiento_parcela rp2  (cost=0.00..0.03 rows=1 width=32) (never executed)
+          ->  Aggregate  (cost=8.00..8.01 rows=1 width=32) (actual time=0.115..0.115 rows=1 loops=1597)
+                ->  CTE Scan on rendimiento_parcela rp2  (cost=0.00..8.00 rows=1 width=32) (actual time=0.005..0.112 rows=22 loops=1597)
                       Filter: ((id_finca = rp.id_finca) AND (campania = rp.campania))
+                      Rows Removed by Filter: 3179
 Planning:
-  Buffers: shared hit=8
-Planning Time: 0.273 ms
-Execution Time: 0.127 ms
+  Buffers: shared hit=4
+Planning Time: 0.937 ms
+Execution Time: 568.592 ms
