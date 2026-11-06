@@ -3,20 +3,124 @@
 -- Bodegas del Atuel - Trabajo Práctico Integrador BD 2026
 -- =============================================================================
 --
--- Cada consulta sigue el protocolo obligatorio:
+-- Cada consulta de modificación sigue el protocolo:
+--   \echo '>>> Xn'                       (marca para leer la salida)
 --   BEGIN;
 --   -- Control previo
---   -- Sentencia INSERT
+--   -- Sentencia principal
+--   \echo 'Filas afectadas (Xn):' :ROW_COUNT
 --   -- Control posterior
---   GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
---   RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
 --   ROLLBACK;
+-- Cada consulta está en su propia transacción revertida: el archivo no deja
+-- cambios en la base (se verifica con db/seed/hashes.sql antes y después).
+--
+-- Ejecución (como propietario, corta en el primer error):
+--   docker compose exec db /opt/bodegas/consultas/ejecutar.sh insert.sql
 --
 -- Convenciones:
--- - SQL en minúsculas para palabras clave
--- - Parámetros estilo psql: :parametro
--- - Valores del dataset: SEMILLA=20260427, FECHA_REFERENCIA=2026-10-27, ESCALA=1
+-- - Palabras clave de SQL en mayúsculas.
+-- - Parámetros de psql: :nombre para números, :'nombre' para texto.
+-- - Datos: carga de la Etapa 3 con SEMILLA=20260427 y ESCALA=1. Los períodos
+--   relativos usan CURRENT_DATE: para obtener filas, cargar con
+--   FECHA_REFERENCIA igual a la fecha del día (README de db/seed).
 -- =============================================================================
+
+-- =============================================================================
+-- PARÁMETROS
+-- Cada uno tiene un valor por omisión que se reemplaza desde la línea de
+-- comandos, por ejemplo: ejecutar.sh insert.sql -v id_cliente=7
+-- Los valores son identificadores de catálogo de la carga (no dependen de
+-- FECHA_REFERENCIA) o datos nuevos que no existen en ella.
+-- =============================================================================
+
+-- I3: cliente, tres vinos y cantidades de la venta en la sala 1.
+-- El cliente es el primer socio. Los tipos de cliente dependen de la historia
+-- simulada (con FECHA_REFERENCIA=2026-10-27 es el cliente 1; con 2026-11-05,
+-- el 2), así que se elige al ejecutar, como en db/seed/post_carga.sql.
+\if :{?id_cliente}
+\else
+  SELECT min(id_cliente) AS id_cliente FROM bodegas.cliente WHERE tipo = 'socio'
+  \gset
+\endif
+-- Los vinos dependen del stock actual de la sala 1, así que se eligen al
+-- ejecutar (como db/seed/post_carga.sql): los tres con más stock, todos con al
+-- menos 3 botellas. controles.sql garantiza que existen.
+\if :{?vino1}
+\else
+  SELECT max(cod_vino) FILTER (WHERE n = 1) AS vino1,
+         max(cod_vino) FILTER (WHERE n = 2) AS vino2,
+         max(cod_vino) FILTER (WHERE n = 3) AS vino3
+    FROM (SELECT cod_vino, row_number() OVER (ORDER BY cantidad DESC, cod_vino) AS n
+            FROM bodegas.stock_sala
+           WHERE id_sala = 1 AND cantidad >= 3) AS candidatos
+   WHERE n <= 3
+  \gset
+\endif
+\if :{?cant1}
+\else
+  \set cant1 1
+\endif
+\if :{?cant2}
+\else
+  \set cant2 2
+\endif
+\if :{?cant3}
+\else
+  \set cant3 3
+\endif
+
+-- I4: bodega nueva. CUIT con dígito verificador válido (la función cuit() de
+-- db/seed/generar_datos.py) que no existe en la carga:
+--   SELECT count(*) FROM bodegas.bodega WHERE cuit = '30712345671';  -- 0
+\if :{?cuit_bodega_nueva}
+\else
+  \set cuit_bodega_nueva 30712345671
+\endif
+\if :{?razon_social}
+\else
+  \set razon_social 'Bodega Atuel Prueba S.A.'
+\endif
+\if :{?domicilio}
+\else
+  \set domicilio 'Ruta 143 km 5, San Rafael'
+\endif
+
+-- I5: sala nueva en Villa Atuel (id_localidad 19), una localidad sin salas:
+--   SELECT id_localidad, nombre FROM bodegas.localidad l
+--    WHERE NOT EXISTS (SELECT 1 FROM bodegas.sala_venta s WHERE s.id_localidad = l.id_localidad);
+\if :{?id_localidad}
+\else
+  \set id_localidad 19
+\endif
+\if :{?calle}
+\else
+  \set calle 'Av. Mitre'
+\endif
+\if :{?numero}
+\else
+  \set numero 1500
+\endif
+\if :{?dia_cierre}
+\else
+  \set dia_cierre 'lunes'
+\endif
+
+-- I6: vino 4 ("Malbec Reserva" 750 ml, el caso que garantiza controles.sql),
+-- su bodega y el transportista 1.
+--   SELECT cod_vino, cuit_bodega FROM bodegas.vino
+--    WHERE nombre = 'Malbec Reserva' AND volumen_ml = 750 ORDER BY cod_vino LIMIT 1;
+\if :{?cod_vino}
+\else
+  \set cod_vino 4
+\endif
+\if :{?cuit_bodega}
+\else
+  \set cuit_bodega 30571896822
+\endif
+\if :{?cod_transportista}
+\else
+  \set cod_transportista 1
+\endif
 
 -- =============================================================================
 -- I1: Vincular General Alvear con el transportista que realizó menos envíos
@@ -65,6 +169,7 @@
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> I1'
 BEGIN;
 
 -- Control previo: verificar si ya existe la vinculación
@@ -108,6 +213,7 @@ SELECT tm.cod_transportista, la.id_localidad
     WHERE tl.cod_transportista = tm.cod_transportista
       AND tl.id_localidad = la.id_localidad
  );
+\echo 'Filas afectadas (I1):' :ROW_COUNT
 
 -- Control posterior
 SELECT tl.cod_transportista, t.razon_social, l.nombre AS localidad
@@ -115,13 +221,6 @@ SELECT tl.cod_transportista, t.razon_social, l.nombre AS localidad
   JOIN bodegas.transportista t ON t.cod_transportista = tl.cod_transportista
   JOIN bodegas.localidad l ON l.id_localidad = tl.id_localidad
  WHERE l.nombre ILIKE 'General Alvear';
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -229,6 +328,7 @@ SELECT tm.cod_transportista, la.id_localidad
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> I2'
 BEGIN;
 
 -- Control previo: vinos tintos >= 14°
@@ -273,6 +373,7 @@ SELECT vc.cod_vino, mi.id_maridaje
     WHERE vm.cod_vino = vc.cod_vino
       AND vm.id_maridaje = mi.id_maridaje
  );
+\echo 'Filas afectadas (I2):' :ROW_COUNT
 
 -- Control posterior: asociaciones creadas
 SELECT v.cod_vino, v.nombre, v.graduacion, m.nombre AS maridaje, m.temperatura_servicio_c
@@ -283,13 +384,6 @@ SELECT v.cod_vino, v.nombre, v.graduacion, m.nombre AS maridaje, m.temperatura_s
    AND v.graduacion >= 14
    AND m.nombre ILIKE 'cordero al disco'
  ORDER BY v.graduacion DESC;
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -418,6 +512,7 @@ SELECT vc.cod_vino, mi.id_maridaje
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> I3'
 BEGIN;
 
 -- Control previo: stock en sala 1 para los vinos a vender
@@ -441,6 +536,7 @@ SELECT bodegas.fn_registrar_venta(
          ARRAY[:vino1, :vino2, :vino3]::BIGINT[],
          ARRAY[:cant1, :cant2, :cant3]::INTEGER[]
        ) AS nro_comprobante_creado;
+\echo 'Filas afectadas (I3): 1 comprobante (el número devuelto) y 3 renglones con' :cant1 '+' :cant2 '+' :cant3 'botellas; ver el control posterior'
 
 -- Control posterior: comprobante creado y renglones
 SELECT c.nro_comprobante, c.fecha, c.id_cliente, c.id_sala,
@@ -458,13 +554,6 @@ SELECT v.cod_vino, v.nombre, s.cantidad AS stock_sala_despues
   JOIN bodegas.vino v ON v.cod_vino = s.cod_vino
  WHERE s.id_sala = 1
    AND v.cod_vino IN (:vino1, :vino2, :vino3);
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -486,10 +575,10 @@ ROLLBACK;
 -- Constraint triggers DEFERRABLE:
 --   ctrg_comprobante_con_renglones (RN-08): al confirmar, exige al menos 1 renglón
 -- CHECK constraints:
---   ck_renglon_cantidad_positiva, ck_renglon_precio_positivo, ck_renglon_descuento, ck_renglon_subtotal
+--   ck_renglon_comprobante_cantidad_positiva, ck_renglon_comprobante_precio_positivo, ck_renglon_comprobante_descuento, ck_renglon_comprobante_subtotal
 --   ck_comprobante_importes (total = subtotal - descuento)
 -- FOREIGN KEY:
---   fk_comprobante_id_cliente, fk_comprobante_id_sala
+--   fk_comprobante_cliente, fk_comprobante_sala_venta
 --   fk_renglon_comprobante_comprobante, fk_renglon_comprobante_vino
 -- Reglas de negocio: RN-06 (descuento tipo cliente), RN-08 (total derivado), RN-09 (stock), RN-12 (inmutabilidad), RN-13 (auditoría precio si cambia)
 -- -----------------------------------------------------------------------------
@@ -512,7 +601,7 @@ SELECT bodegas.fn_registrar_venta(
 /*
 -- Caso: cliente inexistente
 -- SELECT fn_registrar_venta(999999, 1, ARRAY[1,2,3], ARRAY[1,1,1]);
--- Esperado: SQLSTATE P0002 del trigger (FK fk_comprobante_id_cliente) o de fn_descuento_cliente
+-- Esperado: SQLSTATE P0002 del trigger (FK fk_comprobante_cliente) o de fn_descuento_cliente
 
 -- Caso: vino sin stock en sala 1
 -- SELECT fn_registrar_venta(:cliente_con_stock, 1, ARRAY[:vino_sin_stock], ARRAY[5]);
@@ -570,30 +659,25 @@ SELECT bodegas.fn_registrar_venta(
 -- -----------------------------------------------------------------------------
 -- Ejecutar para ver bodegas existentes:
 -- SELECT cuit, razon_social, domicilio FROM bodegas.bodega ORDER BY razon_social;
--- Valores típicos: cuit 11 dígitos (ej. '20123456789'), razón social única.
+-- Valores: cuit de 11 dígitos; el parámetro por omisión (30712345671) no existe en la carga.
 -- -----------------------------------------------------------------------------
 
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> I4'
 BEGIN;
 
 -- Control previo: verificar que CUIT no existe
-SELECT cuit, razon_social FROM bodegas.bodega WHERE cuit = :cuit_bodega;
+SELECT cuit, razon_social FROM bodegas.bodega WHERE cuit = :'cuit_bodega_nueva';
 
 -- Sentencia principal
 INSERT INTO bodegas.bodega (cuit, razon_social, domicilio)
-VALUES (:cuit_bodega, :razon_social, :domicilio);
+VALUES (:'cuit_bodega_nueva', :'razon_social', :'domicilio');
+\echo 'Filas afectadas (I4):' :ROW_COUNT
 
 -- Control posterior
-SELECT cuit, razon_social, domicilio FROM bodegas.bodega WHERE cuit = :cuit_bodega;
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
+SELECT cuit, razon_social, domicilio FROM bodegas.bodega WHERE cuit = :'cuit_bodega_nueva';
 
 ROLLBACK;
 
@@ -612,7 +696,7 @@ ROLLBACK;
 -- -----------------------------------------------------------------------------
 /*
 INSERT INTO bodegas.bodega (cuit, razon_social, domicilio)
-VALUES (:cuit_bodega, :razon_social, :domicilio);
+VALUES (:'cuit_bodega_nueva', :'razon_social', :'domicilio');
 */
 
 -- -----------------------------------------------------------------------------
@@ -620,7 +704,7 @@ VALUES (:cuit_bodega, :razon_social, :domicilio);
 -- -----------------------------------------------------------------------------
 /*
 -- Caso: CUIT duplicado
--- INSERT ... VALUES ('20123456789', 'Nueva', 'Dir');
+-- INSERT ... VALUES ('30555408710', 'Nueva', 'Dir');  -- CUIT de Bodega Lopez S.R.L.
 -- Esperado: SQLSTATE 23505 (unique_violation), constraint pk_bodega
 
 -- Caso: CUIT formato inválido (no 11 dígitos)
@@ -676,6 +760,7 @@ VALUES (:cuit_bodega, :razon_social, :domicilio);
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> I5'
 BEGIN;
 
 -- Control previo: verificar localidad existe
@@ -684,25 +769,19 @@ SELECT id_localidad, nombre, provincia FROM bodegas.localidad WHERE id_localidad
 -- Control previo: verificar que no existe misma dirección en esa localidad
 SELECT id_sala FROM bodegas.sala_venta
  WHERE id_localidad = :id_localidad
-   AND calle = :calle
-   AND numero = :numero;
+   AND calle = :'calle'
+   AND numero = :'numero';
 
 -- Sentencia principal
 INSERT INTO bodegas.sala_venta (calle, numero, dia_cierre, id_localidad)
-VALUES (:calle, :numero, :dia_cierre, :id_localidad);
+VALUES (:'calle', :'numero', :'dia_cierre', :id_localidad);
+\echo 'Filas afectadas (I5):' :ROW_COUNT
 
 -- Control posterior
 SELECT sv.id_sala, sv.calle, sv.numero, sv.dia_cierre, l.nombre AS localidad
   FROM bodegas.sala_venta sv
   JOIN bodegas.localidad l ON l.id_localidad = sv.id_localidad
  WHERE sv.id_sala = (SELECT max(id_sala) FROM bodegas.sala_venta);
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -723,7 +802,7 @@ ROLLBACK;
 -- -----------------------------------------------------------------------------
 /*
 INSERT INTO bodegas.sala_venta (calle, numero, dia_cierre, id_localidad)
-VALUES (:calle, :numero, :dia_cierre, :id_localidad);
+VALUES (:'calle', :'numero', :'dia_cierre', :id_localidad);
 */
 
 -- -----------------------------------------------------------------------------
@@ -791,6 +870,7 @@ VALUES (:calle, :numero, :dia_cierre, :id_localidad);
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> I6'
 BEGIN;
 
 -- Control previo: verificar que vino, bodega y transportista existen
@@ -806,12 +886,13 @@ SELECT cod_transportista, razon_social
 -- Sentencia principal: CTE para insertar cabecera y renglón
 WITH nuevo_ingreso AS (
   INSERT INTO bodegas.ingreso (cod_transportista, cuit_bodega)
-  VALUES (:cod_transportista, :cuit_bodega)
+  VALUES (:cod_transportista, :'cuit_bodega')
   RETURNING cod_ingreso
 )
 INSERT INTO bodegas.renglon_ingreso (cod_ingreso, cod_vino, cantidad)
 SELECT ni.cod_ingreso, :cod_vino, 120
   FROM nuevo_ingreso ni;
+\echo 'Filas afectadas (I6):' :ROW_COUNT
 
 -- Control posterior: ingreso creado con renglón
 SELECT i.cod_ingreso, i.fecha, i.estado, i.cod_transportista, i.cuit_bodega,
@@ -820,13 +901,6 @@ SELECT i.cod_ingreso, i.fecha, i.estado, i.cod_transportista, i.cuit_bodega,
   JOIN bodegas.renglon_ingreso ri ON ri.cod_ingreso = i.cod_ingreso
   JOIN bodegas.vino v ON v.cod_vino = ri.cod_vino
  WHERE i.cod_ingreso = (SELECT max(cod_ingreso) FROM bodegas.ingreso);
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -853,7 +927,7 @@ ROLLBACK;
 /*
 WITH nuevo_ingreso AS (
   INSERT INTO bodegas.ingreso (cod_transportista, cuit_bodega)
-  VALUES (:cod_transportista, :cuit_bodega)
+  VALUES (:cod_transportista, :'cuit_bodega')
   RETURNING cod_ingreso
 )
 INSERT INTO bodegas.renglon_ingreso (cod_ingreso, cod_vino, cantidad)

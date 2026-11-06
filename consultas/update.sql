@@ -3,20 +3,40 @@
 -- Bodegas del Atuel - Trabajo Práctico Integrador BD 2026
 -- =============================================================================
 --
--- Cada consulta sigue el protocolo obligatorio:
+-- Cada consulta de modificación sigue el protocolo:
+--   \echo '>>> Xn'                       (marca para leer la salida)
 --   BEGIN;
 --   -- Control previo
---   -- Sentencia UPDATE
+--   -- Sentencia principal
+--   \echo 'Filas afectadas (Xn):' :ROW_COUNT
 --   -- Control posterior
---   GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
---   RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
 --   ROLLBACK;
+-- Cada consulta está en su propia transacción revertida: el archivo no deja
+-- cambios en la base (se verifica con db/seed/hashes.sql antes y después).
+--
+-- Ejecución (como propietario, corta en el primer error):
+--   docker compose exec db /opt/bodegas/consultas/ejecutar.sh update.sql
 --
 -- Convenciones:
--- - SQL en minúsculas para palabras clave
--- - Parámetros estilo psql: :parametro
--- - Valores del dataset: SEMILLA=20260427, FECHA_REFERENCIA=2026-10-27, ESCALA=1
+-- - Palabras clave de SQL en mayúsculas.
+-- - Parámetros de psql: :nombre para números, :'nombre' para texto.
+-- - Datos: carga de la Etapa 3 con SEMILLA=20260427 y ESCALA=1. Los períodos
+--   relativos usan CURRENT_DATE: para obtener filas, cargar con
+--   FECHA_REFERENCIA igual a la fecha del día (README de db/seed).
 -- =============================================================================
+
+-- =============================================================================
+-- PARÁMETROS
+-- Valor por omisión reemplazable desde la línea de comandos, por ejemplo:
+--   ejecutar.sh update.sql -v cuit_bodega=33532580264
+-- =============================================================================
+
+-- cuit_bodega (U3). Bodega Lopez S.R.L., 3 vinos: el control muestra todos.
+--   SELECT cuit_bodega, count(*) FROM bodegas.vino GROUP BY cuit_bodega ORDER BY 2 LIMIT 1;
+\if :{?cuit_bodega}
+\else
+  \set cuit_bodega 30555408710
+\endif
 
 -- =============================================================================
 -- U1: Recalcular todos los totales de comprobantes aplicando el descuento del tipo de cliente
@@ -37,120 +57,117 @@
 -- -----------------------------------------------------------------------------
 -- 1. ANÁLISIS Y ESTRATEGIA
 -- -----------------------------------------------------------------------------
--- Se debe recalcular el total de cada comprobante usando la función fn_recalcular_comprobante
--- que a su vez invoca fn_descuento_cliente(id_cliente) y fn_total_comprobante(nro_comprobante).
--- El trigger trg_comprobante_recalcular_total (AFTER UPDATE OF descuento ON comprobante) 
--- recalcula el total. La PK de comprobante y la FK a cliente garantizan integridad referencial.
--- RN-06 y RN-08 son las reglas de negocio involucradas.
--- Se usa un UPDATE masivo con FROM para invocar la función por cada comprobante.
+-- Los importes de un comprobante (subtotal bruto, descuento y total neto) se
+-- derivan de sus renglones (RN-08). El único camino de escritura es
+-- fn_recalcular_comprobante(nro): suma cantidad * precio_unitario (bruto) y
+-- los subtotales de los renglones (neto), y actualiza la cabecera con la marca
+-- de transacción bodegas.recalculo_importes, que trg_comprobante_importes exige.
+-- Por eso U1 NO hace un UPDATE directo de importes: el trigger lo rechaza con
+-- P0001 "RN-08: un comprobante emitido no se modifica." (la versión anterior de
+-- esta consulta fallaba así). Tampoco se duplica la aritmética fuera de la
+-- función: se la invoca una vez por comprobante, para todos (150.125, ~16 s).
+-- "Aplicando el descuento del tipo de cliente": el descuento de cada renglón
+-- es el porcentaje vigente al vender (fn_descuento_cliente, RN-06), guardado en
+-- renglon_comprobante.descuento_porcentaje. El recálculo usa ese porcentaje
+-- congelado; un cambio posterior del tipo o la excepción del cliente no
+-- modifica ventas ya emitidas (RN-12).
 -- -----------------------------------------------------------------------------
 
 -- -----------------------------------------------------------------------------
--- 2. VALORES CONCRETOS DEL DATASET (ETAPA 3)
+-- 2. VALORES CONCRETOS DEL DATASET
 -- -----------------------------------------------------------------------------
--- Ejecutar para ver comprobantes de ejemplo:
--- SELECT nro_comprobante, id_cliente, subtotal, descuento, total FROM bodegas.comprobante ORDER BY fecha DESC LIMIT 10;
--- Valores típicos: nro_comprobante 1-150125, id_cliente 1-20000, total calculado desde renglones.
+-- Todos los comprobantes: 150.125 con ESCALA=1. Si la carga es consistente
+-- (controles.sql = 0), el recálculo no cambia ningún importe: el control
+-- posterior debe informar 0 comprobantes con importes distintos.
 -- -----------------------------------------------------------------------------
 
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> U1'
 BEGIN;
 
--- Control previo: estado ANTES de la modificación
-SELECT count(*) AS total_comprobantes,
-       sum(total) AS suma_total_antes
+-- Control previo: cantidad, suma de totales y comprobantes cuyos importes no
+-- coinciden con sus renglones (se espera 0).
+CREATE TEMP TABLE u1_antes ON COMMIT DROP AS
+SELECT nro_comprobante, subtotal, descuento, total FROM bodegas.comprobante;
+
+SELECT count(*) AS comprobantes, sum(total) AS suma_total_antes
+  FROM u1_antes;
+
+SELECT count(*) AS importes_distintos_de_renglones_antes
+  FROM bodegas.comprobante AS c
+  JOIN (SELECT nro_comprobante,
+               sum(cantidad * precio_unitario) AS bruto,
+               sum(subtotal) AS neto
+          FROM bodegas.renglon_comprobante
+         GROUP BY nro_comprobante) AS r USING (nro_comprobante)
+ WHERE (c.subtotal, c.descuento, c.total) IS DISTINCT FROM (r.bruto, r.bruto - r.neto, r.neto);
+
+-- Sentencia principal: una llamada a fn_recalcular_comprobante por comprobante.
+-- La función devuelve VOID; se cuentan las llamadas.
+SELECT count(*) AS comprobantes_recalculados
+  FROM (SELECT bodegas.fn_recalcular_comprobante(nro_comprobante)
+          FROM bodegas.comprobante) AS recalculo;
+\echo 'Filas afectadas (U1): una actualización de cabecera por comprobante recalculado (columna anterior)'
+
+-- Control posterior: suma de totales e importes que cambiaron.
+SELECT count(*) AS comprobantes, sum(total) AS suma_total_despues
   FROM bodegas.comprobante;
 
--- Sentencia principal: recalcular todos los comprobantes
-UPDATE bodegas.comprobante c
-   SET subtotal = 0, descuento = 0, total = 0  -- Valores temporales; fn_recalcular_comprobante los sobrescribe
-  FROM (
-    SELECT nro_comprobante
-      FROM bodegas.comprobante
-  ) AS sub
- WHERE c.nro_comprobante = sub.nro_comprobante;
-
--- Nota: El UPDATE anterior pone los importes a 0 para permitir que el trigger
--- trg_comprobante_importes acepte la modificación (requiere bodegas.recalculo_importes=on).
--- La función fn_recalcular_comprobante se invoca internamente por el trigger
--- AFTER INSERT de renglones, pero aquí no hay renglones nuevos.
--- Por tanto, debemos invocar fn_recalcular_comprobante explícitamente para cada comprobante:
-DO $$
-DECLARE
-  v_nro BIGINT;
-BEGIN
-  FOR v_nro IN SELECT nro_comprobante FROM bodegas.comprobante LOOP
-    PERFORM bodegas.fn_recalcular_comprobante(v_nro);
-  END LOOP;
-END $$;
-
--- Control posterior: estado DESPUÉS de la modificación
-SELECT count(*) AS total_comprobantes,
-       sum(total) AS suma_total_despues
-  FROM bodegas.comprobante;
-
--- Verificar filas afectadas
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
+SELECT count(*) AS comprobantes_con_importes_cambiados
+  FROM bodegas.comprobante AS c
+  JOIN u1_antes AS a USING (nro_comprobante)
+ WHERE (c.subtotal, c.descuento, c.total) IS DISTINCT FROM (a.subtotal, a.descuento, a.total);
 
 ROLLBACK;
 
 -- -----------------------------------------------------------------------------
 -- 4. TRIGGERS, CONSTRAINTS Y REGLAS DE NEGOCIO INVOLUCRADOS
 -- -----------------------------------------------------------------------------
--- Triggers BEFORE:
---   trg_comprobante_importes (RN-08): valida que la marca bodegas.recalculo_importes esté 'on'
--- Triggers AFTER:
---   (ninguno directo en este UPDATE masivo, pero fn_recalcular_comprobante hace UPDATE interno)
+-- Triggers BEFORE UPDATE en comprobante:
+--   trg_comprobante_importes (RN-08): acepta el UPDATE sólo con la marca
+--   bodegas.recalculo_importes = 'on' (la enciende fn_recalcular_comprobante)
+--   y si no cambian número, fecha, cliente, sala ni xact_alta.
 -- CHECK constraints:
---   ck_comprobante_importes: total = subtotal - descuento, subtotal >= 0, descuento >= 0
--- FOREIGN KEY constraints:
---   fk_comprobante_id_cliente, fk_comprobante_id_sala
+--   ck_comprobante_importes: subtotal >= 0, descuento >= 0,
+--   descuento <= subtotal, total = subtotal - descuento.
+-- FOREIGN KEY constraints (no se modifican sus columnas):
+--   fk_comprobante_cliente, fk_comprobante_sala_venta.
 -- Reglas de negocio:
---   RN-06 (descuento según tipo de cliente), RN-08 (total derivado de renglones y descuento)
+--   RN-06 (descuento según tipo de cliente, congelado en el renglón),
+--   RN-08 (importes derivados de los renglones), RN-12 (venta emitida inmutable).
 -- -----------------------------------------------------------------------------
 
 -- -----------------------------------------------------------------------------
--- 5. CONSULTA SQL PRINCIPAL (versión parametrizada para uso individual)
+-- 5. CONSULTA SQL PRINCIPAL (versión para un solo comprobante)
 -- -----------------------------------------------------------------------------
 /*
--- Para recalcular un solo comprobante:
 SELECT bodegas.fn_recalcular_comprobante(:nro_comprobante);
-
--- Para recalcular todos (versión SET-based alternativa):
-UPDATE bodegas.comprobante
-   SET (subtotal, descuento, total) = (0, 0, 0)
- WHERE nro_comprobante IN (SELECT nro_comprobante FROM bodegas.comprobante);
--- Luego invocar fn_recalcular_comprobante para cada uno (en DO block como arriba)
 */
 
 -- -----------------------------------------------------------------------------
 -- 6. CASOS DE PRUEBA NEGATIVOS
 -- -----------------------------------------------------------------------------
 /*
--- Caso: comprobante inexistente en fn_recalcular_comprobante
--- SELECT bodegas.fn_recalcular_comprobante(999999999);
--- Esperado: SQLSTATE P0002 (no_data_found), mensaje "El comprobante 999999999 no existe."
+-- Caso: UPDATE directo de importes (lo que hacía la versión anterior de U1)
+-- UPDATE bodegas.comprobante SET subtotal = 0, descuento = 0, total = 0;
+-- Esperado: SQLSTATE P0001 de trg_comprobante_importes,
+--   "RN-08: un comprobante emitido no se modifica."
 
--- Caso: comprobante sin renglones (violación de RN-08)
--- INSERT INTO bodegas.comprobante (id_cliente, id_sala) VALUES (1, 1)  -- sin renglones
--- Esperado: SQLSTATE P0001 del constraint trigger ctrg_comprobante_con_renglones
+-- Caso: comprobante inexistente
+-- SELECT bodegas.fn_recalcular_comprobante(999999999);
+-- Esperado: SQLSTATE P0002, "El comprobante 999999999 no existe."
 */
 
 -- -----------------------------------------------------------------------------
 -- 7. OBSERVACIONES Y DECISIONES DE DISEÑO
 -- -----------------------------------------------------------------------------
--- Se usa fn_recalcular_comprobante en un DO block porque encapsula la lógica de RN-08
--- y respeta la inmutabilidad de renglones confirmados (RN-12 / columna xact_alta).
--- El UPDATE masivo directo con SET (subtotal, descuento, total) = fn_recalcular... 
--- no es posible porque fn_recalcular_comprobante retorna VOID y modifica la tabla internamente.
--- La marca bodegas.recalculo_importes se enciende/apaga dentro de la función.
+-- La función se invoca desde un SELECT sobre comprobante (una fila por
+-- llamada), sin bloque DO ni bucle: es la forma más corta de aplicar una
+-- función que modifica datos a un conjunto de filas.
+-- Recalcular todos cuesta ~16 s porque cada llamada hace su propio UPDATE; no
+-- se espera que un índice lo cambie (docs/rendimiento.md).
 
 
 -- =============================================================================
@@ -194,6 +211,7 @@ UPDATE bodegas.comprobante
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> U2'
 BEGIN;
 
 -- Control previo
@@ -207,6 +225,7 @@ SELECT cuit, nombre, fecha_ingreso, salario,
 UPDATE bodegas.empleado
    SET salario = ROUND(salario * 1.20, 2)
  WHERE bodegas.fn_antiguedad_anios(fecha_ingreso) > 5;
+\echo 'Filas afectadas (U2):' :ROW_COUNT
 
 -- Control posterior
 SELECT cuit, nombre, fecha_ingreso, salario,
@@ -214,13 +233,6 @@ SELECT cuit, nombre, fecha_ingreso, salario,
   FROM bodegas.empleado
  WHERE bodegas.fn_antiguedad_anios(fecha_ingreso) > 5
  ORDER BY anios_antiguedad DESC;
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -299,6 +311,7 @@ UPDATE bodegas.empleado
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> U3'
 BEGIN;
 
 -- Control previo: precios antes del aumento
@@ -306,13 +319,14 @@ SELECT v.cod_vino, v.nombre, v.precio AS precio_antes,
        b.razon_social AS bodega
   FROM bodegas.vino v
   JOIN bodegas.bodega b ON b.cuit = v.cuit_bodega
- WHERE b.cuit = :cuit_bodega  -- parámetro: ej. '20123456789'
+ WHERE b.cuit = :'cuit_bodega'
  ORDER BY v.cod_vino;
 
 -- Sentencia principal
 UPDATE bodegas.vino
    SET precio = ROUND(precio * 1.13, 2)
- WHERE cuit_bodega = :cuit_bodega;
+ WHERE cuit_bodega = :'cuit_bodega';
+\echo 'Filas afectadas (U3):' :ROW_COUNT
 
 -- Control posterior: precios después del aumento
 SELECT v.cod_vino, v.nombre, v.precio AS precio_despues,
@@ -320,7 +334,7 @@ SELECT v.cod_vino, v.nombre, v.precio AS precio_despues,
        b.razon_social AS bodega
   FROM bodegas.vino v
   JOIN bodegas.bodega b ON b.cuit = v.cuit_bodega
- WHERE b.cuit = :cuit_bodega
+ WHERE b.cuit = :'cuit_bodega'
  ORDER BY v.cod_vino;
 
 -- Verificar auditoría (RN-13)
@@ -329,15 +343,8 @@ SELECT ap.cod_vino, v.nombre, ap.precio_anterior, ap.precio_nuevo,
   FROM bodegas.auditoria_precio ap
   JOIN bodegas.vino v ON v.cod_vino = ap.cod_vino
  WHERE ap.fecha_hora >= (SELECT max(fecha_hora) FROM bodegas.auditoria_precio) - INTERVAL '1 minute'
-   AND v.cuit_bodega = :cuit_bodega
+   AND v.cuit_bodega = :'cuit_bodega'
  ORDER BY ap.fecha_hora DESC;
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -361,7 +368,7 @@ ROLLBACK;
 /*
 UPDATE bodegas.vino
    SET precio = ROUND(precio * 1.13, 2)
- WHERE cuit_bodega = :cuit_bodega;
+ WHERE cuit_bodega = :'cuit_bodega';
 */
 
 -- -----------------------------------------------------------------------------
@@ -421,6 +428,7 @@ UPDATE bodegas.vino
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> U4'
 BEGIN;
 
 -- Control previo
@@ -437,19 +445,13 @@ UPDATE bodegas.sala_venta
                       ELSE dia_cierre
                     END
  WHERE dia_cierre IN ('lunes', 'miercoles');
+\echo 'Filas afectadas (U4):' :ROW_COUNT
 
 -- Control posterior
 SELECT dia_cierre, count(*) AS cantidad
   FROM bodegas.sala_venta
  GROUP BY dia_cierre
  ORDER BY dia_cierre;
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -534,6 +536,7 @@ UPDATE bodegas.sala_venta
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> U5'
 BEGIN;
 
 -- Control previo: los 10 menos vendidos antes
@@ -562,6 +565,7 @@ UPDATE bodegas.vino v
    SET precio = ROUND(v.precio * 0.85, 2)
   FROM menos_vendidos mv
  WHERE v.cod_vino = mv.cod_vino;
+\echo 'Filas afectadas (U5):' :ROW_COUNT
 
 -- Control posterior: los 10 menos vendidos después
 WITH ventas AS (
@@ -584,13 +588,6 @@ SELECT ap.cod_vino, v.nombre, ap.precio_anterior, ap.precio_nuevo,
   JOIN bodegas.vino v ON v.cod_vino = ap.cod_vino
  WHERE ap.fecha_hora >= (SELECT max(fecha_hora) FROM bodegas.auditoria_precio) - INTERVAL '1 minute'
  ORDER BY ap.fecha_hora DESC;
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -688,6 +685,7 @@ UPDATE bodegas.vino v
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> U6'
 BEGIN;
 
 -- Control previo: exportadores con >3 permisos y su descuento actual
@@ -713,6 +711,7 @@ UPDATE bodegas.cliente c
   ) AS sub
  WHERE c.id_cliente = sub.id_cliente
    AND (c.descuento_excepcion IS NULL OR c.descuento_excepcion <> 35.00);
+\echo 'Filas afectadas (U6):' :ROW_COUNT
 
 -- Control posterior
 SELECT c.id_cliente, c.nombre_razon_social, c.descuento_excepcion AS desc_despues,
@@ -724,13 +723,6 @@ SELECT c.id_cliente, c.nombre_razon_social, c.descuento_excepcion AS desc_despue
  GROUP BY c.id_cliente, c.nombre_razon_social, c.descuento_excepcion
  HAVING count(pe.codigo_permiso) > 3
  ORDER BY num_permisos DESC;
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 

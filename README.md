@@ -346,20 +346,23 @@ Las consultas de la Etapa 5 están implementadas en `consultas/`:
 - `consultas/insert.sql`: I1 a I6 (inserciones en transacción con `ROLLBACK`).
 - `consultas/update.sql`: U1 a U6 (actualizaciones en transacción con `ROLLBACK`).
 - `consultas/delete.sql`: D1 a D6 (eliminaciones controladas en transacción con `ROLLBACK`).
-- `consultas/plantilla_consultas.sql`: plantilla común y convenciones de ejecución.
+- `consultas/ejecutar.sh`: ejecuta un archivo como propietario con `ON_ERROR_STOP=1`; si falla, termina con código distinto de 0.
+- `consultas/plantilla_consultas.sql`: plantilla de documentación, no ejecutable.
 
-Se ejecutan como propietario contra la base cargada (fecha de referencia `FECHA_REFERENCIA=2026-10-27`), por ejemplo:
+Con la base cargada, cada archivo se ejecuta dentro del contenedor `db`:
 
 ```bash
-docker compose exec db sh -c 'PGPASSWORD="$DB_OWNER_PASSWORD" psql -h 127.0.0.1 -U "$DB_OWNER_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /opt/bodegas/consultas/select.sql'
+docker compose exec db /opt/bodegas/consultas/ejecutar.sh select.sql
+docker compose exec db /opt/bodegas/consultas/ejecutar.sh update.sql -v cuit_bodega=33532580264
 ```
 
-Los parámetros de estilo psql (`:id_sala`, `:cod_vino`, `:cuit_bodega`, …) se pasan con `-v`. Las modificaciones terminan en `ROLLBACK` para no dejar cambios persistentes. El informe detallado, la verificación de S9 a S12 y el checklist de aceptación están en [docs/consultas.md](docs/consultas.md). Los planes de rendimiento se miden con `db/perf/medir.sh` y se documentan en [docs/rendimiento.md](docs/rendimiento.md); la demostración de concurrencia en [docs/concurrencia.md](docs/concurrencia.md).
+Cada archivo define sus parámetros con valores por omisión de la carga, y cualquiera se reemplaza con `-v`. Cada modificación está en su propio `BEGIN … ROLLBACK`, así que el archivo no deja cambios. Los períodos usan `CURRENT_DATE`: para que S3 y las demás consultas por período devuelvan filas, conviene cargar con `FECHA_REFERENCIA` igual a la fecha del día. Al cambiar un `.sql`, reconstruir la imagen con `docker compose up -d --build db`.
+
+Detalle de parámetros: [consultas/README.md](consultas/README.md). El informe, la verificación con las filas de cada consulta y el checklist de aceptación están en [docs/consultas.md](docs/consultas.md). Los planes de rendimiento se miden con `db/perf/medir.sh` y se documentan en [docs/rendimiento.md](docs/rendimiento.md); la demostración de concurrencia en [docs/concurrencia.md](docs/concurrencia.md).
 
 ## Pendientes para las próximas etapas
 
-- Carga (mejora opcional): calcular los importes en el `INSERT` del generador en lugar de un `UPDATE` posterior, que desordena `comprobante` y deja páginas vacías (`docs/rendimiento.md`, sección 6.1). Requiere recargar y volver a medir.
-- U1 (Etapa 5): decidir si "aplicar el descuento del tipo de cliente" recalcula sólo cabeceras con `fn_recalcular_comprobante` o también reaplica el descuento en renglones históricos, que hoy son inmutables.
+- U1: se resolvió recalculando las cabeceras con `fn_recalcular_comprobante`, con el descuento congelado en cada renglón (RN-12: una venta emitida no cambia). Si la cátedra espera que se reaplique el descuento actual del cliente a ventas históricas, habría que revisarlo, porque contradice RN-12.
 - Participaciones mínimas no exigidas por una RN: al menos un maridaje por vino, un análisis por lote y un empleado por sala.
 
 La diferencia entre las obligaciones del PDF y la aclaración docente sobre temas no vistos —transacciones como ejemplo opcional— permanece registrada en [docs/requisitos.md](docs/requisitos.md); no se eliminó ningún requisito silenciosamente.
