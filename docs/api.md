@@ -14,7 +14,7 @@ Convenciones:
 
 - JSON en UTF-8.
 - Listados con `?limite=` (por omisión 20, máximo 100) y `?desplazamiento=` (por omisión 0). Responden `{"items": [...], "limite": n, "desplazamiento": n, "total": n}`.
-- Errores con cuerpo `{"detail": "mensaje", "codigo": "SQLSTATE"}`. El mensaje de una regla de negocio es el de la base, por ejemplo "RN-09: stock insuficiente del vino 1 en la sala 1."
+- Errores con el cuerpo `ErrorRespuesta` (sección 3): `{"detail", "codigo", "restriccion"?, "columna"?, "errores"?}`. El mensaje de una regla de negocio es el de la base, por ejemplo "RN-09: stock insuficiente del vino 1 en la sala 1."
 - Las rutas son las de la consigna. Detrás de nginx se publican bajo `/api` (ver la sección 5).
 
 ## 1. Endpoints
@@ -94,26 +94,50 @@ Con psycopg 3: `with pool.connection() as conn, conn.transaction():`. El pool tr
 
 ## 3. Traducción de errores por SQLSTATE
 
-Tabla de la consigna (página 17), completada con los códigos que levanta este modelo:
+Implementado en `api/app/errores.py` (issue #24) y probado contra PostgreSQL 16 en `api/tests/test_errores_db.py`. Tabla de la consigna (página 17), completada con los códigos que levanta este modelo:
 
-| SQLSTATE | Situación en PostgreSQL | HTTP |
-|---|---|---|
-| `23505` | `UNIQUE` o `PRIMARY KEY` violada | 409 Conflict |
-| `23503` | `FOREIGN KEY`: dato relacionado inexistente (alta o modificación) | 422 Unprocessable Entity |
-| `23503` | `FOREIGN KEY`: la fila tiene dependientes (baja) | 409 Conflict |
-| `23514` | `CHECK` violado | 422 |
-| `23502` | `NOT NULL` violado | 422 |
-| `P0001` | Regla de negocio de un trigger o procedimiento (`RAISE EXCEPTION`, RN-xx) | 409, con el mensaje de la regla |
-| `P0002` | Un procedimiento o función no encuentra la fila (por ejemplo `sp_procesar_transferencia`: "La transferencia % no existe.") | 404 Not Found |
-| `22P02` | Texto con formato inválido para el tipo | 400 Bad Request |
-| `22001`, `22003` | Texto demasiado largo, número fuera de rango | 422 |
-| `40001`, `40P01` | Fallo de serialización o deadlock | 503 Service Unavailable, con `Retry-After` |
-| `42501` | Permiso denegado al rol de la API | **500**, registrado en el log sin detalles al cliente |
-| `08xxx` y `PoolTimeout` | Base no disponible | 503 |
+| SQLSTATE | Situación en PostgreSQL | HTTP | `detail` | Campos extra |
+|---|---|---|---|---|
+| `23505` | `UNIQUE` o `PRIMARY KEY` violada | 409 | "Ya existe un registro con esos datos." | `restriccion` |
+| `23503` | `FOREIGN KEY`: el dato relacionado no existe | 422 | "El dato relacionado no existe." | `restriccion` |
+| `23503` | `FOREIGN KEY`: la fila tiene dependientes | 409 | "No se puede borrar ni modificar: hay datos que dependen de este registro." | `restriccion` |
+| `23514` | `CHECK` violado | 422 | "Un valor no cumple una regla de validación." | `restriccion` |
+| `23502` | `NOT NULL` violado | 422 | "Falta un dato obligatorio." | `columna` |
+| `P0001` | Regla de negocio de un trigger o procedimiento (`RAISE EXCEPTION`, RN-xx) | 409 | El mensaje de la base | — |
+| `P0002` | Un procedimiento no encuentra la fila (por ejemplo "La transferencia % no existe.") | 404 | El mensaje de la base | — |
+| `22P02` | Texto con formato inválido para el tipo | 400 | "Un valor no tiene el formato esperado." | — |
+| `22001`, `22003` | Texto demasiado largo, número fuera de rango | 422 | Mensaje genérico | — |
+| `40001`, `40P01` | Fallo de serialización o deadlock | 503 + `Retry-After: 1` | "La operación chocó con otra simultánea. Reintente." | — |
+| `42501` y cualquier otro | Permiso denegado al rol de la API; error inesperado | **500**, registrado en el log | "Error interno del servidor." (`codigo` "interno") | — |
+| `08xxx`, `PoolTimeout`, `PoolClosed`, conexión perdida | Base no disponible | 503 | "Base de datos no disponible." (`codigo` "no_disponible") | — |
+| Validación de FastAPI | Parámetro o cuerpo inválido | 422 | "Datos de entrada inválidos." (`codigo` "validacion") | `errores: [{campo, mensaje}]` |
 
-`42501` va a 500 y no a 403 porque no es un problema del cliente: indica que el código intentó algo que el rol no tiene otorgado, o sea un error de la API o de los privilegios. Si alguna vez se agrega autenticación, 403 queda para "el usuario no puede", que es otra cosa.
+**Cuerpo de error.** Lo usan todos los errores de la API y está declarado como `ErrorRespuesta` en OpenAPI:
 
-La traducción se hace en un solo lugar (`api/README.md`). El mensaje que vuelve al cliente es `diag.message_primary`; nunca detalles internos ni el texto de la conexión.
+```json
+{"detail": "Ya existe un registro con esos datos.", "codigo": "23505", "restriccion": "uq_vino_identidad_comercial"}
+{"detail": "Datos de entrada inválidos.", "codigo": "validacion", "errores": [{"campo": "query.limite", "mensaje": "Input should be less than or equal to 100"}]}
+```
+
+`detail` es siempre lo que se muestra al usuario. `codigo` es el SQLSTATE, o bien `validacion`, `no_disponible` o `interno`. Los `HTTPException` propios de la API responden `{"detail"}`, que se muestra con la misma lógica.
+
+**Por qué 23503 puede ser 409 o 422.** El mismo SQLSTATE cubre dos situaciones, y no se decide por el método HTTP: una venta (`POST`) con un cliente inexistente es 422. Se decide por `diag.message_primary`, cuyos dos textos se verificaron en PostgreSQL 16:
+
+- `insert or update on table "composicion_vino" violates foreign key constraint "fk_composicion_vino_vino"`: falta el dato → **422**;
+- `update or delete on table "vino" violates foreign key constraint "fk_auditoria_precio_vino" on table "auditoria_precio"`: hay dependientes → **409**.
+
+`diag.table_name` no sirve para distinguirlos, porque en los dos casos informa la tabla que referencia (`composicion_vino` y `auditoria_precio`). El texto depende de `lc_messages` del servidor (`en_US.utf8`), que el rol de la API no puede cambiar; una prueba lo verifica. Si el texto no se reconoce, la respuesta es 409 y queda un aviso en el log.
+
+**Por qué 42501 es 500 y no 403.** No es un problema del cliente: indica que el código intentó algo que el rol no tiene otorgado, o sea un error de la API o de sus privilegios. Si alguna vez se agrega autenticación, 403 queda para "el usuario no puede", que es otra cosa.
+
+**Qué es `diag.message_primary` y qué no se devuelve.** PostgreSQL separa cada error en un mensaje primario corto, un DETAIL y un HINT.
+
+- **Al cliente:**
+  - el mensaje primario va tal cual sólo en P0001 y P0002, porque esos textos los escribimos nosotros en los `RAISE`;
+  - en los demás casos va un texto genérico más el nombre estable de la restricción;
+  - nunca va el DETAIL (`Key (nombre, …)=(…) already exists` repite valores de la fila);
+  - nunca va el texto completo de la excepción, que en errores de conexión incluye servidor y usuario.
+- **Al log:** SQLSTATE, mensaje primario y nombres de tabla o restricción, nunca datos de conexión. Lo verifica `test_permiso_denegado_500_sin_detalles_y_al_log`.
 
 ## 4. Privilegios de `bodegas_api` frente a este contrato
 
@@ -137,8 +161,14 @@ Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cad
 
 ## 5. Detalles de infraestructura para la Etapa 6
 
-- **Swagger detrás de nginx.** `GET /api/docs` responde 200 por el proxy, pero la página pide `/openapi.json` sin el prefijo `/api`, así que no carga. Verificado: la página contiene `url: '/openapi.json'`. Se corrige con `FastAPI(root_path="/api")` o con `servers`. Directo en el puerto de la API funciona.
-- **Pruebas.** La consigna pide al menos 8 pruebas automáticas, 3 de ellas sobre reglas de la base. La infraestructura ya existe (`api/README.md`). Candidatas: venta sin stock (409), transición de estado inválida (409), precio negativo (422).
+- **Swagger detrás de nginx (resuelto en #24).**
+  - Directo: `http://localhost:8000/docs`.
+  - Por el proxy: `http://localhost:8080/api/docs`.
+  - nginx envía `X-Forwarded-Prefix: /api` y un middleware de la API lo pasa a `root_path` **sólo si vale exactamente `/api`**. Por el proxy, el HTML pide `/api/openapi.json` y el esquema declara `servers: [{"url": "/api"}]`, que es lo que usa "Try it out". Directo no hay `servers` y todo queda en `/`.
+  - Descartados:
+    - `FastAPI(root_path="/api")` fijo: rompe el acceso directo, que pasaría a pedir `/api/openapi.json` al puerto de la API;
+    - una `location` extra en nginx para `/openapi.json`: "Try it out" llamaría a `/salud` del front.
+- **Pruebas.** La consigna pide al menos 8 pruebas automáticas, 3 de ellas sobre reglas de la base. Candidatas: venta sin stock (409), transición de estado inválida (409), precio negativo (422). Se corren con `api/tests/ejecutar.sh`, en un proyecto de Compose aislado y cargado (`api/README.md`, "Pruebas").
 - **Inyección SQL.** La demostración de inyección fallida se hace sobre un filtro de `GET /vinos`: el valor viaja como parámetro y se compara como texto.
 
 ## 6. Preguntas abiertas para la cátedra

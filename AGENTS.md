@@ -108,7 +108,7 @@ Un índice nuevo se justifica con una consulta medida antes y después con `db/p
 
 La carga masiva se conecta como propietario y deshabilita sólo los triggers que chocan con una historia, dentro de una única transacción. Cualquier cambio en el generador debe mantener la reproducibilidad (misma `SEMILLA`, `FECHA_REFERENCIA` y `ESCALA` producen las mismas huellas de `hashes.sql`) y hacer pasar `controles.sql` y `post_carga.sql`. Debe probarse con una carga completa desde un volumen vacío antes de integrarlo: el PR #22 se integró sin haber completado una carga (`docs/carga_masiva.md`, sección 11). No versionar datos generados ni volcados.
 
-La API se prueba con `docker compose --profile test run --rm --build api-test` (pytest dentro de Docker, con el rol de la API). Las versiones de `api/requirements*.txt` se fijan con `==`.
+La API se prueba con `api/tests/ejecutar.sh`: proyecto de Compose aislado desde un volumen vacío, carga `ESCALA=0.1`, pytest con el rol de la API y `down -v`. Las pruebas no se corren contra el entorno por defecto, porque las que escriben modificarían sus datos. Los errores de PostgreSQL los traduce sólo `api/app/errores.py`; los endpoints no los capturan. Las operaciones de varias sentencias usan `with conn.transaction():` dentro del endpoint. Las versiones de `api/requirements*.txt` se fijan con `==`.
 
 Las escrituras de stock, importes, estados y auditoría pertenecen a triggers y procedimientos. Una etapa posterior no debe otorgar a la API privilegios directos sobre esas columnas ni duplicar esos cálculos fuera de PostgreSQL.
 

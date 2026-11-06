@@ -216,7 +216,7 @@ Abrir:
 - front: <http://localhost:8080>;
 - salud a través del front: <http://localhost:8080/api/salud>;
 - salud directa de API: <http://localhost:8000/salud>;
-- OpenAPI/Swagger: <http://localhost:8000/docs>.
+- OpenAPI/Swagger: directo en <http://localhost:8000/docs> o por el proxy en <http://localhost:8080/api/docs> ("Try it out" llama a `/api/...`).
 
 Respuesta esperada:
 
@@ -249,6 +249,14 @@ docker compose start db
 ```
 
 Mientras la base está detenida, la API debe responder `503` sin credenciales ni detalles internos y el front debe mostrar indisponibilidad. El pool reintenta y vuelve a 200 cuando PostgreSQL acepta conexiones.
+
+## Ejecutar las pruebas de la API
+
+```bash
+api/tests/ejecutar.sh
+```
+
+Levanta un proyecto de Compose aislado (`bodegas_pruebas`) desde un volumen vacío, lo carga con `ESCALA=0.1`, corre pytest como `bodegas_api` y lo baja con `down -v`. Tarda alrededor de 60 s y no toca el entorno habitual. Opciones y reglas para escribir pruebas: [api/README.md](api/README.md#pruebas).
 
 ## Verificación aislada desde cero
 
