@@ -9,7 +9,7 @@ Este documento separa cuatro cosas que no deben confundirse:
 - la aclaración posterior del profesor sobre temas aún no vistos;
   - el alcance incremental de cada etapa implementada.
 
-La infraestructura inicial conecta PostgreSQL 16 -> FastAPI -> front. La Etapa 1 agregó el modelo conceptual y relacional, la normalización, el diccionario y el esquema físico con constraints. La Etapa 2 agrega la lógica de negocio dentro de la base: funciones, procedimientos, triggers, vistas y roles con privilegios mínimos (secciones 9 y `docs/trazabilidad.md`). La Etapa 3 agrega la carga masiva reproducible (sección 10 y `docs/carga_masiva.md`). Todavía no se implementan el CRUD de la API ni pantallas nuevas; las consultas de la Etapa 5 sí están implementadas (ver `docs/consultas.md` y `consultas/`).
+La infraestructura inicial conecta PostgreSQL 16 -> FastAPI -> front. La Etapa 1 agregó el modelo conceptual y relacional, la normalización, el diccionario y el esquema físico con constraints. La Etapa 2 agrega la lógica de negocio dentro de la base: funciones, procedimientos, triggers, vistas y roles con privilegios mínimos (secciones 9 y `docs/trazabilidad.md`). La Etapa 3 agrega la carga masiva reproducible (sección 10 y `docs/carga_masiva.md`). La Etapa 4 agrega los índices medidos (sección 11 y `docs/rendimiento.md`). La Etapa 5 está cerrada: consultas en `consultas/`, ejecutables con `consultas/ejecutar.sh`, y verificadas en `docs/consultas.md`. La próxima es la Etapa 6 (API REST): contrato borrador en `docs/api.md` (sección 3.8). Todavía no se implementan el CRUD de la API ni pantallas nuevas.
 
 ## 2. Fuentes revisadas
 
@@ -218,18 +218,18 @@ Las consultas candidatas de rendimiento y S9-S12 también requieren `EXPLAIN (AN
 
 #### Estado de implementación - Etapa 5 (consultas SQL)
 
-| Consigna | Archivo / consulta | Estado | Evidencia de validación |
-|----------|--------------------|--------|-------------------------|
-| U1 a U6 | `consultas/update.sql` | Implementado (con observación) | U1 activa la regla de negocio `RN-08` (comprobante emitido no se modifica), caso negativo esperado. Las modificaciones se envuelven en `BEGIN … control previo → sentencia → control posterior → ROLLBACK` y `GET DIAGNOSTICS ROW_COUNT`. |
-| I1 a I6 | `consultas/insert.sql` | Implementado (con observación) | 5 de 6 consultas ejecutadas sin error; 1 consulta tiene una tensión de diseño en `:cuit_bodega` (bodega nueva vs. FK de `ingreso`). Cada consulta individual es válida con su parámetro adecuado. |
-| D1 a D6 | `consultas/delete.sql` | Implementado | 6 de 6 consultas ejecutadas sin error, dentro de `BEGIN … ROLLBACK`, sin cambios persistentes. |
-| S1 a S8 | `consultas/select.sql` | Implementado | Ejecutadas sin errores; devuelven resultados coherentes sobre el dataset cargado. |
-| S9 | `consultas/select.sql` | Implementado | Usa `JOIN`, agregación y vista `v_ficha_vino`; stock total sin duplicación; `EXPLAIN (ANALYZE)` ejecutado. Resultado: 1 fila (cod_vino=100). |
-| S10 | `consultas/select.sql` | Implementado | CTE + subconsulta correlacionada real; `NULLIF` contra división por cero; resultado: 1532 filas (dataset completo). |
-| S11 | `consultas/select.sql` | Implementado | `RANK() OVER (PARTITION BY...)`, `SUM() OVER` acumulado; resultado: 4969 filas. |
-| S12 | `consultas/select.sql` | Implementado | Doble `NOT EXISTS` (división relacional) y `NOT EXISTS` (anti-join tintos); resultado: S12A=20000, S12B=7169. |
+Verificado el 2026-11-05, con una carga desde volumen vacío con `FECHA_REFERENCIA` igual a la fecha de ejecución. Los cuatro archivos se ejecutaron con `consultas/ejecutar.sh` (`ON_ERROR_STOP=1`) y terminaron con código 0; las huellas de `db/seed/hashes.sql` quedaron iguales antes y después. Las filas de cada consulta están en `docs/consultas.md`, sección 4.
 
-Todas las consultas avanzadas (S9-S12) incluyen `EXPLAIN (ANALYZE, BUFFERS)` y sus planes se conservan en `docs/consultas/planes/`. Los resultados y el checklist de aceptación de la Etapa 5 se documentan en `docs/consultas.md`.
+| Consigna | Archivo | Estado | Evidencia |
+|----------|---------|--------|-----------|
+| S1 a S12 | `consultas/select.sql` | Implementado | Todas devuelven filas. S9-S12 con `EXPLAIN (ANALYZE, BUFFERS)` sobre la carga completa (`docs/consultas/planes_etapa5.md`) |
+| I1 a I6 | `consultas/insert.sql` | Implementado | Cada una afecta filas. I4 usa un parámetro propio (`cuit_bodega_nueva`) e I6 una bodega existente |
+| U1 a U6 | `consultas/update.sql` | Implementado | U1 recalcula los 150.338 comprobantes con `fn_recalcular_comprobante`: 0 importes cambiados |
+| D1 a D6 | `consultas/delete.sql` | Implementado | Cada una afecta filas, dentro de `BEGIN … ROLLBACK` |
+
+Corrección de la Etapa 5: en la versión integrada los archivos no corrían con `ON_ERROR_STOP=1`. Sumaban 42 errores: variables psql sin definir, y U1 con un `UPDATE` directo que RN-08 rechaza. Además, la carga del PR #22 no completaba (`docs/carga_masiva.md`, sección 11).
+
+**Decisión sobre U1:** "aplicar el descuento del tipo de cliente" se resuelve recalculando las cabeceras con el descuento congelado en cada renglón al vender. Reaplicar el descuento actual a ventas emitidas contradiría RN-12.
 
 ### 3.8 API REST completa
 
@@ -246,6 +246,11 @@ La etapa final de API exige driver nativo, SQL parametrizado, una capa de acceso
 | Salud | `GET /salud`, con comprobación real de acceso a PostgreSQL. |
 
 Traducción sugerida del PDF: `23505 -> 409`; `23503 -> 409 o 422`; `23514` y `23502 -> 422`; `P0001 -> 409` con mensaje de regla; `22P02 -> 400`; `40001` y `40P01 -> 503` sugiriendo reintento. Deben existir al menos ocho pruebas automáticas, tres que violen reglas. También se documenta un intento de inyección tratado como texto por la parametrización. Vender sin stock debe devolver 409 claro y no dejar cambios parciales.
+
+Contrato borrador, traducción completa de SQLSTATE y privilegios verificados: `docs/api.md`. Preguntas abiertas para la cátedra, sin eliminar nada del PDF:
+
+- el alcance de `/reportes/trazabilidad/{cod}`, que el modelo no resuelve directamente;
+- `POST /ingresos/{cod}/terminar`, que el PDF no lista aunque RN-10 exige el estado `terminado`.
 
 ### 3.9 Front, nube, documentación y evaluación
 
@@ -335,7 +340,7 @@ Las ambigüedades se resolvieron de forma conservadora para poder avanzar. No se
 12. **Tiempo:** eventos operativos/auditoría con `TIMESTAMPTZ`; conceptos por día con `DATE`.
 13. **Trazabilidad:** no se inventa una relación lote-vino; necesitaría una extensión explícita de elaboración.
 14. **Borrados históricos:** D1/D5 eliminan cabecera y renglones; no revierten stock porque son depuración histórica, no anulación operativa.
-15. **Permisos API:** desde la Etapa 2, `bodegas_rw` recibe exactamente lo que necesitan los endpoints de la Etapa 6. No tiene DML sobre stock, auditoría, importes ni estados: esos cambios ocurren sólo por triggers y procedimientos `SECURITY DEFINER` (`007_roles.sql`).
+15. **Permisos API:** desde la Etapa 2, `bodegas_rw` recibe lo que necesitan los endpoints de la Etapa 6, verificado endpoint por endpoint como `bodegas_api` el 2026-11-05 (`docs/api.md`, sección 4). La excepción es `/reportes/trazabilidad/{cod}`: le falta `SELECT` sobre `parcela`, `lote_uva`, `finca` y `analisis_calidad`, que se otorgaría en una `009` cuando la cátedra confirme el alcance del reporte. No tiene DML sobre stock, auditoría, importes ni estados: esos cambios ocurren sólo por triggers y procedimientos `SECURITY DEFINER` (`007_roles.sql`).
 16. **Temas no vistos:** las transacciones se implementan aunque sean opcionales (sección 4). Sigue pendiente confirmar con la cátedra si concurrencia también queda exceptuada; mientras tanto se trata como obligatoria.
 17. **Ubicación de pruebas:** se adopta `db/tests/`.
 18. **Anexo C ausente:** sigue pendiente solicitar las preguntas de defensa mencionadas pero no incluidas en el PDF.

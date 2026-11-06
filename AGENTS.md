@@ -91,24 +91,24 @@ Ya existen:
 - el modelo (Etapa 1);
 - la lógica de negocio en la base (Etapa 2: migraciones 003 a 007);
 - la carga masiva reproducible (Etapa 3: `db/seed/`, servicio `seed` con perfil propio);
-- los índices de rendimiento (Etapa 4: `008_indices.sql`, medición en `db/perf/`, informe en `docs/rendimiento.md`).
+- los índices de rendimiento (Etapa 4: `008_indices.sql`, medición en `db/perf/`, informe en `docs/rendimiento.md`);
+- las consultas de la Etapa 5, cerrada: S1-S12, U1-U6, I1-I6 y D1-D6 en `consultas/`, informe en `docs/consultas.md` y planes en `docs/consultas/planes/`.
 
-Una vez integradas en `main`, las migraciones no se modifican: cualquier corrección va en una migración nueva. La Etapa 5 (consultas S1-S12, U1-U6, I1-I6, D1-D6) está implementada y documentada en `consultas/` e `docs/consultas.md`; no se implementa todavía CRUD en la API ni pantallas nuevas.
+Una vez integradas en `main`, las migraciones no se modifican: cualquier corrección va en una migración nueva. La próxima migración es `009`; sólo se crea con una necesidad justificada y aprobada. El faltante conocido son los `SELECT` para la trazabilidad (`docs/api.md`, sección 4), pendiente de la respuesta de la cátedra.
 
-Convenciones de ejecución de la Etapa 5:
-- Los cuatro archivos SQL son `consultas/select.sql`, `consultas/insert.sql`, `consultas/update.sql`, `consultas/delete.sql` (plantilla en `consultas/plantilla_consultas.sql`).
-- Se ejecutan como propietario contra la base cargada (`FECHA_REFERENCIA=2026-10-27`, `SEMILLA=20260427`, `ESCALA=1`), pasando los parámetros psql (`:id_sala`, `:cod_vino`, `:cuit_bodega`, …) con `-v`.
-- Las consultas de modificación terminan en `ROLLBACK`; no se permiten cambios persistentes fuera de un entorno de prueba controlado. Las escrituras de stock, importes, estados y auditoría pertenecen a triggers y procedimientos.
-- S9-S12 requieren `EXPLAIN (ANALYZE, BUFFERS)`; los planes se guardan en `docs/consultas/planes/`.
+**La próxima es la Etapa 6: API REST.** El contrato borrador está en `docs/api.md` y la organización prevista del código en `api/README.md`. Cada endpoint entra con su función de acceso a datos y su prueba en `api/tests/`. No se crean archivos vacíos por adelantado. Las pantallas del front son de la Etapa 7.
 
-Estado de la documentación:
-- `docs/consultas.md`: sección 6 del informe final (introducción, consultas representativas, S9-S12, modificaciones, conclusión y checklist de aceptación).
-- `docs/requisitos.md`: estado de implementación de la Etapa 5 actualizado.
-- `README.md`: sección de consultas y pendientes actualizados.
+Convenciones de las consultas (Etapa 5):
+- Se ejecutan con `docker compose exec db /opt/bodegas/consultas/ejecutar.sh <archivo>.sql` (propietario, `ON_ERROR_STOP=1`). Los `.sql` llegan a la imagen de `db` como contexto adicional: al cambiarlos, reconstruir con `docker compose up -d --build db`.
+- Cada archivo define sus parámetros al comienzo (`\if :{?x} \else \set x … \endif`), con valores de la carga. Lo que depende de la historia simulada (tipos de cliente, stock, transferencias recientes) se elige con `\gset`: cambia con `FECHA_REFERENCIA`.
+- Cada modificación está en su propio `BEGIN … ROLLBACK` e informa `:ROW_COUNT`. El archivo no deja cambios: se verifica con `db/seed/hashes.sql` antes y después.
+- Las escrituras de stock, importes, estados y auditoría van por funciones y procedimientos (por ejemplo U1 usa `fn_recalcular_comprobante`), nunca por `UPDATE` directos.
 
 Un índice nuevo se justifica con una consulta medida antes y después con `db/perf/medir.sh`, y su costo de escritura se considera, como en `docs/rendimiento.md`. Los experimentos que crean índices o cambian datos van dentro de `BEGIN … ROLLBACK` o en un proyecto de Compose aislado.
 
-La carga masiva se conecta como propietario y deshabilita sólo los triggers que chocan con una historia, dentro de una única transacción. Cualquier cambio en el generador debe mantener la reproducibilidad (misma `SEMILLA`, `FECHA_REFERENCIA` y `ESCALA` producen las mismas huellas de `hashes.sql`) y hacer pasar `controles.sql`. No versionar datos generados ni volcados.
+La carga masiva se conecta como propietario y deshabilita sólo los triggers que chocan con una historia, dentro de una única transacción. Cualquier cambio en el generador debe mantener la reproducibilidad (misma `SEMILLA`, `FECHA_REFERENCIA` y `ESCALA` producen las mismas huellas de `hashes.sql`) y hacer pasar `controles.sql` y `post_carga.sql`. Debe probarse con una carga completa desde un volumen vacío antes de integrarlo: el PR #22 se integró sin haber completado una carga (`docs/carga_masiva.md`, sección 11). No versionar datos generados ni volcados.
+
+La API se prueba con `docker compose --profile test run --rm --build api-test` (pytest dentro de Docker, con el rol de la API). Las versiones de `api/requirements*.txt` se fijan con `==`.
 
 Las escrituras de stock, importes, estados y auditoría pertenecen a triggers y procedimientos. Una etapa posterior no debe otorgar a la API privilegios directos sobre esas columnas ni duplicar esos cálculos fuera de PostgreSQL.
 
