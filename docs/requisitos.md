@@ -444,7 +444,7 @@ No se agregaron migraciones: la carga usa los objetos de 001 a 007.
 | Dos ejecuciones con la misma semilla producen los mismos datos | Tres cargas desde volúmenes vacíos (una de ellas con las secuencias ya consumidas por las pruebas) dieron las mismas huellas md5 en las 30 tablas. La tabla está en `docs/carga_masiva.md`, sección 8. |
 | Las consultas de control no encuentran inconsistencias | `controles.sql`: 55 controles y 35 FK revisadas, 0 violaciones. Una alteración provocada se detecta con código 3. |
 | El informe compara la carga fila por fila con la carga por lotes | `docs/carga_masiva.md`, sección 7.2: fila por fila con y sin `COMMIT` por fila, `executemany` y `COPY`. |
-| Está documentado cómo se manejaron los triggers | `docs/carga_masiva.md`, sección 3: se deshabilitan sólo 7 triggers por nombre, en una transacción. Están verificadas las FK activas, la rehabilitación por `ROLLBACK` y el control de `tgenabled`; se documentan los riesgos y cómo se compensan. |
+| Está documentado cómo se manejaron los triggers | `docs/carga_masiva.md`, sección 3: se deshabilitan sólo 8 triggers por nombre, en una transacción (el octavo, `trg_comprobante_importes`, desde la corrección de la Etapa 5, sección 11). Están verificadas las FK activas, la rehabilitación por `ROLLBACK` y el control de `tgenabled`; se documentan los riesgos y cómo se compensan. |
 
 Después de la carga, `db/tests/run_all.sh` sigue pasando completo, y `post_carga.sql` demuestra las reglas activas por el camino normal.
 
