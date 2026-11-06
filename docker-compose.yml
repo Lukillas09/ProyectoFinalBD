@@ -110,6 +110,33 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Pruebas automáticas de la API. Perfil "test": no corre con un `up` normal.
+  # Uso: docker compose --profile test run --rm api-test
+  # Misma configuración y rol que la API (nunca el propietario); sólo red datos.
+  api-test:
+    build:
+      context: ./api
+      target: test
+    profiles: ["test"]
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:?Defina POSTGRES_DB en .env}
+      DB_USER: ${DB_APP_USER:?Defina DB_APP_USER en .env}
+      DB_PASSWORD: ${DB_APP_PASSWORD:?Defina DB_APP_PASSWORD en .env}
+      DB_POOL_MIN_SIZE: ${DB_POOL_MIN_SIZE:-1}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-5}
+      DB_POOL_TIMEOUT_SECONDS: ${DB_POOL_TIMEOUT_SECONDS:-2}
+      DB_CONNECT_TIMEOUT_SECONDS: ${DB_CONNECT_TIMEOUT_SECONDS:-3}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - datos
+    restart: "no"
+
   front:
     build:
       context: ./front
