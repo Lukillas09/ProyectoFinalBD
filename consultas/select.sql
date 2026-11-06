@@ -6,7 +6,60 @@
 -- Consultas S1 a S12 según especificación.
 -- S9-S12 requieren EXPLAIN (ANALYZE, BUFFERS) obligatorio.
 -- Períodos relativos usan CURRENT_DATE, no fechas fijas.
+--
+-- Ejecución (como propietario, corta en el primer error):
+--   docker compose exec db /opt/bodegas/consultas/ejecutar.sh select.sql
+-- Cada consulta se precede de \echo '>>> Sn' (y '>>> PLAN Sn' para los
+-- EXPLAIN) para poder leer la salida.
 -- =============================================================================
+
+-- =============================================================================
+-- PARÁMETROS
+-- Cada uno tiene un valor por omisión que se reemplaza desde la línea de
+-- comandos, por ejemplo: ejecutar.sh select.sql -v id_sala=3 -v cod_vino=2
+-- Los valores son identificadores de catálogo de la carga (no dependen de
+-- FECHA_REFERENCIA) elegidos entre los casos que db/seed/controles.sql
+-- garantiza (docs/carga_masiva.md, sección 4.4).
+-- =============================================================================
+
+-- id_sala (S3, S6). Sala 1: controles.sql garantiza vinos sin stock en la sala
+-- 1 y con stock en depósito (S6); tiene ventas todas las semanas (S3).
+--   SELECT id_sala, count(*) FROM bodegas.comprobante
+--    WHERE fecha >= CURRENT_DATE - 7 GROUP BY id_sala ORDER BY id_sala;
+\if :{?id_sala}
+\else
+  \set id_sala 1
+\endif
+
+-- cod_vino (S9). Vino 1, "Malbec Clásico".
+\if :{?cod_vino}
+\else
+  \set cod_vino 1
+\endif
+
+-- cod_vino_transferido (S4). Qué vino se transfirió a más salas en los últimos
+-- 15 días depende de la historia simulada: con FECHA_REFERENCIA=2026-10-27 es
+-- el vino 1 (15 salas), con otra fecha puede ser otro. Por eso se elige al
+-- ejecutar, entre los que controles.sql garantiza (5 salas o más).
+\if :{?cod_vino_transferido}
+\else
+  SELECT r.cod_vino AS cod_vino_transferido
+    FROM bodegas.transferencia AS t
+    JOIN bodegas.renglon_transferencia AS r USING (nro_transferencia)
+   WHERE t.fecha_confeccion >= CURRENT_DATE - INTERVAL '15 days'
+   GROUP BY r.cod_vino
+   ORDER BY count(DISTINCT t.id_sala) DESC, r.cod_vino
+   LIMIT 1
+  \gset
+\endif
+
+-- cuit_bodega (S12 A). Bodega Lopez S.R.L., la única bodega chica (3 vinos):
+-- controles.sql garantiza clientes que compraron sus tres vinos.
+--   SELECT cuit_bodega, count(*) FROM bodegas.vino GROUP BY cuit_bodega ORDER BY 2 LIMIT 1;
+\if :{?cuit_bodega}
+\else
+  \set cuit_bodega 30555408710
+\endif
 
 -- =============================================================================
 -- S1: Ranking de los diez vinos con más botellas vendidas
@@ -51,6 +104,7 @@
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
+\echo '>>> S1'
 SELECT v.cod_vino,
        v.nombre,
        v.tipo,
@@ -136,6 +190,7 @@ SELECT v.cod_vino,
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
+\echo '>>> S2'
 SELECT v.cod_vino,
        v.nombre,
        v.tipo,
@@ -221,6 +276,7 @@ SELECT v.cod_vino, v.nombre, v.tipo, v.graduacion, v.precio, b.razon_social AS b
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
+\echo '>>> S3'
 SELECT cl.tipo,
        count(DISTINCT c.id_cliente) AS cantidad_clientes
   FROM bodegas.comprobante c
@@ -271,7 +327,7 @@ SELECT cl.tipo, count(DISTINCT c.id_cliente) AS cantidad_clientes
 -- 1. ANÁLISIS Y ESTRATEGIA
 -- -----------------------------------------------------------------------------
 -- Filtro: transferencias de los últimos 15 días (fecha_confeccion >= CURRENT_DATE - INTERVAL '15 days')
--- y un vino específico (:cod_vino).
+-- y un vino específico (:cod_vino_transferido).
 -- Agrupar por sala, sumar cantidades de renglon_transferencia.
 -- Orden descendente por total solicitado, límite 5.
 -- Índice: idx_transferencia_pendientes (id_sala WHERE estado <> 'procesado') parcialmente relevante.
@@ -298,6 +354,7 @@ SELECT cl.tipo, count(DISTINCT c.id_cliente) AS cantidad_clientes
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
+\echo '>>> S4'
 SELECT s.id_sala,
        s.calle,
        s.numero,
@@ -308,7 +365,7 @@ SELECT s.id_sala,
   JOIN bodegas.sala_venta s ON s.id_sala = t.id_sala
   JOIN bodegas.localidad l ON l.id_localidad = s.id_localidad
  WHERE t.fecha_confeccion >= CURRENT_DATE - INTERVAL '15 days'
-   AND rt.cod_vino = :cod_vino
+   AND rt.cod_vino = :cod_vino_transferido
  GROUP BY s.id_sala, s.calle, s.numero, l.nombre
  ORDER BY total_solicitado DESC
  LIMIT 5;
@@ -336,7 +393,7 @@ SELECT s.id_sala, s.calle, s.numero, l.nombre AS localidad,
 -- -----------------------------------------------------------------------------
 -- "Últimos quince días" se calcula relativo a CURRENT_DATE sobre fecha_confeccion (DATE).
 -- Incluye transferencias en cualquier estado (confección, terminado, procesado).
--- El parámetro :cod_vino permite consultar cualquier vino.
+-- El parámetro :cod_vino_transferido permite consultar cualquier vino.
 
 
 -- =============================================================================
@@ -384,6 +441,7 @@ SELECT s.id_sala, s.calle, s.numero, l.nombre AS localidad,
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
+\echo '>>> S5'
 SELECT s.id_sala,
        s.calle,
        s.numero,
@@ -465,6 +523,7 @@ SELECT s.id_sala, s.calle, s.numero, l.nombre AS localidad,
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
+\echo '>>> S6'
 SELECT v.cod_vino,
        v.nombre,
        v.tipo,
@@ -552,6 +611,7 @@ SELECT v.cod_vino, v.nombre, v.tipo, v.graduacion, v.precio,
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
+\echo '>>> S7'
 SELECT t.cod_transportista,
        t.razon_social,
        t.cuit,
@@ -635,6 +695,7 @@ SELECT t.cod_transportista, t.razon_social, t.cuit, t.email, t.telefono, t.domic
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
+\echo '>>> S8'
 SELECT s.id_sala,
        s.calle,
        s.numero,
@@ -715,13 +776,16 @@ SELECT s.id_sala, s.calle, s.numero, l.nombre AS localidad,
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
-SELECT *
+\echo '>>> S9'
+SELECT cod_vino, nombre, tipo, anada, volumen_ml, graduacion, precio,
+       cuit_bodega, bodega, corte, maridajes, stock_total
   FROM bodegas.v_ficha_vino
  WHERE cod_vino = :cod_vino;
 
 -- Alternativa: listar todos con paginación
 /*
-SELECT *
+SELECT cod_vino, nombre, tipo, anada, volumen_ml, graduacion, precio,
+       cuit_bodega, bodega, corte, maridajes, stock_total
   FROM bodegas.v_ficha_vino
  ORDER BY cod_vino
  LIMIT 20 OFFSET 0;
@@ -730,10 +794,12 @@ SELECT *
 -- -----------------------------------------------------------------------------
 -- 4. EXPLAIN ANALYZE (OBLIGATORIO PARA S9)
 -- -----------------------------------------------------------------------------
+\echo '>>> PLAN S9'
 EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
-SELECT *
+SELECT cod_vino, nombre, tipo, anada, volumen_ml, graduacion, precio,
+       cuit_bodega, bodega, corte, maridajes, stock_total
   FROM bodegas.v_ficha_vino
- WHERE cod_vino = 100;
+ WHERE cod_vino = :cod_vino;
 
 -- -----------------------------------------------------------------------------
 -- 5. OBSERVACIONES
@@ -801,6 +867,7 @@ SELECT *
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
+\echo '>>> S10'
 WITH rendimiento_parcela AS (
   SELECT l.id_finca,
          l.nro_parcela,
@@ -835,6 +902,7 @@ SELECT rp.id_finca,
 -- -----------------------------------------------------------------------------
 -- 4. EXPLAIN ANALYZE (OBLIGATORIO PARA S10)
 -- -----------------------------------------------------------------------------
+\echo '>>> PLAN S10'
 EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 WITH rendimiento_parcela AS (
   SELECT l.id_finca,
@@ -937,6 +1005,7 @@ SELECT rp.id_finca,
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
+\echo '>>> S11'
 WITH ventas_mensuales_vino AS (
   SELECT c.id_sala,
          date_trunc('month', c.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE AS mes,
@@ -973,6 +1042,7 @@ SELECT id_sala,
 -- -----------------------------------------------------------------------------
 -- 4. EXPLAIN ANALYZE (OBLIGATORIO PARA S11)
 -- -----------------------------------------------------------------------------
+\echo '>>> PLAN S11'
 EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 WITH ventas_mensuales_vino AS (
   SELECT c.id_sala,
@@ -1031,7 +1101,7 @@ SELECT id_sala, mes, cod_vino, vino, botellas, rnk_mes, ventas_acumuladas_sala
 -- 1. ANÁLISIS Y ESTRATEGIA
 -- -----------------------------------------------------------------------------
 -- Dos consultas separadas combinadas con UNION ALL (o dos result sets):
--- A) Clientes que compraron TODOS los vinos de una bodega (:cuit_bodega)
+-- A) Clientes que compraron TODOS los vinos de una bodega (:'cuit_bodega')
 --    División relacional: NOT EXISTS (vino de la bodega WHERE NOT EXISTS (compra del cliente))
 -- B) Clientes que NUNCA compraron vinos tipo 'tinto'
 --    Anti-join: NOT EXISTS (compra del cliente de vino tinto)
@@ -1041,12 +1111,12 @@ SELECT id_sala, mes, cod_vino, vino, botellas, rnk_mes, ventas_acumuladas_sala
 -- -----------------------------------------------------------------------------
 -- 2. VALORES CONCRETOS DEL DATASET
 -- -----------------------------------------------------------------------------
--- Ejecutar A) para bodega '20123456789':
+-- Ejecutar A) para la bodega del parámetro (por omisión 30555408710):
 -- SELECT c.id_cliente, c.nombre_razon_social, c.tipo
 --   FROM bodegas.cliente c
 --  WHERE NOT EXISTS (
 --     SELECT 1 FROM bodegas.vino v
---      WHERE v.cuit_bodega = '20123456789'
+--      WHERE v.cuit_bodega = '30555408710'
 --        AND NOT EXISTS (
 --          SELECT 1 FROM bodegas.comprobante cmp
 --          JOIN bodegas.renglon_comprobante rc ON rc.nro_comprobante = cmp.nro_comprobante
@@ -1069,6 +1139,7 @@ SELECT id_sala, mes, cod_vino, vino, botellas, rnk_mes, ventas_acumuladas_sala
 -- -----------------------------------------------------------------------------
 -- 3. CONSULTA SQL PRINCIPAL
 -- -----------------------------------------------------------------------------
+\echo '>>> S12'
 -- A) Clientes que compraron TODOS los vinos de una bodega
 SELECT c.id_cliente,
        c.nombre_razon_social,
@@ -1077,7 +1148,7 @@ SELECT c.id_cliente,
   FROM bodegas.cliente c
  WHERE NOT EXISTS (
    SELECT 1 FROM bodegas.vino v
-    WHERE v.cuit_bodega = :cuit_bodega
+    WHERE v.cuit_bodega = :'cuit_bodega'
       AND NOT EXISTS (
         SELECT 1 FROM bodegas.comprobante cmp
         JOIN bodegas.renglon_comprobante rc ON rc.nro_comprobante = cmp.nro_comprobante
@@ -1103,20 +1174,24 @@ SELECT c.id_cliente,
 -- -----------------------------------------------------------------------------
 -- 4. EXPLAIN ANALYZE (OBLIGATORIO PARA S12)
 -- -----------------------------------------------------------------------------
+-- Un plan por parte (docs/consultas/planes/S12A_plan.txt y S12B_plan.txt).
+\echo '>>> PLAN S12A'
 EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 SELECT c.id_cliente, c.nombre_razon_social, c.tipo, 'compro_todos_vinos_bodega' AS criterio
   FROM bodegas.cliente c
  WHERE NOT EXISTS (
    SELECT 1 FROM bodegas.vino v
-    WHERE v.cuit_bodega = '20123456789'
+    WHERE v.cuit_bodega = :'cuit_bodega'
       AND NOT EXISTS (
         SELECT 1 FROM bodegas.comprobante cmp
         JOIN bodegas.renglon_comprobante rc ON rc.nro_comprobante = cmp.nro_comprobante
          WHERE cmp.id_cliente = c.id_cliente
            AND rc.cod_vino = v.cod_vino
       )
- )
-UNION ALL
+ );
+
+\echo '>>> PLAN S12B'
+EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 SELECT c.id_cliente, c.nombre_razon_social, c.tipo, 'nunca_compro_tintos' AS criterio
   FROM bodegas.cliente c
  WHERE NOT EXISTS (
@@ -1133,5 +1208,5 @@ SELECT c.id_cliente, c.nombre_razon_social, c.tipo, 'nunca_compro_tintos' AS cri
 -- Parte A: División relacional con doble NOT EXISTS para "todos los vinos de una bodega".
 -- Parte B: Anti-join simple con NOT EXISTS para "nunca compraron tintos".
 -- El UNION ALL combina ambos criterios con una columna 'criterio' que distingue el origen.
--- El parámetro :cuit_bodega permite consultar cualquier bodega.
--- Índices relevantes: idx_renglon_comprobante_cod_vino, idx_comprobante_id_cliente, idx_vino_cuit_bodega (FK).
+-- El parámetro :'cuit_bodega' permite consultar cualquier bodega.
+-- Índices relevantes: idx_renglon_comprobante_cod_vino, idx_comprobante_id_cliente, uq_vino_identidad_comercial (empieza por cuit_bodega, así que también sirve para la FK).

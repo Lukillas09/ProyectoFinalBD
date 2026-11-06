@@ -68,6 +68,7 @@ flowchart LR
 | `trg_ingreso_estado`, `trg_transferencia_estado` | Sólo permiten dar de alta documentos en confección; la historia los tiene procesados. |
 | `trg_renglon_ingreso_bloqueo`, `trg_renglon_transferencia_bloqueo` | No admiten renglones en documentos procesados. |
 | `trg_transferencia_fecha` | Fuerza la fecha de hoy. |
+| `trg_comprobante_importes` | Exige importes en cero al insertar una cabecera. La carga inserta cada comprobante una sola vez, ya con sus importes calculados desde los renglones (sección 11). |
 
 ### 3.2 Alternativas
 
@@ -75,7 +76,7 @@ flowchart LR
 |---|---|---|
 | (a) `ALTER TABLE … DISABLE TRIGGER USER` en todas las tablas | Simple. | También apaga los constraint triggers diferidos (composición 100, totalidad de clientes, comprobantes con renglones). Nadie valida esos datos dentro de la base: todo queda a cargo de los controles posteriores. |
 | (b) Cargar por las funciones y procedimientos reales | Cada fila pasa por todas las reglas. | **No puede producir historia**: `fn_registrar_venta` usa la fecha, el precio y el descuento de hoy, y la fecha de transferencia se fuerza a hoy. Además, cada venta recalcula su cabecera y bloquea filas. Sirve para operaciones nuevas, no para cargar el pasado. |
-| **(a′) Deshabilitar sólo los 7 triggers de la tabla anterior, en una sola transacción** (elegida) | Los demás triggers siguen activos y validan la carga. En particular, los 8 constraint triggers diferidos verifican al confirmar la composición de cada vino, la totalidad de la jerarquía de clientes, el respaldo de U6 y que cada comprobante tenga renglones. `trg_comprobante_importes` acepta los importes sólo por el camino de recálculo. | Los 7 triggers deshabilitados no validan la historia: lo compensan los controles (sección 6). |
+| **(a′) Deshabilitar sólo los 8 triggers de la tabla anterior, en una sola transacción** (elegida) | Los demás triggers siguen activos y validan la carga. En particular, los 8 constraint triggers diferidos verifican, con los datos completos y antes de rehabilitar los triggers (`SET CONSTRAINTS ALL IMMEDIATE`), la composición de cada vino, la totalidad de la jerarquía de clientes, el respaldo de U6 y que cada comprobante tenga renglones. | Los 8 triggers deshabilitados no validan la historia: lo compensan los controles (sección 6), entre ellos el que compara cada cabecera con la suma de sus renglones. |
 
 ### 3.3 Garantías de (a′), todas verificadas
 
@@ -104,55 +105,9 @@ La regla del proyecto es que totales, descuentos y stock pertenecen a PostgreSQL
 - **PostgreSQL calcula al cargar:**
   - **Precio unitario histórico:** se deduce de los intervalos de `auditoria_precio`. Antes del primer cambio rige su precio anterior; después de cada cambio, su precio nuevo.
   - **Descuento:** `fn_descuento_cliente`.
-  - **Subtotal del renglón:** la misma fórmula del `CHECK`.
-- **Importes de cabecera:** calculados durante el `INSERT ... SELECT` en PostgreSQL, usando la misma aritmética que `fn_recalcular_comprobante` pero por conjuntos. Esto elimina la necesidad de un `UPDATE` masivo posterior, evitando escrituras adicionales sobre una gran cantidad de filas, prevención de páginas parcialmente vacías y fragmentación física. Los importes se computan desde los renglones staging (`stg_renglon`), los intervalos de `auditoria_precio` y el descuento del cliente (`fn_descuento_cliente`), garantizando la equivalencia con el procedimiento anterior.
-  - **Validación:** los importes generados son equivalentes al procedimiento anterior, verificados mediante `fn_total_comprobante` y comparaciones SQL sobre datos de prueba reproducibles.
-  - **Correlación física:** las comprobantes se insertan en orden cronológico (Python genera la historia día por día), conservando una mejor correlación entre la fecha y el almacenamiento físico que el procedimiento anterior (que pasó de −0,005 a −0,00276 en la correlación de `pg_stats`, aunque ambos valores indican correlación nula para fines de BRIN).
-  - **Páginas vacías:** al evitar el `UPDATE masivo`, las páginas se llenan de manera más ordenada, reduciendo la fragmentación que causaba el procedimiento anterior (aprox. 46 % de páginas vacías).
-- **Stocks finales:** `INSERT … SELECT` desde los movimientos procesados.
-
---- (new section 4.5) ---
-
-### 4.5 Carga masiva optimizada (Etapa 5)
-
-**Problema original:** Durante la Etapa 3, los comprobantes se insertaban inicialmente con importe 0 y posteriormente se ejecutaba un `UPDATE masivo` (`SQL_IMPORTES`) para calcular sus importes definitivos. Esto producía:
-- Escrituras adicionales sobre 150.125 filas.
-- Páginas parcialmente vacías y fragmentación física (≈46 % de páginas vacías).
-- Desorden físico respecto a la fecha (correlación ≈ −0,005).
-- Dificultad para aprovechar un índice BRIN sobre columnas temporales.
-
-**Solución optimizada:** Calcular los importes directamente durante el `INSERT ... SELECT` dentro de PostgreSQL, evitando el `UPDATE` posterior.
-
-**Funcionamiento:**
-1. Los comprobantes se insertan con sus importes definitivos mediante `INSERT INTO comprobante ... SELECT`, computando `subtotal` (bruto), `descuento` y `total` (neto) desde `stg_renglon`, uniéndose con los intervalos de precios históricos (`SQL_INTERVALOS_PRECIO`) y los descuentos de cliente (`fn_descuento_cliente`).
-2. Los renglones se insertan después mediante `SQL_RENGLONES`, también calculando `precio_unitario`, `descuento_porcentaje` y `subtotal` por renglón.
-3. El trigger `trg_comprobante_importes` es temporalmente deshabilitado durante la carga (forma parte de `TRIGGERS_HISTORICOS`), permitiendo importes no nulos en el INSERT. Después del `COMMIT`, el trigger vuelve a estar activo, manteniendo la regla RN-08 para todas las operaciones posteriores.
-4. Se elimina el `SQL_IMPORTES` UPDATE masivo posterior.
-
-**Resultados:**
-- Los importes son idénticos al procedimiento anterior (verificada mediante `fn_total_comprobante` y comparaciones SQL sobre datos reproducibles).
-- Los hashes de integridad de las 30 tablas son reproducibles con los mismos parámetros `SEMILLA`, `FECHA_REFERENCIA` y `ESCALA`.
-- Todas las 55 reglas de control (`controles.sql`) pasan con 0 violaciones.
-- El tiempo de carga incluye el nuevo paso `comprobante: importes en INSERT ... SELECT` (≈16 s en la medición con ESCALA=0.1), reemplazando el paso anterior de `Importes de cabecera en SQL` (6,3 s) + `comprobante: importes agregados en SQL` (6,3 s) del procedimiento antiguo. El costo total de carga sigue siendo aproximadamente similar o ligeramente mejor.
-- La correlación física de la fecha en `comprobante` mejora levemente respecto del procedimiento con `UPDATE masivo` (de −0,005 a −0,00276), aunque ambos valores están tan cerca de 0 que BRIN no resulta efectivo en ninguno de los dos casos.
-
-**Procedimiento de regeneración:**
-1. Reconstruir la base desde volúmenes vacíos con `docker compose down -v` y `docker compose up -d --build`.
-2. Ejecutar `docker compose --profile seed run --rm seed cargar` con los parámetros `SEMILLA=20260427`, `FECHA_REFERENCIA=2026-10-27` y `ESCALA=1`.
-3. Verificar que finaliza correctamente.
-4. Ejecutar `controles.sql` con `-v fecha_referencia=2026-10-27` y comprobar 0 violaciones.
-5. Ejecutar `db/tests/run_all.sh` para verificar que todas las pruebas pasan.
-6. Recalcular las huellas de integridad mediante `hashes.sql` y comprobar su reproducibilidad.
-
-**Ventajas:**
-- Eliminación del `UPDATE masivo` posterior y sus efectos negativos (fragmentación, páginas vacías).
-- Importes calculados dentro de PostgreSQL, respetando las reglas de negocio.
-- Carga reproducible con huellas verificadas.
-- Sin necesidad de deshabilitar permanentemente restricciones o triggers.
-
-**Limitaciones:**
-- Se deshabilita temporalmente `trg_comprobante_importes` durante la carga (transaccional, se rehabe después).
-- La correlación física sigue estando cercana a 0, por lo que BRIN no resulta efectivo; esta es una limitación inherente al modelo de datos y no a la carga.
+  - **Subtotal del renglón:** la misma fórmula del `CHECK`, redondeada por renglón. Se calcula una sola vez, en la tabla temporal `stg_renglon_calc`.
+  - **Importes de cabecera:** desde esos renglones, con las mismas sumas que `fn_recalcular_comprobante`: bruto = `SUM(cantidad * precio_unitario)`, neto = `SUM(subtotal)`, descuento = bruto − neto. Cada comprobante se inserta **una sola vez, ya con sus importes y en orden de fecha**, sin `UPDATE` posterior (sección 11).
+  - **Stocks finales:** `INSERT … SELECT` desde los movimientos procesados.
 
 Python genera la historia de precios: un ajuste por año por vino, de +15 % a +60 % (inflación). Quedan 3.617 cambios encadenados en la auditoría, con `usuario_bd = 'carga_historica'`.
 
@@ -261,22 +216,26 @@ Después de la carga, **`db/tests/run_all.sh` sigue pasando completo (7 de 7)**:
 
 ### 7.1 Carga completa (`ESCALA=1`)
 
-| Fase | Segundos |
-|---|---:|
-| Simulación de la historia en Python | 5,6 |
-| `COPY` de las tablas generadas y del staging de renglones (la mayor, comprobante: 5,3 s) | ≈ 8,0 |
-| `renglon_comprobante`: precio histórico, descuento y subtotal en SQL (538.306 filas) | 38,3 |
-| Importes de cabecera en SQL (150.125 comprobantes) | 6,3 |
-| Stocks desde movimientos | 0,3 |
-| `COMMIT`, con los constraint triggers diferidos | 6,2 |
-| **Total** | **≈ 65** |
+Generador corregido en la Etapa 5 (sección 11), dos cargas desde volúmenes vacíos (G1 y G2 en la sección 8):
 
-La carga completa con los datos definitivos se ejecutó tres veces (A, B y F en la sección 8), con totales entre 64,3 y 65,5 s.
+| Fase | G1 (s) | G2 (s) |
+|---|---:|---:|
+| Simulación de la historia en Python | 5,70 | 5,69 |
+| `COPY` de las 26 tablas generadas (la mayor: renglon_transferencia, 0,49 s) | 2,35 | 2,18 |
+| `COPY` del staging (150.125 comprobantes, 538.306 renglones) | 0,68 | 0,68 |
+| Renglones: precio histórico, descuento y subtotal en SQL (`stg_renglon_calc`) | 1,09 | 1,12 |
+| `comprobante`: importes desde los renglones, en orden de fecha | 5,60 | 6,02 |
+| `renglon_comprobante` desde los renglones calculados | 18,48 | 16,92 |
+| Stocks desde movimientos | 0,34 | 0,31 |
+| Constraint triggers diferidos (`SET CONSTRAINTS ALL IMMEDIATE`) | 6,74 | 6,51 |
+| `COMMIT` | 0,01 | 0,01 |
+| **Total informado por el script** | **41,0** | **39,5** |
 
-**Cola de constraint triggers diferidos.** Una sola transacción deja en cola unos 172.000 eventos hasta el `COMMIT`: 150.125 comprobantes, 20.000 clientes y sus subtipos, 600 vinos y 867 composiciones.
+Con el generador de la Etapa 3 (commit `2089fb5`), medido en la misma sesión y la misma máquina, el total fue **71,4 s**: 41,0 s en los renglones y 8,3 s en el `UPDATE` de importes. La sección 11 explica de dónde sale la diferencia.
 
-- **El `COMMIT` tarda entre 6,1 y 6,6 s** en las ejecuciones medidas.
-- **La memoria del contenedor de la base** subió de 22 MiB en reposo a un **máximo de 173 MiB**, medida con `docker stats` cada segundo. El propietario no puede leer `pg_backend_memory_contexts`, así que no se midió la cola por separado.
+El paso más caro ahora es el `INSERT` de los 538.306 renglones (≈ 17–18 s): cada fila actualiza 2 índices y dispara dos comprobaciones de FK (comprobante y vino). Las FK quedan activas a propósito (sección 3.3), así que no se optimiza ese paso.
+
+**Cola de constraint triggers diferidos.** Una sola transacción deja en cola unos 172.000 eventos: 150.125 comprobantes, 20.000 clientes y sus subtipos, 600 vinos y 867 composiciones. Antes se ejecutaban en el `COMMIT` (6,1 a 6,6 s en la Etapa 3); ahora se ejecutan con `SET CONSTRAINTS ALL IMMEDIATE` antes de rehabilitar los triggers (6,5 a 6,7 s). En la Etapa 3 la memoria del contenedor de la base subió de 22 MiB en reposo a un máximo de 173 MiB, medida con `docker stats`. Esa medición no se repitió en la Etapa 5.
 
 Con esos números no hace falta partir la carga en bloques, y la transacción única conserva la garantía de rehabilitar los triggers con el `ROLLBACK`.
 
@@ -303,11 +262,18 @@ Tres cargas independientes desde volúmenes vacíos produjeron las mismas huella
 - **B:** se ejecutó `run_all.sh` **antes** de cargar, de modo que las pruebas consumieron valores de las secuencias (la de comprobantes estaba en 5);
 - **F:** la verificación final con el código definitivo.
 
+En la Etapa 5 (sección 11) se repitió la comprobación desde volúmenes vacíos:
+
+- **R:** el generador de la Etapa 3 (`2089fb5`), como referencia;
+- **G1 y G2:** el generador corregido, en dos cargas independientes.
+
+Las tres produjeron exactamente las huellas de la tabla: el generador nuevo cambia cómo y en qué orden se escriben los datos, no los datos.
+
 Las claves explícitas con `setval` hacen que los datos no dependan del estado de las secuencias.
 
 La huella es el md5 de todas las filas, en texto y ordenadas por la clave primaria (`db/seed/hashes.sql`). Se excluye `comprobante.xact_alta`, que es el identificador de la transacción de carga.
 
-| Tabla | Filas | Huella md5 (A = B = F) |
+| Tabla | Filas | Huella md5 (A = B = F = R = G1 = G2) |
 |---|---:|---|
 | analisis_calidad | 6.073 | `5855de6b2c2c1b5c2e85c2dbdc1f20cf` |
 | auditoria_precio | 3.617 | `c199ac1e6b98833eb58171c850acfccf` |
@@ -361,4 +327,50 @@ Las huellas dependen de las versiones fijadas: imagen `python:3.12.7-slim-bookwo
   - S3, con clientes por tipo en la última semana;
   - el precio vigente según la auditoría, por `(cod_vino, fecha_hora)`.
 - **Tablas grandes para el costo de escritura de los índices:** `renglon_comprobante` (538.306 filas) y `comprobante` (150.125). El mismo `generar_datos.py medir` sirve de base para cronometrar la carga con y sin índices.
-- **Paso SQL más lento de la carga:** el de los renglones (38 s), que hace la búsqueda del precio vigente por intervalos de la auditoría. Es un buen candidato para analizar con `EXPLAIN` en la Etapa 4.
+- **Paso SQL más lento de la carga:** el de los renglones (38 s), que hace la búsqueda del precio vigente por intervalos de la auditoría. Es un buen candidato para analizar con `EXPLAIN` en la Etapa 4. *Resuelto en la Etapa 5: ver la sección 11.*
+
+## 11. Corrección de la carga de comprobantes (Etapa 5)
+
+El PR #22 quiso evitar el `UPDATE` de importes calculándolos en el `INSERT` de las cabeceras. Esa versión **nunca completó una carga**. Todo lo que sigue se midió desde volúmenes vacíos con `SEMILLA=20260427`, `FECHA_REFERENCIA=2026-10-27` y `ESCALA=1`, en la máquina de la sección 7.
+
+### 11.1 Problemas encontrados
+
+| # | Problema | Efecto medido |
+|---|---|---|
+| 1 | `SQL_COMPROBANTES` no era f-string: `{SQL_INTERVALOS_PRECIO}` llegaba literal. | `syntax error at or near "{"`; la carga se revierte entera. |
+| 2 | Insertaba `nro_comprobante`, que es `GENERATED ALWAYS`, sin `OVERRIDING SYSTEM VALUE` (el `COPY` anterior no lo necesitaba). | Error 428C9 una vez corregido el punto 1. |
+| 3 | Sin estadísticas de las tablas temporales, el planificador unía cada comprobante con todos los intervalos de precio sólo por la fecha y recién al final con los renglones. | Estimó 30,8 millones de filas intermedias: **157,6 s** sólo ese `INSERT`. |
+| 4 | Deshabilitaba `trg_comprobante_importes` pero lo rehabilitaba con eventos diferidos pendientes sobre `comprobante`. | Al final de la carga: `cannot ALTER TABLE "comprobante" because it has pending trigger events` (55006); todo se revierte. |
+| 5 | `ROUND(SUM(...), 2)` sobre el bruto, distinto de `fn_recalcular_comprobante`. | Duplicaba la lógica de la función con otra aritmética. |
+| 6 | `INSERT … SELECT … GROUP BY` sin `ORDER BY`. | El orden físico por fecha no estaba garantizado; la correlación informada (−0,00276) no salió de una carga de este código. |
+
+### 11.2 Diagnóstico con `EXPLAIN`
+
+Una copia instrumentada del generador del PR #22, con los puntos 1 y 2 corregidos, imprimió el plan de cada sentencia antes de ejecutarla:
+
+| Variante | Plan de `SQL_COMPROBANTES` | Tiempo |
+|---|---|---:|
+| Sin `ANALYZE` | Nested Loop `stg_comprobante` × intervalos de precio (`Join Filter` por fecha), luego Merge Join con `stg_renglon` por `(nro_comprobante, cod_vino)` | 157,6 s |
+| Con `ANALYZE` de las tablas temporales y los catálogos | Hash Join `stg_renglon` ⋈ `stg_comprobante`, luego Merge Join con los intervalos por `cod_vino` | 15,4 s |
+
+El cálculo de los renglones seguía en 37,5 a 42,1 s con y sin `ANALYZE`, igual que en la Etapa 3 (41,0 s). Un `EXPLAIN (ANALYZE)` sobre la base cargada mostró que **los joins terminan en 0,5 s**. El resto se iba en `fn_descuento_cliente`: la subconsulta `(SELECT id_cliente, fn_descuento_cliente(id_cliente) FROM cliente)` se integra al join y la función, PL/pgSQL `STABLE` con su propio `SELECT`, se evalúa dos veces por renglón. Son unas 1,07 millones de llamadas en lugar de 20.000. Con `WITH descuento AS MATERIALIZED (...)` la misma consulta bajó de **17,7 s a 1,3 s**.
+
+### 11.3 Corrección
+
+1. `COPY` a `stg_comprobante` y `stg_renglon`, y `ANALYZE` de ambas.
+2. `stg_renglon_calc`: precio histórico, descuento (materializado) y subtotal redondeado por renglón, calculados una sola vez. Se controla que tenga tantas filas como `stg_renglon`.
+3. `INSERT INTO comprobante … OVERRIDING SYSTEM VALUE` con bruto = `SUM(cantidad * precio_unitario)`, neto = `SUM(subtotal)` y descuento = bruto − neto, las sumas de `fn_recalcular_comprobante`, **`ORDER BY fecha, nro_comprobante`**.
+4. `INSERT INTO renglon_comprobante` desde `stg_renglon_calc`.
+5. `SET CONSTRAINTS ALL IMMEDIATE` antes de rehabilitar los triggers. Los constraint triggers diferidos se ejecutan ahí, con los datos completos, y la tabla ya no tiene eventos pendientes.
+
+### 11.4 Resultados
+
+| Medida | Etapa 3 (`2089fb5`) | Etapa 5 (corregido) |
+|---|---:|---:|
+| Tiempo total de carga | 71,4 s | 41,0 s y 39,5 s |
+| Huellas de las 30 tablas | referencia | idénticas en las dos cargas |
+| `controles.sql`, `post_carga.sql`, `run_all.sh` | 0 / 0 / 0 | 0 / 0 / 0 |
+| Correlación de `comprobante.fecha` (`pg_stats`, después de `ANALYZE`) | −0,005 (Etapa 4) | **1,00000** en las dos cargas |
+| Páginas de `comprobante` | 3.060, de las que 1.657 tenían filas (Etapa 4) | 1.656, todas con filas |
+
+La consecuencia para BRIN está en `docs/rendimiento.md`, sección 6.1.

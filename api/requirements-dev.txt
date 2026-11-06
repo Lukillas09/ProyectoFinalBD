@@ -1,0 +1,5 @@
+# Dependencias sólo para las pruebas (etapa "test" del Dockerfile).
+# httpx lo usa el TestClient de FastAPI.
+-r requirements.txt
+pytest==8.3.5
+httpx==0.28.1

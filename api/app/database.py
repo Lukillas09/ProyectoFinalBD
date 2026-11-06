@@ -20,6 +20,9 @@ def create_pool(settings: Settings) -> ConnectionPool:
         min_size=settings.db_pool_min_size,
         max_size=settings.db_pool_max_size,
         timeout=settings.db_pool_timeout_seconds,
+        # Prueba cada conexión antes de entregarla. Sin esto, después de un
+        # reinicio de PostgreSQL el primer pedido recibía una conexión muerta.
+        check=ConnectionPool.check_connection,
         open=False,
         name="bodegas-api-pool",
     )

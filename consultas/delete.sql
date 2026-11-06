@@ -3,20 +3,52 @@
 -- Bodegas del Atuel - Trabajo Práctico Integrador BD 2026
 -- =============================================================================
 --
--- Cada consulta sigue el protocolo obligatorio:
+-- Cada consulta de modificación sigue el protocolo:
+--   \echo '>>> Xn'                       (marca para leer la salida)
 --   BEGIN;
 --   -- Control previo
---   -- Sentencia DELETE
+--   -- Sentencia principal
+--   \echo 'Filas afectadas (Xn):' :ROW_COUNT
 --   -- Control posterior
---   GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
---   RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
 --   ROLLBACK;
+-- Cada consulta está en su propia transacción revertida: el archivo no deja
+-- cambios en la base (se verifica con db/seed/hashes.sql antes y después).
+--
+-- Ejecución (como propietario, corta en el primer error):
+--   docker compose exec db /opt/bodegas/consultas/ejecutar.sh delete.sql
 --
 -- Convenciones:
--- - SQL en minúsculas para palabras clave
--- - Parámetros estilo psql: :parametro
--- - Valores del dataset: SEMILLA=20260427, FECHA_REFERENCIA=2026-10-27, ESCALA=1
+-- - Palabras clave de SQL en mayúsculas.
+-- - Parámetros de psql: :nombre para números, :'nombre' para texto.
+-- - Datos: carga de la Etapa 3 con SEMILLA=20260427 y ESCALA=1. Los períodos
+--   relativos usan CURRENT_DATE: para obtener filas, cargar con
+--   FECHA_REFERENCIA igual a la fecha del día (README de db/seed).
 -- =============================================================================
+
+-- =============================================================================
+-- PARÁMETROS
+-- Valores por omisión reemplazables desde la línea de comandos, por ejemplo:
+--   ejecutar.sh delete.sql -v id_sala=4 -v id_localidad=36
+-- Identificadores de catálogo de la carga (no dependen de FECHA_REFERENCIA).
+-- =============================================================================
+
+-- id_sala (D3). Sala 2: controles.sql garantiza que tiene empleados de menos
+-- de 2 años (docs/carga_masiva.md, sección 4.4).
+\if :{?id_sala}
+\else
+  \set id_sala 2
+\endif
+
+-- id_localidad (D6). Eugenio Bustos (29), la localidad con más socios sin
+-- compras en la carga (127):
+--   SELECT c.id_localidad, count(*) FROM bodegas.cliente c
+--    WHERE c.tipo = 'socio'
+--      AND NOT EXISTS (SELECT 1 FROM bodegas.comprobante x WHERE x.id_cliente = c.id_cliente)
+--    GROUP BY c.id_localidad ORDER BY 2 DESC LIMIT 3;
+\if :{?id_localidad}
+\else
+  \set id_localidad 29
+\endif
 
 -- =============================================================================
 -- D1: Borrar comprobantes de más de cinco años de socios
@@ -62,6 +94,7 @@
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> D1'
 BEGIN;
 
 -- Control previo: comprobantes a borrar
@@ -104,6 +137,7 @@ cabeceras_borradas AS (
 SELECT count(*) AS comprobantes_borrados,
        (SELECT count(*) FROM renglones_borrados) AS renglones_borrados
   FROM cabeceras_borradas;
+\echo 'Filas afectadas (D1): las columnas comprobantes_borrados y renglones_borrados de la fila anterior'
 
 -- Control posterior: verificar que no quedaron
 SELECT count(*) AS comprobantes_remanentes
@@ -111,13 +145,6 @@ SELECT count(*) AS comprobantes_remanentes
   JOIN bodegas.cliente cl ON cl.id_cliente = c.id_cliente
  WHERE c.fecha < CURRENT_DATE - INTERVAL '5 years'
    AND cl.tipo = 'socio';
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -264,6 +291,7 @@ DELETE FROM bodegas.comprobante
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> D2'
 BEGIN;
 
 -- Control previo: cepas a eliminar
@@ -276,6 +304,7 @@ SELECT c.id_cepa, c.nombre, c.tipo
 DELETE FROM bodegas.cepa
  WHERE NOT EXISTS (SELECT 1 FROM bodegas.composicion_vino cv WHERE cv.id_cepa = cepa.id_cepa)
    AND NOT EXISTS (SELECT 1 FROM bodegas.parcela p WHERE p.id_cepa = cepa.id_cepa);
+\echo 'Filas afectadas (D2):' :ROW_COUNT
 
 -- Control posterior: verificar que no quedaron cepas sin uso
 SELECT c.id_cepa, c.nombre, c.tipo,
@@ -284,13 +313,6 @@ SELECT c.id_cepa, c.nombre, c.tipo,
   FROM bodegas.cepa c
  WHERE NOT EXISTS (SELECT 1 FROM bodegas.composicion_vino cv WHERE cv.id_cepa = c.id_cepa)
    AND NOT EXISTS (SELECT 1 FROM bodegas.parcela p WHERE p.id_cepa = c.id_cepa);
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -377,6 +399,7 @@ DELETE FROM bodegas.cepa
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> D3'
 BEGIN;
 
 -- Control previo: empleados a borrar
@@ -391,6 +414,7 @@ SELECT cuit, nombre, fecha_ingreso, salario,
 DELETE FROM bodegas.empleado
  WHERE id_sala = :id_sala
    AND bodegas.fn_antiguedad_anios(fecha_ingreso) < 2;
+\echo 'Filas afectadas (D3):' :ROW_COUNT
 
 -- Control posterior: empleados restantes en la sala
 SELECT cuit, nombre, fecha_ingreso, salario,
@@ -398,13 +422,6 @@ SELECT cuit, nombre, fecha_ingreso, salario,
   FROM bodegas.empleado
  WHERE id_sala = :id_sala
  ORDER BY anios_antiguedad;
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -493,6 +510,7 @@ DELETE FROM bodegas.empleado
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> D4'
 BEGIN;
 
 -- Control previo: socios a borrar
@@ -509,6 +527,7 @@ DELETE FROM bodegas.cliente
  WHERE tipo = 'socio'
    AND fecha_alta < CURRENT_DATE - INTERVAL '5 years'
    AND NOT EXISTS (SELECT 1 FROM bodegas.comprobante cmp WHERE cmp.id_cliente = cliente.id_cliente);
+\echo 'Filas afectadas (D4):' :ROW_COUNT
 
 -- Control posterior: verificar que no quedaron
 SELECT c.id_cliente, c.nombre_razon_social, c.fecha_alta
@@ -516,13 +535,6 @@ SELECT c.id_cliente, c.nombre_razon_social, c.fecha_alta
   JOIN bodegas.socio_club sc ON sc.id_cliente = c.id_cliente
  WHERE c.fecha_alta < CURRENT_DATE - INTERVAL '5 years'
    AND NOT EXISTS (SELECT 1 FROM bodegas.comprobante cmp WHERE cmp.id_cliente = c.id_cliente);
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -618,6 +630,7 @@ DELETE FROM bodegas.cliente
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> D5'
 BEGIN;
 
 -- Control previo: ingresos a borrar
@@ -634,19 +647,13 @@ SELECT i.cod_ingreso, i.fecha, i.estado, i.cuit_bodega, i.cod_transportista,
 DELETE FROM bodegas.ingreso
  WHERE estado = 'procesado'
    AND fecha < CURRENT_DATE - INTERVAL '365 days';
+\echo 'Filas afectadas (D5):' :ROW_COUNT
 
 -- Control posterior: verificar que no quedaron
 SELECT count(*) AS ingresos_remanentes
   FROM bodegas.ingreso
  WHERE estado = 'procesado'
    AND fecha < CURRENT_DATE - INTERVAL '365 days';
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 
@@ -738,6 +745,7 @@ DELETE FROM bodegas.ingreso
 -- -----------------------------------------------------------------------------
 -- 3. PROTOCOLO DE EJECUCIÓN
 -- -----------------------------------------------------------------------------
+\echo '>>> D6'
 BEGIN;
 
 -- Control previo: socios a borrar
@@ -754,6 +762,7 @@ DELETE FROM bodegas.cliente
  WHERE tipo = 'socio'
    AND id_localidad = :id_localidad
    AND NOT EXISTS (SELECT 1 FROM bodegas.comprobante cmp WHERE cmp.id_cliente = cliente.id_cliente);
+\echo 'Filas afectadas (D6):' :ROW_COUNT
 
 -- Control posterior
 SELECT c.id_cliente, c.nombre_razon_social, c.id_localidad, l.nombre AS localidad
@@ -762,13 +771,6 @@ SELECT c.id_cliente, c.nombre_razon_social, c.id_localidad, l.nombre AS localida
   JOIN bodegas.socio_club sc ON sc.id_cliente = c.id_cliente
  WHERE c.id_localidad = :id_localidad
    AND NOT EXISTS (SELECT 1 FROM bodegas.comprobante cmp WHERE cmp.id_cliente = c.id_cliente);
-
-DO $body$
-DECLARE filas_afectadas integer;
-BEGIN
-  GET DIAGNOSTICS filas_afectadas = ROW_COUNT;
-  RAISE NOTICE 'Filas afectadas: %', filas_afectadas;
-END $body$;
 
 ROLLBACK;
 

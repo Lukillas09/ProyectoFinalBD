@@ -1,31 +1,32 @@
-Nested Loop Anti Join  (cost=2.12..4.36 rows=1 width=54) (actual time=0.063..0.064 rows=0 loops=1)
-  Join Filter: (cmp.id_cliente = c.id_cliente)
-  Rows Removed by Join Filter: 3
-  Buffers: shared hit=4
-  ->  Seq Scan on cliente c  (cost=0.00..1.02 rows=2 width=22) (actual time=0.006..0.006 rows=2 loops=1)
-        Buffers: shared hit=1
-  ->  Materialize  (cost=2.12..3.26 rows=5 width=8) (actual time=0.027..0.028 rows=2 loops=2)
-        Buffers: shared hit=3
-        ->  Hash Join  (cost=2.12..3.24 rows=5 width=8) (actual time=0.049..0.051 rows=4 loops=1)
+Hash Right Anti Join  (cost=6569.94..23852.94 rows=10319 width=66) (actual time=158.065..158.786 rows=7170 loops=1)
+  Hash Cond: (cmp.id_cliente = c.id_cliente)
+  Buffers: shared hit=6469, temp read=801 written=801
+  ->  Hash Join  (cost=5796.98..20770.95 rows=278965 width=8) (actual time=24.461..132.721 rows=275483 loops=1)
+        Hash Cond: (rc.nro_comprobante = cmp.nro_comprobante)
+        Buffers: shared hit=6168, temp read=801 written=801
+        ->  Hash Join  (cost=19.38..11346.04 rows=278965 width=8) (actual time=0.080..59.585 rows=275483 loops=1)
               Hash Cond: (rc.cod_vino = v.cod_vino)
-              Buffers: shared hit=3
-              ->  Hash Join  (cost=1.07..2.15 rows=5 width=16) (actual time=0.025..0.026 rows=4 loops=1)
-                    Hash Cond: (rc.nro_comprobante = cmp.nro_comprobante)
-                    Buffers: shared hit=2
-                    ->  Seq Scan on renglon_comprobante rc  (cost=0.00..1.05 rows=5 width=16) (actual time=0.002..0.003 rows=4 loops=1)
-                          Buffers: shared hit=1
-                    ->  Hash  (cost=1.03..1.03 rows=3 width=16) (actual time=0.013..0.013 rows=3 loops=1)
-                          Buckets: 1024  Batches: 1  Memory Usage: 9kB
-                          Buffers: shared hit=1
-                          ->  Seq Scan on comprobante cmp  (cost=0.00..1.03 rows=3 width=16) (actual time=0.004..0.004 rows=3 loops=1)
-                                Buffers: shared hit=1
-              ->  Hash  (cost=1.02..1.02 rows=2 width=8) (actual time=0.011..0.011 rows=2 loops=1)
-                    Buckets: 1024  Batches: 1  Memory Usage: 9kB
-                    Buffers: shared hit=1
-                    ->  Seq Scan on vino v  (cost=0.00..1.02 rows=2 width=8) (actual time=0.004..0.005 rows=2 loops=1)
+              Buffers: shared hit=4508
+              ->  Seq Scan on renglon_comprobante rc  (cost=0.00..9899.33 rows=539933 width=16) (actual time=0.006..20.542 rows=539933 loops=1)
+                    Buffers: shared hit=4500
+              ->  Hash  (cost=15.50..15.50 rows=310 width=8) (actual time=0.065..0.066 rows=310 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 21kB
+                    Buffers: shared hit=8
+                    ->  Seq Scan on vino v  (cost=0.00..15.50 rows=310 width=8) (actual time=0.004..0.041 rows=310 loops=1)
                           Filter: ((tipo)::text = 'tinto'::text)
-                          Buffers: shared hit=1
+                          Rows Removed by Filter: 290
+                          Buffers: shared hit=8
+        ->  Hash  (cost=3163.38..3163.38 rows=150338 width=16) (actual time=23.678..23.679 rows=150338 loops=1)
+              Buckets: 262144  Batches: 2  Memory Usage: 5581kB
+              Buffers: shared hit=1660, temp written=329
+              ->  Seq Scan on comprobante cmp  (cost=0.00..3163.38 rows=150338 width=16) (actual time=0.003..7.979 rows=150338 loops=1)
+                    Buffers: shared hit=1660
+  ->  Hash  (cost=510.76..510.76 rows=20976 width=34) (actual time=3.816..3.816 rows=20000 loops=1)
+        Buckets: 32768  Batches: 1  Memory Usage: 1583kB
+        Buffers: shared hit=301
+        ->  Seq Scan on cliente c  (cost=0.00..510.76 rows=20976 width=34) (actual time=0.006..1.531 rows=20000 loops=1)
+              Buffers: shared hit=301
 Planning:
-  Buffers: shared hit=8
-Planning Time: 0.416 ms
-Execution Time: 0.142 ms
+  Buffers: shared hit=47
+Planning Time: 0.512 ms
+Execution Time: 159.683 ms

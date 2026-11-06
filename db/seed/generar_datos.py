@@ -60,7 +60,7 @@ TRIGGERS_HISTORICOS = [
     ("renglon_ingreso", "trg_renglon_ingreso_bloqueo"),            # renglones sólo en confección
     ("renglon_transferencia", "trg_renglon_transferencia_bloqueo"),
     ("transferencia", "trg_transferencia_fecha"),                  # fuerza la fecha de hoy
-    ("comprobante", "trg_comprobante_importes"),                   # bloquea importes no cero en INSERT; necesario para carga histórica
+    ("comprobante", "trg_comprobante_importes"),                   # exige importes en cero al insertar; la carga los trae calculados
 ]
 
 TABLAS_NEGOCIO = [
@@ -697,54 +697,59 @@ FROM vino AS v
 WHERE NOT EXISTS (SELECT 1 FROM auditoria_precio AS a WHERE a.cod_vino = v.cod_vino)
 """
 
-SQL_RENGLONES = f"""
-INSERT INTO renglon_comprobante (
-  nro_comprobante, cod_vino, cantidad, precio_unitario, descuento_porcentaje, subtotal
+# Renglones con precio histórico, descuento del cliente y subtotal redondeado
+# por renglón (la expresión de trg_renglon_comprobante_completar y de
+# ck_renglon_comprobante_subtotal). Se calculan
+# una sola vez en una tabla temporal, antes de que exista la cabecera, para que
+# la cabecera pueda insertarse ya con sus importes definitivos.
+# MATERIALIZED: sin él, el planificador integra la subconsulta al join y evalúa
+# fn_descuento_cliente (PL/pgSQL, STABLE) dos veces por renglón, ~1,07 millones
+# de llamadas en lugar de 20.000 (docs/carga_masiva.md, sección 11).
+SQL_RENGLONES_CALCULADOS = f"""
+CREATE TEMP TABLE stg_renglon_calc ON COMMIT DROP AS
+WITH descuento AS MATERIALIZED (
+  SELECT id_cliente, fn_descuento_cliente(id_cliente) AS descuento FROM cliente
 )
-SELECT s.nro_comprobante, s.cod_vino, s.cantidad, p.precio, d.descuento,
-       ROUND(s.cantidad * p.precio * (1 - d.descuento / 100), 2)
+SELECT s.nro_comprobante, s.cod_vino, s.cantidad,
+       p.precio AS precio_unitario,
+       d.descuento AS descuento_porcentaje,
+       ROUND(s.cantidad * p.precio * (1 - d.descuento / 100), 2) AS subtotal
 FROM stg_renglon AS s
-JOIN comprobante AS c ON c.nro_comprobante = s.nro_comprobante
-JOIN (SELECT id_cliente, fn_descuento_cliente(id_cliente) AS descuento FROM cliente) AS d
-  ON d.id_cliente = c.id_cliente
+JOIN stg_comprobante AS c ON c.nro_comprobante = s.nro_comprobante
+JOIN descuento AS d ON d.id_cliente = c.id_cliente
 JOIN ({SQL_INTERVALOS_PRECIO}) AS p
   ON p.cod_vino = s.cod_vino AND c.fecha >= p.desde AND c.fecha < p.hasta
 """
 
-# Misma aritmética que fn_recalcular_comprobante, por conjuntos. La marca de
-# recálculo es el camino que trg_comprobante_importes (activo) acepta.
-SQL_IMPORTES = """
-UPDATE comprobante AS c
-SET subtotal = r.bruto, descuento = r.bruto - r.neto, total = r.neto
-FROM (
-  SELECT nro_comprobante, SUM(cantidad * precio_unitario) AS bruto, SUM(subtotal) AS neto
-  FROM renglon_comprobante
-  GROUP BY nro_comprobante
-) AS r
-WHERE r.nro_comprobante = c.nro_comprobante
-"""
-
-# Cálculo de importes durante INSERT ... SELECT: los importes definitivos se
-# computan desde stg_renglon y la auditoría de precios, insertándose directamente
-# en la tabla comprobante para evitar un UPDATE masivo posterior.
+# Cabeceras con las mismas sumas que fn_recalcular_comprobante: bruto =
+# SUM(cantidad * precio_unitario), neto = SUM(subtotal), descuento = bruto - neto.
+# Se insertan una sola vez y en orden de fecha: sin el UPDATE posterior de
+# importes, el orden físico de la tabla sigue a comprobante.fecha.
+# OVERRIDING SYSTEM VALUE: nro_comprobante es GENERATED ALWAYS y aquí se envía
+# la clave explícita de la simulación (ver docstring).
+# trg_comprobante_importes rechaza importes distintos de cero en un INSERT; por
+# eso está en TRIGGERS_HISTORICOS.
 SQL_COMPROBANTES = """
 INSERT INTO comprobante (nro_comprobante, fecha, id_cliente, id_sala, subtotal, descuento, total)
-SELECT
-  stg_c.nro_comprobante,
-  stg_c.fecha,
-  stg_c.id_cliente,
-  stg_c.id_sala,
-  ROUND(SUM(r.cantidad * p.precio), 2) AS subtotal,                       -- bruto (sin descuento)
-  ROUND(SUM(r.cantidad * p.precio), 2)
-    - ROUND(SUM(ROUND(r.cantidad * p.precio * (1 - d.descuento / 100), 2)), 2) AS descuento, -- bruto - neto
-  ROUND(SUM(ROUND(r.cantidad * p.precio * (1 - d.descuento / 100), 2)), 2) AS total          -- neto
-FROM stg_comprobante AS stg_c
-JOIN stg_renglon AS r ON r.nro_comprobante = stg_c.nro_comprobante
-JOIN (SELECT id_cliente, fn_descuento_cliente(id_cliente) AS descuento FROM cliente) AS d
-  ON d.id_cliente = stg_c.id_cliente
-JOIN ({SQL_INTERVALOS_PRECIO}) AS p
-  ON p.cod_vino = r.cod_vino AND stg_c.fecha >= p.desde AND stg_c.fecha < p.hasta
-GROUP BY stg_c.nro_comprobante, stg_c.fecha, stg_c.id_cliente, stg_c.id_sala
+OVERRIDING SYSTEM VALUE
+SELECT c.nro_comprobante, c.fecha, c.id_cliente, c.id_sala, r.bruto, r.bruto - r.neto, r.neto
+FROM stg_comprobante AS c
+JOIN (SELECT nro_comprobante,
+             SUM(cantidad * precio_unitario) AS bruto,
+             SUM(subtotal) AS neto
+      FROM stg_renglon_calc
+      GROUP BY nro_comprobante) AS r
+  ON r.nro_comprobante = c.nro_comprobante
+ORDER BY c.fecha, c.nro_comprobante
+"""
+
+SQL_RENGLONES = """
+INSERT INTO renglon_comprobante (
+  nro_comprobante, cod_vino, cantidad, precio_unitario, descuento_porcentaje, subtotal
+)
+SELECT nro_comprobante, cod_vino, cantidad, precio_unitario, descuento_porcentaje, subtotal
+FROM stg_renglon_calc
+ORDER BY nro_comprobante, cod_vino
 """
 
 # Stocks finales a partir de los movimientos procesados.
@@ -846,17 +851,32 @@ def cargar(p: Parametros) -> None:
             cur.execute("CREATE TEMP TABLE stg_renglon (nro_comprobante BIGINT, cod_vino BIGINT, cantidad INTEGER) ON COMMIT DROP")
             cur.execute("CREATE TEMP TABLE stg_comprobante (nro_comprobante BIGINT, fecha TIMESTAMPTZ, id_cliente BIGINT, id_sala INTEGER) ON COMMIT DROP")
 
-            copiar(cur, "stg_comprobante", ["nro_comprobante", "fecha", "id_cliente", "id_sala"], datos.filas["comprobante"])
-            copiar(cur, "stg_renglon", Datos.COLUMNAS["stg_renglon"], datos.filas["stg_renglon"])
+            n_comprobantes = len(datos.filas["comprobante"])
+            n_renglones = len(datos.filas["stg_renglon"])
+            reloj.medir(f"COPY staging ({n_comprobantes} comprobantes, {n_renglones} renglones)", lambda: (
+                copiar(cur, "stg_comprobante", Datos.COLUMNAS["comprobante"], datos.filas["comprobante"]),
+                copiar(cur, "stg_renglon", Datos.COLUMNAS["stg_renglon"], datos.filas["stg_renglon"])))
 
             for tabla in TABLAS_NEGOCIO:
                 if tabla == "comprobante":
-                    reloj.medir("comprobante: importes en INSERT ... SELECT", lambda: cur.execute(SQL_COMPROBANTES))
-                elif tabla == "renglon_comprobante":
-                    reloj.medir("renglon_comprobante: precio, descuento y subtotal en SQL", lambda: cur.execute(SQL_RENGLONES))
-                    if cur.rowcount != len(datos.filas["stg_renglon"]):
-                        raise RuntimeError(f"Se insertaron {cur.rowcount} renglones de {len(datos.filas['stg_renglon'])}: "
+                    # Autovacuum no analiza tablas temporales. Sin estadísticas,
+                    # el planificador eligió unir comprobantes con precios antes
+                    # que con renglones: 157 s en vez de segundos
+                    # (docs/carga_masiva.md, sección 11).
+                    cur.execute("ANALYZE stg_comprobante, stg_renglon")
+                    reloj.medir("renglones: precio, descuento y subtotal en SQL",
+                                lambda: cur.execute(SQL_RENGLONES_CALCULADOS))
+                    if cur.rowcount != n_renglones:
+                        raise RuntimeError(f"Se calcularon {cur.rowcount} renglones de {n_renglones}: "
                                            "algún renglón no encontró un precio vigente.")
+                    cur.execute("ANALYZE stg_renglon_calc")
+                    reloj.medir("comprobante: importes desde los renglones, por fecha",
+                                lambda: cur.execute(SQL_COMPROBANTES))
+                    if cur.rowcount != n_comprobantes:
+                        raise RuntimeError(f"Se insertaron {cur.rowcount} comprobantes de {n_comprobantes}.")
+                elif tabla == "renglon_comprobante":
+                    reloj.medir("renglon_comprobante desde los renglones calculados",
+                                lambda: cur.execute(SQL_RENGLONES))
                 elif tabla == "stock_deposito":
                     reloj.medir("stock_deposito desde movimientos", lambda: cur.execute(SQL_STOCK_DEPOSITO))
                 elif tabla == "stock_sala":
@@ -877,12 +897,18 @@ def cargar(p: Parametros) -> None:
             for tabla, columna in IDENTIDADES:
                 cur.execute(f"SELECT setval(pg_get_serial_sequence('bodegas.{tabla}', '{columna}'), "
                             f"(SELECT max({columna}) FROM {tabla}))")
+
+            # Los constraint triggers diferidos (composición, totalidad de
+            # clientes, comprobantes con renglones) validan todo aquí, con los
+            # datos completos. Debe ser antes de rehabilitar los triggers:
+            # PostgreSQL no permite ALTER TABLE comprobante mientras tenga
+            # eventos de trigger pendientes (SQLSTATE 55006).
+            reloj.medir("constraint triggers diferidos (SET CONSTRAINTS ALL IMMEDIATE)",
+                        lambda: cur.execute("SET CONSTRAINTS ALL IMMEDIATE"))
             for tabla, trigger in TRIGGERS_HISTORICOS:
                 cur.execute(f"ALTER TABLE {tabla} ENABLE TRIGGER {trigger}")
 
-        # Los constraint triggers diferidos (composición, totalidad de
-        # clientes, comprobantes con renglones) validan todo al confirmar.
-        reloj.medir("COMMIT (incluye los constraint triggers diferidos)", conn.commit)
+        reloj.medir("COMMIT", conn.commit)
     except BaseException:
         conn.rollback()
         raise

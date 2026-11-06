@@ -1,0 +1,229 @@
+Pager usage is off.
+SET
+### 1. Orden físico después de ANALYZE (1 = ordenada, 0 = al azar)
+ANALYZE
+     attname     | correlation 
+-----------------+-------------
+ nro_comprobante |     1.00000
+ fecha           |     1.00000
+(2 rows)
+
+ paginas | paginas_con_filas | tamano 
+---------+-------------------+--------
+    1656 |              1656 | 13 MB
+(1 row)
+
+ filas_ultimo_trimestre 
+------------------------
+                   5715
+(1 row)
+
+### 2. Con los índices de 008 (idx_comprobante_fecha INCLUDE), tres ejecuciones
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=253.38..253.88 rows=40 width=36) (actual time=0.926..0.932 rows=40 loops=1)
+   Group Key: id_sala
+   Batches: 1  Memory Usage: 32kB
+   Buffers: shared hit=32
+   ->  Index Only Scan using idx_comprobante_fecha on comprobante c  (cost=0.43..223.83 rows=5909 width=10) (actual time=0.019..0.366 rows=5715 loops=1)
+         Index Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+         Heap Fetches: 0
+         Buffers: shared hit=32
+ Planning:
+   Buffers: shared hit=23
+ Planning Time: 0.221 ms
+ Execution Time: 0.985 ms
+(12 rows)
+
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=253.38..253.88 rows=40 width=36) (actual time=0.979..0.986 rows=40 loops=1)
+   Group Key: id_sala
+   Batches: 1  Memory Usage: 32kB
+   Buffers: shared hit=32
+   ->  Index Only Scan using idx_comprobante_fecha on comprobante c  (cost=0.43..223.83 rows=5909 width=10) (actual time=0.019..0.373 rows=5715 loops=1)
+         Index Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+         Heap Fetches: 0
+         Buffers: shared hit=32
+ Planning Time: 0.095 ms
+ Execution Time: 1.031 ms
+(10 rows)
+
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=253.38..253.88 rows=40 width=36) (actual time=0.937..0.946 rows=40 loops=1)
+   Group Key: id_sala
+   Batches: 1  Memory Usage: 32kB
+   Buffers: shared hit=32
+   ->  Index Only Scan using idx_comprobante_fecha on comprobante c  (cost=0.43..223.83 rows=5909 width=10) (actual time=0.020..0.375 rows=5715 loops=1)
+         Index Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+         Heap Fetches: 0
+         Buffers: shared hit=32
+ Planning Time: 0.086 ms
+ Execution Time: 0.993 ms
+(10 rows)
+
+BEGIN
+DROP INDEX
+DROP INDEX
+### 3. Sin índice sobre fecha, tres ejecuciones
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate  (cost=4441.13..4446.53 rows=40 width=36) (actual time=20.402..22.798 rows=40 loops=1)
+   Group Key: id_sala
+   Buffers: shared hit=1663
+   ->  Gather Merge  (cost=4441.13..4445.73 rows=40 width=36) (actual time=20.395..22.761 rows=80 loops=1)
+         Workers Planned: 1
+         Workers Launched: 1
+         Buffers: shared hit=1663
+         ->  Sort  (cost=3441.12..3441.22 rows=40 width=36) (actual time=18.021..18.023 rows=40 loops=2)
+               Sort Key: id_sala
+               Sort Method: quicksort  Memory: 28kB
+               Buffers: shared hit=1663
+               Worker 0:  Sort Method: quicksort  Memory: 28kB
+               ->  Partial HashAggregate  (cost=3439.56..3440.06 rows=40 width=36) (actual time=17.981..17.989 rows=40 loops=2)
+                     Group Key: id_sala
+                     Batches: 1  Memory Usage: 32kB
+                     Buffers: shared hit=1656
+                     Worker 0:  Batches: 1  Memory Usage: 32kB
+                     ->  Parallel Seq Scan on comprobante c  (cost=0.00..3422.18 rows=3476 width=10) (actual time=16.844..17.659 rows=2858 loops=2)
+                           Filter: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                           Rows Removed by Filter: 72205
+                           Buffers: shared hit=1656
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.149 ms
+ Execution Time: 22.884 ms
+(25 rows)
+
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate  (cost=4441.13..4446.53 rows=40 width=36) (actual time=20.379..22.661 rows=40 loops=1)
+   Group Key: id_sala
+   Buffers: shared hit=1663
+   ->  Gather Merge  (cost=4441.13..4445.73 rows=40 width=36) (actual time=20.374..22.626 rows=80 loops=1)
+         Workers Planned: 1
+         Workers Launched: 1
+         Buffers: shared hit=1663
+         ->  Sort  (cost=3441.12..3441.22 rows=40 width=36) (actual time=18.077..18.079 rows=40 loops=2)
+               Sort Key: id_sala
+               Sort Method: quicksort  Memory: 28kB
+               Buffers: shared hit=1663
+               Worker 0:  Sort Method: quicksort  Memory: 28kB
+               ->  Partial HashAggregate  (cost=3439.56..3440.06 rows=40 width=36) (actual time=18.041..18.047 rows=40 loops=2)
+                     Group Key: id_sala
+                     Batches: 1  Memory Usage: 32kB
+                     Buffers: shared hit=1656
+                     Worker 0:  Batches: 1  Memory Usage: 32kB
+                     ->  Parallel Seq Scan on comprobante c  (cost=0.00..3422.18 rows=3476 width=10) (actual time=16.899..17.724 rows=2858 loops=2)
+                           Filter: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                           Rows Removed by Filter: 72205
+                           Buffers: shared hit=1656
+ Planning Time: 0.110 ms
+ Execution Time: 22.725 ms
+(23 rows)
+
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate  (cost=4441.13..4446.53 rows=40 width=36) (actual time=20.262..22.445 rows=40 loops=1)
+   Group Key: id_sala
+   Buffers: shared hit=1663
+   ->  Gather Merge  (cost=4441.13..4445.73 rows=40 width=36) (actual time=20.254..22.410 rows=80 loops=1)
+         Workers Planned: 1
+         Workers Launched: 1
+         Buffers: shared hit=1663
+         ->  Sort  (cost=3441.12..3441.22 rows=40 width=36) (actual time=17.994..17.996 rows=40 loops=2)
+               Sort Key: id_sala
+               Sort Method: quicksort  Memory: 28kB
+               Buffers: shared hit=1663
+               Worker 0:  Sort Method: quicksort  Memory: 28kB
+               ->  Partial HashAggregate  (cost=3439.56..3440.06 rows=40 width=36) (actual time=17.960..17.967 rows=40 loops=2)
+                     Group Key: id_sala
+                     Batches: 1  Memory Usage: 32kB
+                     Buffers: shared hit=1656
+                     Worker 0:  Batches: 1  Memory Usage: 32kB
+                     ->  Parallel Seq Scan on comprobante c  (cost=0.00..3422.18 rows=3476 width=10) (actual time=16.919..17.666 rows=2858 loops=2)
+                           Filter: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+                           Rows Removed by Filter: 72205
+                           Buffers: shared hit=1656
+ Planning Time: 0.087 ms
+ Execution Time: 22.496 ms
+(23 rows)
+
+### 4. Sólo BRIN (sin forzar el planificador), tres ejecuciones
+CREATE INDEX
+CREATE INDEX
+ tamano_brin | tamano_btree_solo_fecha 
+-------------+-------------------------
+ 24 kB       | 3320 kB
+(1 row)
+
+DROP INDEX
+ANALYZE
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=1928.92..1929.42 rows=40 width=36) (actual time=3.649..3.656 rows=40 loops=1)
+   Group Key: id_sala
+   Batches: 1  Memory Usage: 32kB
+   Buffers: shared hit=125
+   ->  Bitmap Heap Scan on comprobante c  (cost=13.46..1900.42 rows=5699 width=10) (actual time=1.459..3.072 rows=5715 loops=1)
+         Recheck Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+         Rows Removed by Index Recheck: 4966
+         Heap Blocks: lossy=120
+         Buffers: shared hit=125
+         ->  Bitmap Index Scan on exp_brin_fecha  (cost=0.00..12.04 rows=11548 width=0) (actual time=0.033..0.034 rows=1200 loops=1)
+               Index Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+               Buffers: shared hit=5
+ Planning:
+   Buffers: shared hit=17
+ Planning Time: 0.267 ms
+ Execution Time: 3.689 ms
+(16 rows)
+
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=1928.92..1929.42 rows=40 width=36) (actual time=3.488..3.494 rows=40 loops=1)
+   Group Key: id_sala
+   Batches: 1  Memory Usage: 32kB
+   Buffers: shared hit=122
+   ->  Bitmap Heap Scan on comprobante c  (cost=13.46..1900.42 rows=5699 width=10) (actual time=1.323..2.884 rows=5715 loops=1)
+         Recheck Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+         Rows Removed by Index Recheck: 4966
+         Heap Blocks: lossy=120
+         Buffers: shared hit=122
+         ->  Bitmap Index Scan on exp_brin_fecha  (cost=0.00..12.04 rows=11548 width=0) (actual time=0.036..0.036 rows=1200 loops=1)
+               Index Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+               Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=1
+ Planning Time: 0.068 ms
+ Execution Time: 3.528 ms
+(16 rows)
+
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=1928.92..1929.42 rows=40 width=36) (actual time=3.548..3.554 rows=40 loops=1)
+   Group Key: id_sala
+   Batches: 1  Memory Usage: 32kB
+   Buffers: shared hit=122
+   ->  Bitmap Heap Scan on comprobante c  (cost=13.46..1900.42 rows=5699 width=10) (actual time=1.366..2.961 rows=5715 loops=1)
+         Recheck Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+         Rows Removed by Index Recheck: 4966
+         Heap Blocks: lossy=120
+         Buffers: shared hit=122
+         ->  Bitmap Index Scan on exp_brin_fecha  (cost=0.00..12.04 rows=11548 width=0) (actual time=0.029..0.030 rows=1200 loops=1)
+               Index Cond: (fecha >= ((CURRENT_DATE - '3 mons'::interval) AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))
+               Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=1
+ Planning Time: 0.123 ms
+ Execution Time: 3.602 ms
+(16 rows)
+
+ROLLBACK
+### 5. Los índices quedaron como estaban
+ indices_en_bodegas 
+--------------------
+                 48
+(1 row)
+

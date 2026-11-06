@@ -1,0 +1,148 @@
+# Contrato de la API REST (Etapa 6) — borrador
+
+Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **No está implementado**: hoy sólo existe `GET /salud`. Sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
+
+Principios que fija la consigna y `AGENTS.md`:
+
+- La API se conecta como `bodegas_api` (grupo `bodegas_rw`), nunca como propietario.
+- SQL directo y parametrizado, con una función por consulta en un módulo de acceso a datos.
+- Totales, descuentos, stock, estados y auditoría los resuelve PostgreSQL. La API invoca funciones y procedimientos (`fn_registrar_venta`, `sp_terminar_*`, `sp_procesar_*`) y devuelve lo que la base calculó.
+- Las operaciones de varias sentencias van en una transacción explícita.
+- Los errores de PostgreSQL se traducen por `SQLSTATE` (sección 3).
+
+Convenciones:
+
+- JSON en UTF-8.
+- Listados con `?limite=` (por omisión 20, máximo 100) y `?desplazamiento=` (por omisión 0). Responden `{"items": [...], "limite": n, "desplazamiento": n, "total": n}`.
+- Errores con cuerpo `{"detail": "mensaje", "codigo": "SQLSTATE"}`. El mensaje de una regla de negocio es el de la base, por ejemplo "RN-09: stock insuficiente del vino 1 en la sala 1."
+- Las rutas son las de la consigna. Detrás de nginx se publican bajo `/api` (ver la sección 5).
+
+## 1. Endpoints
+
+### Vinos
+
+| Método y ruta | Cuerpo / parámetros | Respuesta | Errores esperados |
+|---|---|---|---|
+| `GET /vinos` | Filtros `tipo`, `id_cepa`, `cuit_bodega`, `anada`, más paginación | 200, listado | 400 (22P02, filtro mal formado) |
+| `GET /vinos/{cod}` | — | 200, ficha de `v_ficha_vino`: corte con cepas y porcentajes, maridajes, stock total | 404 si no existe |
+| `POST /vinos` | `{nombre, tipo, anada, volumen_ml, graduacion, precio, cuit_bodega, composicion: [{id_cepa, porcentaje}], maridajes: [id_maridaje]}` | 201, con `cod_vino` | 409 (23505, vino repetido: `uq_vino_identidad_comercial`); 422 (23514, por ejemplo precio ≤ 0 o graduación fuera de 5–20); 422 (23503, bodega o cepa inexistente); 409 (P0001, la composición no suma 100 %) |
+| `PUT /vinos/{cod}` | Mismos campos | 200. Si cambia el precio, `trg_vino_auditoria_precio` registra la auditoría (RN-13) | 404, 422, 409 como en el alta |
+| `DELETE /vinos/{cod}` | — | 204 | 404; **409 (23503)** si tiene ventas, ingresos, transferencias **o historia de precios** (`fk_auditoria_precio_vino`). En la práctica, un vino al que se le cambió el precio no se puede borrar |
+
+El alta inserta `vino`, `composicion_vino` y `vino_maridaje` en **una transacción**. La regla de la composición al 100 % es un constraint trigger diferido: se verifica al confirmar.
+
+### Clientes
+
+| Método y ruta | Cuerpo / parámetros | Respuesta | Errores esperados |
+|---|---|---|---|
+| `GET /clientes` | Filtros `tipo`, `id_localidad`, más paginación | 200 | 400 |
+| `GET /clientes/{id}` | — | 200, con los datos de su subtipo | 404 |
+| `POST /clientes` | `{nombre_razon_social, tipo_documento, nro_documento, direccion, id_localidad, tipo, ...}`. Según `tipo`: `distribuidor: {zona_cobertura, nro_habilitacion}`, `exportador: {pais_destino_principal, permisos: [...]}` | 201, con `id_cliente` | 409 (23505, documento repetido: `uq_cliente_documento`); 422 (23514, 23502); 422 (23503, localidad inexistente, o un subtipo que no corresponde al tipo: `fk_distribuidor_cliente`); 409 (P0001 al confirmar: "Jerarquía de clientes: el cliente … no tiene su fila de subtipo.") |
+| `PUT /clientes/{id}` | Datos comunes y del subtipo. `tipo` no se cambia | 200 | 404, 409, 422 |
+| `DELETE /clientes/{id}` | — | 204. Los subtipos se borran en cascada | 404; **409 (23503)** si tiene comprobantes (`fk_comprobante_cliente`) |
+
+El alta inserta `cliente` y su fila de subtipo en **una transacción**: la regla de totalidad de la jerarquía es diferida. El descuento no se envía: lo calcula `fn_descuento_cliente` (RN-06), y la excepción del 35 % sólo se acepta para exportadores (U6).
+
+### Comprobantes
+
+| Método y ruta | Cuerpo / parámetros | Respuesta | Errores esperados |
+|---|---|---|---|
+| `POST /comprobantes` | `{id_cliente, id_sala, renglones: [{cod_vino, cantidad}]}` | 201: `{nro_comprobante, fecha, subtotal, descuento, total, renglones: [...]}` leídos de la base después de la venta | **409 (P0001)**: "RN-09: stock insuficiente…", vino repetido, cantidad no positiva, venta sin renglones. 422 (23503): cliente o sala inexistente (`fk_comprobante_cliente`, `fk_comprobante_sala_venta`). 422 (23502): vino inexistente (ver la nota) |
+| `GET /comprobantes/{nro}` | — | 200, cabecera y renglones | 404 |
+
+La venta es una sola llamada a `fn_registrar_venta(id_cliente, id_sala, vinos[], cantidades[])`, que crea cabecera y renglones en la misma transacción: todo o nada. La API no tiene `INSERT` sobre `comprobante` (sección 4).
+
+Nota, verificada: con un `cod_vino` inexistente la base responde `23502: null value in column "precio_unitario"`, porque el trigger no encuentra el precio antes de que actúe la FK. El código se traduce bien (422), pero el mensaje no es claro para el usuario. Hay dos opciones: que la API valide la existencia del vino antes de vender, o una 009 que haga que el trigger levante P0002 ("El vino % no existe."). Queda como decisión de la Etapa 6.
+
+### Transferencias e ingresos
+
+| Método y ruta | Cuerpo | Respuesta | Errores esperados |
+|---|---|---|---|
+| `POST /transferencias` | `{id_sala}` | 201: `{nro_transferencia, estado: "en_confeccion"}` | 422 (23503) |
+| `POST /transferencias/{nro}/renglones` | `{cod_vino, cantidad}` | 201 | 404; 409 (P0001, la transferencia ya no está en confección, RN-12); 409 (23505, vino repetido); 422 (23514) |
+| `POST /transferencias/{nro}/terminar` | — | 200, `estado: "terminado"` (`CALL sp_terminar_transferencia`) | 404; 409 (P0001, transición inválida o sin renglones, RN-11) |
+| `POST /transferencias/{nro}/procesar` | — | 200, `estado: "procesado"` (`CALL sp_procesar_transferencia`) | 404; 409 (P0001, sin stock en el depósito: no deja cambios) |
+| `POST /ingresos` | `{cod_transportista, cuit_bodega}` | 201: `{cod_ingreso, estado: "en_confeccion"}` | 422 (23503) |
+| `POST /ingresos/{cod}/renglones` | `{cod_vino, cantidad}` | 201 | igual que en transferencias (RN-10, RN-12) |
+| `POST /ingresos/{cod}/terminar` | — | 200 (`CALL sp_terminar_ingreso`) | **No figura en la consigna**: ver la sección 6 |
+| `POST /ingresos/{cod}/procesar` | — | 200 (`CALL sp_procesar_ingreso`) | 404; 409 (P0001, transición inválida, RN-10) |
+
+### Reportes (consultas de la sección 8, sólo lectura)
+
+| Método y ruta | Parámetros | Consulta base |
+|---|---|---|
+| `GET /reportes/top-vinos` | `limite` (10) | S1 |
+| `GET /reportes/ventas-por-sala` | `desde`, `hasta` (por omisión, el último trimestre) | S8 y `v_ventas_mensuales_sala` |
+| `GET /reportes/vinos-sin-stock` | `id_sala` | S6 |
+| `GET /reportes/transportista-activo` | `dias` (30) | S7 |
+| `GET /reportes/trazabilidad/{cod}` | — | **Pregunta a la cátedra** (sección 6) |
+
+### Salud
+
+`GET /salud`: 200 `{"estado": "ok", "base_de_datos": "disponible"}` si `SELECT 1` responde; 503 si no. **Implementado y probado** (`api/tests/test_salud.py`).
+
+## 2. Transacciones
+
+| Operación | Cómo |
+|---|---|
+| Venta | Una sentencia: `SELECT fn_registrar_venta(...)`. La función es atómica |
+| Alta de vino, alta de cliente | `BEGIN` → `INSERT` cabecera → `INSERT` detalle → `COMMIT`; ante cualquier error, `ROLLBACK`. Los constraint triggers diferidos se verifican en el `COMMIT` |
+| Terminar o procesar documentos | Una sentencia: `CALL sp_*`. El procedimiento valida el estado y aplica el stock |
+| Concurrencia | 40001 y 40P01 se traducen a 503 con `Retry-After` (ver `docs/concurrencia.md`) |
+
+Con psycopg 3: `with pool.connection() as conn, conn.transaction():`. El pool trabaja en `autocommit` y cada bloque `transaction()` emite `BEGIN`/`COMMIT`.
+
+## 3. Traducción de errores por SQLSTATE
+
+Tabla de la consigna (página 17), completada con los códigos que levanta este modelo:
+
+| SQLSTATE | Situación en PostgreSQL | HTTP |
+|---|---|---|
+| `23505` | `UNIQUE` o `PRIMARY KEY` violada | 409 Conflict |
+| `23503` | `FOREIGN KEY`: dato relacionado inexistente (alta o modificación) | 422 Unprocessable Entity |
+| `23503` | `FOREIGN KEY`: la fila tiene dependientes (baja) | 409 Conflict |
+| `23514` | `CHECK` violado | 422 |
+| `23502` | `NOT NULL` violado | 422 |
+| `P0001` | Regla de negocio de un trigger o procedimiento (`RAISE EXCEPTION`, RN-xx) | 409, con el mensaje de la regla |
+| `P0002` | Un procedimiento o función no encuentra la fila (por ejemplo `sp_procesar_transferencia`: "La transferencia % no existe.") | 404 Not Found |
+| `22P02` | Texto con formato inválido para el tipo | 400 Bad Request |
+| `22001`, `22003` | Texto demasiado largo, número fuera de rango | 422 |
+| `40001`, `40P01` | Fallo de serialización o deadlock | 503 Service Unavailable, con `Retry-After` |
+| `42501` | Permiso denegado al rol de la API | **500**, registrado en el log sin detalles al cliente |
+| `08xxx` y `PoolTimeout` | Base no disponible | 503 |
+
+`42501` va a 500 y no a 403 porque no es un problema del cliente: indica que el código intentó algo que el rol no tiene otorgado, o sea un error de la API o de los privilegios. Si alguna vez se agrega autenticación, 403 queda para "el usuario no puede", que es otra cosa.
+
+La traducción se hace en un solo lugar (`api/README.md`). El mensaje que vuelve al cliente es `diag.message_primary`; nunca detalles internos ni el texto de la conexión.
+
+## 4. Privilegios de `bodegas_api` frente a este contrato
+
+Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cada endpoint, dentro de `BEGIN … ROLLBACK` con `ON_ERROR_ROLLBACK`, sobre la base cargada. Las huellas de `hashes.sql` quedaron iguales.
+
+| Endpoint | Resultado con `007_roles.sql` |
+|---|---|
+| `GET /vinos` (con cepa y bodega), `GET /vinos/{cod}` | OK |
+| `POST /vinos` (vino, composición y maridaje; diferidos verificados) | OK |
+| `PUT /vinos/{cod}` (precio) | OK; `auditoria_precio` recibe 1 fila por el trigger |
+| `DELETE /vinos/{cod}` | OK sin dependientes. 23503 con historia de precios (`fk_auditoria_precio_vino`) o con ventas (`fk_renglon_comprobante_vino`) |
+| `GET /clientes` (con localidad), `POST` de los tres tipos con permiso de exportación, `PUT`, `DELETE` | OK; 23503 al borrar un cliente con ventas |
+| `POST /comprobantes`, `GET /comprobantes/{nro}` | OK; P0001 "RN-09: stock insuficiente del vino 1 en la sala 1." al vender sin stock; 23503 con cliente o sala inexistente; 23502 con vino inexistente |
+| Terminar o procesar un documento inexistente | P0002 "La transferencia 99999999 no existe." |
+| Transferencias e ingresos: alta, renglones, terminar, procesar | OK; los dos documentos llegan a `procesado` |
+| Reportes top-vinos, ventas-por-sala, vinos-sin-stock, transportista-activo | OK |
+| **Reporte trazabilidad** | **42501**: `permission denied for table parcela` |
+| Escrituras prohibidas: `UPDATE`/`INSERT`/`DELETE` en `comprobante`, `UPDATE stock_sala`, `UPDATE ingreso.estado`, `INSERT auditoria_precio`, `fn_recalcular_comprobante` | 42501 en todos, como corresponde |
+
+**Faltante para una futura `009`** (no se modificó nada): `SELECT` sobre `parcela`, `lote_uva`, `finca` y `analisis_calidad` para `bodegas_rw`, y `departamento` si el reporte muestra el departamento de la finca. Todas son de sólo lectura. Se otorgan recién cuando la cátedra confirme qué significa la trazabilidad (sección 6). Hoy `bodegas_rw` tampoco lee `empleado`, que ningún endpoint usa.
+
+## 5. Detalles de infraestructura para la Etapa 6
+
+- **Swagger detrás de nginx.** `GET /api/docs` responde 200 por el proxy, pero la página pide `/openapi.json` sin el prefijo `/api`, así que no carga. Verificado: la página contiene `url: '/openapi.json'`. Se corrige con `FastAPI(root_path="/api")` o con `servers`. Directo en el puerto de la API funciona.
+- **Pruebas.** La consigna pide al menos 8 pruebas automáticas, 3 de ellas sobre reglas de la base. La infraestructura ya existe (`api/README.md`). Candidatas: venta sin stock (409), transición de estado inválida (409), precio negativo (422).
+- **Inyección SQL.** La demostración de inyección fallida se hace sobre un filtro de `GET /vinos`: el valor viaja como parámetro y se compara como texto.
+
+## 6. Preguntas abiertas para la cátedra
+
+1. **`/reportes/trazabilidad/{cod}`.** El modelo no vincula un vino con lotes de uva concretos. `lote_uva` registra a qué bodega se entregó cada cosecha, y `vino` tiene bodega, añada y corte (cepas). La interpretación posible, que se probó como SQL salvo por el permiso, es esta: lotes de las cepas del corte, cosechados en la añada del vino y entregados a su bodega, con finca, parcela y análisis de calidad. Es una aproximación, no una trazabilidad exacta. ¿Alcanza, o se espera otro alcance (por ejemplo, sólo el corte y la bodega)?
+2. **`POST /ingresos/{cod}/terminar`.** La consigna lista sólo `procesar` para ingresos, "mismo circuito que las transferencias". Pero RN-10 exige pasar por `terminado`, y `sp_terminar_ingreso` existe. ¿Se agrega el endpoint, o `procesar` debe terminar y procesar en un paso?
+3. **S12 B.** ¿"Clientes que nunca compraron tintos" incluye a los que no compraron nada? Hoy sí: son 4.715 de 7.170.
