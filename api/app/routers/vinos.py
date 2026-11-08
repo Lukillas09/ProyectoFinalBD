@@ -100,3 +100,38 @@ def crear_vino(
     response.headers["Location"] = request.scope.get("root_path", "") + router.url_path_for(
         "obtener_vino", cod_vino=cod_vino)
     return _ficha_confirmada(conn, cod_vino)
+
+
+@router.put(
+    "/{cod_vino}",
+    summary="Modificar un vino (reemplazo completo)",
+    responses={
+        404: _error("El vino no existe."),
+        409: _error("Choca con otro vino (23505, uq_vino_identidad_comercial) o la composición "
+                    "nueva no suma 100 % (P0001, RN-05)."),
+        422: _error("Forma inválida (validacion), una regla CHECK (23514) o bodega, cepa o "
+                    "maridaje inexistente (23503)."),
+    },
+)
+def modificar_vino(
+    vino: VinoEntrada,
+    cod_vino: int = Path(ge=1, le=MAX_BIGINT, description="Código del vino."),
+    conn: Connection = Depends(conexion),
+) -> VinoDetalle:
+    """Reemplaza todos los datos del vino, **incluidas la composición y los maridajes**.
+
+    Todo va en una transacción: la composición anterior se borra y se inserta
+    la nueva, y la suma al 100 % se verifica al confirmar. Si falla, el vino
+    queda como estaba.
+
+    Si el precio cambia, `trg_vino_auditoria_precio` registra en
+    `auditoria_precio` el precio anterior, el nuevo y el usuario de la base
+    (RN-13). Un precio igual al actual no deja registro.
+    """
+
+    with conn.transaction():
+        if not datos.actualizar(conn, cod_vino, vino):
+            raise HTTPException(404, f"El vino {cod_vino} no existe.")
+        datos.reemplazar_composicion(conn, cod_vino, vino.composicion)
+        datos.reemplazar_maridajes(conn, cod_vino, vino.maridajes)
+    return _ficha_confirmada(conn, cod_vino)

@@ -175,3 +175,43 @@ def insertar_composicion(conn: Connection, cod_vino: int, composicion: list[Cepa
 
 def insertar_maridajes(conn: Connection, cod_vino: int, maridajes: list[int]) -> None:
     conn.execute(INSERTAR_MARIDAJES, {"cod_vino": cod_vino, "maridajes": maridajes})
+
+
+# --- Modificación (issue #26) ---------------------------------------------
+
+# Reemplazo completo. precio va siempre en el SET: trg_vino_auditoria_precio
+# (AFTER UPDATE OF precio) se evalúa, pero su WHEN (OLD.precio IS DISTINCT
+# FROM NEW.precio) descarta los cambios que no existen. La auditoría la
+# escribe ese trigger; la API no tiene permiso sobre auditoria_precio.
+# RETURNING dice si el vino existía, sin una consulta previa. El UPDATE además
+# bloquea la fila hasta el COMMIT: dos PUT del mismo vino se ordenan solos.
+ACTUALIZAR = """
+UPDATE vino
+SET nombre = %(nombre)s, tipo = %(tipo)s, anada = %(anada)s, volumen_ml = %(volumen_ml)s,
+    graduacion = %(graduacion)s, precio = %(precio)s, cuit_bodega = %(cuit_bodega)s
+WHERE cod_vino = %(cod_vino)s
+RETURNING cod_vino
+"""
+
+BORRAR_COMPOSICION = "DELETE FROM composicion_vino WHERE cod_vino = %(cod_vino)s"
+BORRAR_MARIDAJES = "DELETE FROM vino_maridaje WHERE cod_vino = %(cod_vino)s"
+
+
+def actualizar(conn: Connection, cod_vino: int, vino: VinoEntrada) -> bool:
+    """Reemplaza los datos del vino. False si el vino no existe."""
+
+    return conn.execute(ACTUALIZAR, {**_columnas(vino), "cod_vino": cod_vino}).fetchone() is not None
+
+
+# Composición y maridajes se reemplazan enteros: DELETE de las filas del vino
+# e INSERT de las nuevas, dentro de la transacción del endpoint. La suma al
+# 100 % la revisa el trigger diferido una vez, al confirmar, sobre el estado
+# final; si falla, el ROLLBACK deja la composición anterior intacta.
+def reemplazar_composicion(conn: Connection, cod_vino: int, composicion: list[CepaDeCorte]) -> None:
+    conn.execute(BORRAR_COMPOSICION, {"cod_vino": cod_vino})
+    insertar_composicion(conn, cod_vino, composicion)
+
+
+def reemplazar_maridajes(conn: Connection, cod_vino: int, maridajes: list[int]) -> None:
+    conn.execute(BORRAR_MARIDAJES, {"cod_vino": cod_vino})
+    insertar_maridajes(conn, cod_vino, maridajes)

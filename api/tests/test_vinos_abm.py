@@ -236,3 +236,105 @@ def test_decimal_como_numero_json(cliente, cuerpo) -> None:
 
     assert (ficha["precio"], ficha["graduacion"]) == ("1234.50", "14.00")
     assert Decimal(ficha["precio"]) == Decimal("1234.5")
+
+
+# --- Modificación -----------------------------------------------------------
+
+def auditoria(consultar_filas, cod_vino: int) -> list[tuple]:
+    return consultar_filas(
+        "SELECT precio_anterior::text, precio_nuevo::text, usuario_bd FROM auditoria_precio "
+        "WHERE cod_vino = %s ORDER BY id_auditoria", (cod_vino,))
+
+
+def test_put_que_cambia_el_precio_deja_una_auditoria(cliente, consultar, consultar_filas, cuerpo) -> None:
+    cod = crear(cliente, cuerpo)
+    cuerpo["precio"] = "1250.50"
+
+    respuesta = cliente.put(f"/vinos/{cod}", json=cuerpo)
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert respuesta.json()["precio"] == "1250.50"
+    # La fila la escribe trg_vino_auditoria_precio, no la API. usuario_bd es
+    # session_user: la cuenta con que se conecta la API, la misma de las pruebas.
+    assert auditoria(consultar_filas, cod) == [("1000.00", "1250.50", consultar("SELECT session_user"))]
+
+
+@pytest.mark.parametrize("mismo_precio", ["1000.00", "1000.0", 1000])
+def test_put_sin_cambiar_el_precio_no_audita(cliente, consultar_filas, cuerpo, mismo_precio) -> None:
+    # 1000.0 y 1000.00 son iguales en NUMERIC: el WHEN (OLD.precio IS
+    # DISTINCT FROM NEW.precio) del trigger descarta el cambio inexistente.
+    cod = crear(cliente, cuerpo)
+    cuerpo["precio"] = mismo_precio
+    cuerpo["nombre"] += " (editado)"
+
+    respuesta = cliente.put(f"/vinos/{cod}", json=cuerpo)
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert respuesta.json()["nombre"] == cuerpo["nombre"]
+    assert auditoria(consultar_filas, cod) == []
+
+
+def test_put_reemplaza_composicion_y_maridajes(cliente, consultar_filas, cuerpo, catalogo) -> None:
+    cod = crear(cliente, cuerpo)
+    cuerpo["composicion"] = [
+        {"id_cepa": catalogo["cepas"][1], "porcentaje": "50.00"},
+        {"id_cepa": catalogo["cepas"][2], "porcentaje": "50.00"},
+    ]
+    cuerpo["maridajes"] = []
+
+    respuesta = cliente.put(f"/vinos/{cod}", json=cuerpo)
+
+    assert respuesta.status_code == 200, respuesta.text
+    nueva = {(catalogo["cepas"][1], "50.00"), (catalogo["cepas"][2], "50.00")}
+    assert {(c["id_cepa"], c["porcentaje"]) for c in respuesta.json()["composicion"]} == nueva
+    assert respuesta.json()["maridajes"] == []
+    assert composicion_en_la_base(consultar_filas, cod) == nueva
+    assert consultar_filas("SELECT count(*) FROM vino_maridaje WHERE cod_vino = %s", (cod,)) == [(0,)]
+
+
+def test_put_con_composicion_que_suma_80_no_cambia_nada(cliente, consultar, consultar_filas, cuerpo, catalogo) -> None:
+    cod = crear(cliente, cuerpo)
+    anterior = composicion_en_la_base(consultar_filas, cod)
+    cuerpo["precio"] = "2000.00"
+    cuerpo["composicion"] = [{"id_cepa": catalogo["cepas"][2], "porcentaje": "80.00"}]
+
+    respuesta = cliente.put(f"/vinos/{cod}", json=cuerpo)
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["codigo"] == "P0001"
+    assert respuesta.json()["detail"].startswith(f"RN-05: la composición del vino {cod} suma 80.00 %")
+    # El ROLLBACK se lleva todo el PUT: composición, precio y su auditoría.
+    assert composicion_en_la_base(consultar_filas, cod) == anterior
+    assert consultar("SELECT precio::text FROM vino WHERE cod_vino = %s", (cod,)) == "1000.00"
+    assert auditoria(consultar_filas, cod) == []
+
+
+def test_put_que_choca_con_otro_vino_409(cliente, cuerpo) -> None:
+    crear(cliente, cuerpo)
+    otro = {**cuerpo, "nombre": cuerpo["nombre"] + " (otro)"}
+    cod_otro = crear(cliente, otro)
+
+    respuesta = cliente.put(f"/vinos/{cod_otro}", json=cuerpo)
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["restriccion"] == "uq_vino_identidad_comercial"
+
+
+def test_put_con_bodega_inexistente_422(cliente, consultar, cuerpo) -> None:
+    cod = crear(cliente, cuerpo)
+    cuerpo["cuit_bodega"] = "99999999999"
+
+    respuesta = cliente.put(f"/vinos/{cod}", json=cuerpo)
+
+    assert (respuesta.status_code, respuesta.json()["restriccion"]) == (422, "fk_vino_bodega")
+    assert consultar("SELECT cuit_bodega FROM vino WHERE cod_vino = %s", (cod,)) != "99999999999"
+
+
+def test_put_de_vino_inexistente_404(cliente, consultar, cuerpo) -> None:
+    inexistente = consultar("SELECT max(cod_vino) + 1000 FROM vino")
+
+    respuesta = cliente.put(f"/vinos/{inexistente}", json=cuerpo)
+
+    assert respuesta.status_code == 404
+    assert respuesta.json() == {"detail": f"El vino {inexistente} no existe.", "codigo": "no_encontrado"}
+    assert vinos_con_nombre(consultar, cuerpo["nombre"]) == 0
