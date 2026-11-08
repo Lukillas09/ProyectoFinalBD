@@ -6,10 +6,10 @@ de PostgreSQL y el valor no pasa por un double (docs/api.md, "Vinos").
 """
 
 from decimal import Decimal
-from typing import Generic, Literal, TypeVar
+from typing import Annotated, Generic, Literal, TypeVar
 
 from fastapi import Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 T = TypeVar("T")
@@ -149,3 +149,53 @@ class VinoDetalle(VinoResumen):
     stock_total: int = Field(description="Depósito central más la suma de las salas.")
     composicion: list[CepaEnVino] = Field(description="Ordenada por porcentaje, de mayor a menor.")
     maridajes: list[MaridajeDeVino] = Field(description="Ordenados por nombre.")
+
+
+# --- Alta y modificación de vinos (issue #26) -----------------------------
+# Pydantic valida sólo la forma: tipos, dominio y escala de cada columna,
+# repetidos y al menos una cepa. Las reglas de negocio las decide PostgreSQL
+# y llegan traducidas por app/errores.py: la suma 100 % (constraint trigger
+# diferido, P0001), precio > 0, graduación 5-20, volumen > 0 y porcentaje en
+# (0, 100] (CHECK, 23514). max_digits y decimal_places son la forma de la
+# columna NUMERIC: sin ellos, PostgreSQL redondearía 1.234 a 1.23 en silencio.
+
+class CepaDeCorte(BaseModel):
+    """Una cepa del corte y su porcentaje."""
+
+    id_cepa: int = Field(ge=1, le=MAX_INTEGER)
+    porcentaje: Decimal = Field(max_digits=5, decimal_places=2, examples=["60.00"])
+
+
+class VinoEntrada(BaseModel):
+    """Cuerpo de POST /vinos y de PUT /vinos/{cod_vino} (reemplazo completo).
+
+    Todos los campos son obligatorios, también ``maridajes``: en un PUT, un
+    campo omitido no puede significar "borralo". Los decimales se aceptan como
+    string ("4500.00", como los devuelve la API) o como número.
+    """
+
+    nombre: str = Field(min_length=1, max_length=100, examples=["Malbec Reserva"])
+    tipo: TipoVino
+    anada: int = Field(ge=1900, le=9999, description="Añada (ck_vino_anada).", examples=[2022])
+    volumen_ml: int = Field(le=MAX_INTEGER, examples=[750])
+    graduacion: Decimal = Field(max_digits=4, decimal_places=2, examples=["13.50"])
+    precio: Decimal = Field(max_digits=14, decimal_places=2, examples=["4500.00"])
+    cuit_bodega: str = Field(pattern=r"^[0-9]{11}$", description="CUIT de la bodega: 11 dígitos.")
+    composicion: list[CepaDeCorte] = Field(min_length=1, description="Cepas sin repetir; deben sumar 100 %.")
+    maridajes: list[Annotated[int, Field(ge=1, le=MAX_INTEGER)]] = Field(
+        description="Códigos de maridaje sin repetir; puede ser [].")
+
+    @field_validator("composicion")
+    @classmethod
+    def _cepas_sin_repetir(cls, composicion: list[CepaDeCorte]) -> list[CepaDeCorte]:
+        cepas = [c.id_cepa for c in composicion]
+        if len(cepas) != len(set(cepas)):
+            raise ValueError("una cepa aparece más de una vez en la composición")
+        return composicion
+
+    @field_validator("maridajes")
+    @classmethod
+    def _maridajes_sin_repetir(cls, maridajes: list[int]) -> list[int]:
+        if len(maridajes) != len(set(maridajes)):
+            raise ValueError("un maridaje aparece más de una vez")
+        return maridajes

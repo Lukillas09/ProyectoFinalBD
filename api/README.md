@@ -7,6 +7,9 @@
 | `GET /salud` | Infraestructura |
 | `GET /vinos` (filtros `tipo`, `id_cepa`, `cuit_bodega`, `anada` y paginación) | #25 |
 | `GET /vinos/{cod_vino}` (ficha con composición y maridajes estructurados) | #25 |
+| `POST /vinos` (con composición y maridajes, en una transacción) | #26 |
+| `PUT /vinos/{cod_vino}` (reemplazo completo; la auditoría de precio la registra la base) | #26 |
+| `DELETE /vinos/{cod_vino}` (409 si tiene ventas, movimientos, stock o cambios de precio) | #26 |
 
 Todo se apoya en la **base común de la Etapa 6** (issue #24):
 
@@ -16,7 +19,7 @@ Todo se apoya en la **base común de la Etapa 6** (issue #24):
 - Swagger detrás de nginx;
 - pruebas aisladas.
 
-Los demás endpoints de negocio llegan con los issues #26 a #32, según el contrato de [docs/api.md](../docs/api.md).
+Los demás endpoints de negocio llegan con los issues #27 a #32, según el contrato de [docs/api.md](../docs/api.md).
 
 ## Qué hay
 
@@ -25,9 +28,9 @@ Los demás endpoints de negocio llegan con los issues #26 a #32, según el contr
 | `app/config.py` | Lee y valida la configuración desde variables de entorno (`DB_HOST`, `DB_USER`, …). Nunca arma ni registra una URL con la contraseña |
 | `app/database.py` | Pool (`check_connection`, `autocommit=True`), la dependencia `conexion` y el `SELECT 1` de `/salud` |
 | `app/errores.py` | `traducir()`, una función pura SQLSTATE → HTTP, y `registrar_manejadores()` |
-| `app/esquemas.py` | `ErrorRespuesta`, `Paginacion` y `Pagina[T]`; modelos y filtros de vinos |
-| `app/datos/vinos.py` | SQL del catálogo de vinos: `listar()` y `detalle()` |
-| `app/routers/vinos.py` | `GET /vinos` y `GET /vinos/{cod_vino}` |
+| `app/esquemas.py` | `ErrorRespuesta`, `Paginacion` y `Pagina[T]`; modelos, filtros y cuerpo de entrada (`VinoEntrada`) de vinos |
+| `app/datos/vinos.py` | SQL de vinos: `listar()`, `detalle()`, `insertar*()`, `actualizar()`, `reemplazar_*()` y `borrar()` |
+| `app/routers/vinos.py` | `GET`, `POST`, `PUT` y `DELETE` de `/vinos` |
 | `app/main.py` | `crear_app()`: ciclo de vida del pool, middleware del prefijo `/api`, manejadores de error, OpenAPI y `/salud` |
 | `tests/` | Pruebas con pytest, más `ejecutar.sh` (ver "Pruebas") |
 
@@ -48,14 +51,22 @@ Cada endpoint que use la base recibe una conexión del pool con `Depends(conexio
 - **Una sola sentencia** (una lectura, `SELECT fn_registrar_venta(...)`, `CALL sp_procesar_...`): se usa la conexión tal cual. En autocommit esa sentencia ya es atómica.
 - **Varias sentencias que deben ir juntas** (alta de vino con su composición, alta de cliente con su subtipo): `with conn.transaction():`. Si algo falla dentro del bloque, todo se revierte.
 
+El ejemplo real es el alta de vinos (`app/routers/vinos.py`, resumido):
+
 ```python
-@router.post("/vinos", status_code=201)
-def crear_vino(vino: VinoNuevo, conn: Connection = Depends(conexion)) -> VinoCreado:
+@router.post("", status_code=201)
+def crear_vino(vino: VinoEntrada, request: Request, response: Response,
+               conn: Connection = Depends(conexion)) -> VinoDetalle:
     with conn.transaction():
-        cod = datos.vinos.insertar(conn, vino)
-        datos.vinos.insertar_composicion(conn, cod, vino.composicion)
-    return VinoCreado(cod_vino=cod)
+        cod_vino = datos.insertar(conn, vino)
+        datos.insertar_composicion(conn, cod_vino, vino.composicion)
+        datos.insertar_maridajes(conn, cod_vino, vino.maridajes)
+    # Acá ya pasó el COMMIT: la suma de la composición al 100 % fue verificada.
+    response.headers["Location"] = ...
+    return _ficha_confirmada(conn, cod_vino)
 ```
+
+Las funciones de `app/datos/` no abren transacciones: las abre el endpoint, que sabe qué sentencias van juntas. Una `HTTPException` dentro del bloque también revierte, como el 404 de `PUT /vinos/{cod_vino}` cuando el `UPDATE … RETURNING` no encuentra el vino.
 
 La transacción se abre **dentro del endpoint**, no en una dependencia, por los constraint triggers diferidos (composición al 100 %, jerarquía de clientes). Esos triggers fallan recién en el `COMMIT`, al salir del bloque `with`, y así el error llega al manejador antes de armar la respuesta. Una dependencia con `yield` haría el `COMMIT` después de que FastAPI arma la respuesta. Lo prueba `test_constraint_trigger_diferido_falla_en_el_commit`: 409 con el mensaje de la base, y el cliente no queda guardado.
 
@@ -144,6 +155,8 @@ app/
 - **Los routers no calculan** importes, descuentos ni stock: llaman a `fn_registrar_venta` y a `CALL sp_*`, y devuelven lo que la base calculó.
 - **Rol de conexión:** `bodegas_api`, nunca el propietario. Los privilegios de cada endpoint están verificados en `docs/api.md`, sección 4.
 - No se crean carpetas ni archivos vacíos por adelantado: cada pieza entra con su primer uso real, y cada endpoint con sus pruebas. `datos/` y `routers/` no tienen `__init__.py`: Python los importa como paquetes de espacio de nombres.
+- **Validación de entrada sólo de forma.** Pydantic valida tipos, dominio y escala de cada columna, y repetidos en las listas. Las reglas de negocio (por ejemplo, `precio > 0` o la composición al 100 %) no se repiten en Python: las rechaza PostgreSQL y las traduce `app/errores.py` (ver `VinoEntrada`).
+- **Listas en una sola sentencia.** Las filas hijas se insertan con `unnest` de arrays (`INSERT … SELECT … FROM unnest(%(ids)s::integer[], …)`), como en `datos/vinos.py`.
 - **Dinero y `NUMERIC` como `Decimal`**, nunca `float`. En el JSON salen como string (`"precio": "43660.00"`). Si un `NUMERIC` llega dentro de un JSON armado en PostgreSQL (`json_agg`), se lee con `set_json_loads(partial(json.loads, parse_float=Decimal), cur)`, como en `datos/vinos.py`.
 - Un router por recurso se registra en `crear_app()` (`app/main.py`), junto con su etiqueta en `ETIQUETAS`.
 

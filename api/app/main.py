@@ -23,8 +23,9 @@ por SQLSTATE: todos los errores responden con el modelo `ErrorRespuesta`
 
 ETIQUETAS = [
     {"name": "infraestructura", "description": "Estado de la API y de su conexión a PostgreSQL."},
-    {"name": "vinos", "description": "Catálogo de vinos: listado con filtros y paginación, y ficha "
-                                     "con bodega, composición, maridajes y stock total."},
+    {"name": "vinos", "description": "Catálogo de vinos (listado con filtros y paginación, y ficha "
+                                     "con bodega, composición, maridajes y stock total) y su alta, "
+                                     "modificación y baja."},
 ]
 
 # Prefijo con el que nginx publica la API (front/nginx.conf, location /api/).
