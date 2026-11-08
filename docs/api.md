@@ -111,6 +111,7 @@ Implementado en `api/app/errores.py` (issue #24) y probado contra PostgreSQL 16 
 | `42501` y cualquier otro | Permiso denegado al rol de la API; error inesperado | **500**, registrado en el log | "Error interno del servidor." (`codigo` "interno") | — |
 | `08xxx`, `PoolTimeout`, `PoolClosed`, conexión perdida | Base no disponible | 503 | "Base de datos no disponible." (`codigo` "no_disponible") | — |
 | Validación de FastAPI | Parámetro o cuerpo inválido | 422 | "Datos de entrada inválidos." (`codigo` "validacion") | `errores: [{campo, mensaje}]` |
+| `HTTPException` | Ruta inexistente, método no permitido, "no existe" de un endpoint, `/salud` sin base | El de la excepción (404, 405, 503, …) | El del endpoint o un texto en español | `codigo` por estado: `no_encontrado`, `metodo_no_permitido`, `no_disponible`, …; se conservan los encabezados (`Allow`) |
 
 **Cuerpo de error.** Lo usan todos los errores de la API y está declarado como `ErrorRespuesta` en OpenAPI:
 
@@ -119,14 +120,14 @@ Implementado en `api/app/errores.py` (issue #24) y probado contra PostgreSQL 16 
 {"detail": "Datos de entrada inválidos.", "codigo": "validacion", "errores": [{"campo": "query.limite", "mensaje": "Input should be less than or equal to 100"}]}
 ```
 
-`detail` es siempre lo que se muestra al usuario. `codigo` es el SQLSTATE, o bien `validacion`, `no_disponible` o `interno`. Los `HTTPException` propios de la API responden `{"detail"}`, que se muestra con la misma lógica.
+`detail` es siempre lo que se muestra al usuario. `codigo` es el SQLSTATE, o bien `validacion`, `no_disponible`, `interno` o el código de una `HTTPException` (`no_encontrado`, `metodo_no_permitido`, …; tabla completa en `api/README.md`). Un "no existe" propio de un endpoint es `raise HTTPException(404, "El vino 7 no existe.")`, y responde `{"detail": "El vino 7 no existe.", "codigo": "no_encontrado"}`.
 
 **Por qué 23503 puede ser 409 o 422.** El mismo SQLSTATE cubre dos situaciones, y no se decide por el método HTTP: una venta (`POST`) con un cliente inexistente es 422. Se decide por `diag.message_primary`, cuyos dos textos se verificaron en PostgreSQL 16:
 
 - `insert or update on table "composicion_vino" violates foreign key constraint "fk_composicion_vino_vino"`: falta el dato → **422**;
 - `update or delete on table "vino" violates foreign key constraint "fk_auditoria_precio_vino" on table "auditoria_precio"`: hay dependientes → **409**.
 
-`diag.table_name` no sirve para distinguirlos, porque en los dos casos informa la tabla que referencia (`composicion_vino` y `auditoria_precio`). El texto depende de `lc_messages` del servidor (`en_US.utf8`), que el rol de la API no puede cambiar; una prueba lo verifica. Si el texto no se reconoce, la respuesta es 409 y queda un aviso en el log.
+`diag.table_name` no sirve para distinguirlos, porque en los dos casos informa la tabla que referencia (`composicion_vino` y `auditoria_precio`). El texto depende del idioma de los mensajes del servidor (`lc_messages`), que el rol de la API no puede cambiar. En inglés (`en_US.utf8` en la imagen actual, o `C`, `C.UTF-8`) es el mismo. Una prueba provoca los dos errores reales y verifica que empiecen así, sin fijar el valor de `lc_messages`. Si el servidor respondiera en otro idioma, los dos casos darían 409 con una advertencia en el log, y el 422 se recuperaría configurando el servidor en inglés.
 
 **Por qué 42501 es 500 y no 403.** No es un problema del cliente: indica que el código intentó algo que el rol no tiene otorgado, o sea un error de la API o de sus privilegios. Si alguna vez se agrega autenticación, 403 queda para "el usuario no puede", que es otra cosa.
 

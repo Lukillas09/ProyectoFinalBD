@@ -64,7 +64,38 @@ Los endpoints **no capturan** `psycopg.Error`: lo dejan subir y `app/errores.py`
 - Los 42501 y los SQLSTATE desconocidos responden 500 y quedan en el log (SQLSTATE, mensaje primario y nombres de tabla o restricción).
 - Los errores de validación de FastAPI usan el mismo cuerpo: `codigo` "validacion" y la lista `errores` con `campo` y `mensaje`.
 
-Para un error propio de la API (por ejemplo, 404 de un `GET` sin filas), `raise HTTPException(404, "El vino 7 no existe.")`. Su cuerpo `{"detail"}` se muestra con la misma lógica.
+**"No existe" y otros errores propios: `HTTPException`.** Un `GET` por clave que no encuentra la fila responde 404 así:
+
+```python
+@router.get("/vinos/{cod_vino}")
+def obtener_vino(cod_vino: int, conn: Connection = Depends(conexion)) -> Vino:
+    vino = datos.vinos.obtener(conn, cod_vino)
+    if vino is None:
+        raise HTTPException(404, f"El vino {cod_vino} no existe.")
+    return vino
+```
+
+```json
+{"detail": "El vino 7 no existe.", "codigo": "no_encontrado"}
+```
+
+Toda `HTTPException`, incluidas las que levanta Starlette, sale con el mismo cuerpo y un `codigo` según el estado:
+
+| Estado | `codigo` | Ejemplo |
+|---|---|---|
+| 404 | `no_encontrado` | Ruta inexistente, o un "no existe" propio |
+| 405 | `metodo_no_permitido` | Método no permitido; se conserva el encabezado `Allow` |
+| 503 | `no_disponible` | `/salud` sin base |
+| 400 / 401 / 403 / 409 / 500 | `solicitud_invalida` / `no_autenticado` / `prohibido` / `conflicto` / `interno` | — |
+| Otro | `http_<estado>` | — |
+
+El `detail` que escribe el endpoint se respeta. Si no hay uno (Starlette pone la frase en inglés, "Not Found"), va un texto en español.
+
+**Si la base responde en otro idioma.** Para separar los dos 23503, `errores.py` compara el comienzo del mensaje de PostgreSQL con `insert or update on table` (falta el dato → 422) y `update or delete on table` (hay dependientes → 409). Esos textos son los del servidor en inglés: `en_US.utf8` (la imagen actual), `C` o `C.UTF-8`.
+
+- Si `lc_messages` estuviera en otro idioma (por ejemplo, en la nube de la Etapa 8), los dos casos responderían **409** y quedaría una advertencia en el log por cada uno.
+- Nada se rompe, pero el 422 de "falta el dato relacionado" se perdería. Se corrige configurando el servidor en inglés; el rol de la API no puede cambiarlo.
+- `test_textos_de_23503_que_reconoce_la_traduccion` provoca los dos errores reales y verifica sus textos, sin fijar el valor de `lc_messages`. Si falla en un entorno nuevo, ese entorno responde en otro idioma.
 
 ### Listados paginados
 
