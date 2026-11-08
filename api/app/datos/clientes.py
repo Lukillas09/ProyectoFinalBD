@@ -225,3 +225,19 @@ def actualizar_subtipo(conn: Connection, id_cliente: int, c: ClienteEntrada) -> 
         conn.execute(BORRAR_PERMISOS, {"id_cliente": id_cliente})
         insertar_permisos(conn, id_cliente, c.permisos)
     # Un socio no tiene datos propios.
+
+
+# --- Baja (issue #27) -----------------------------------------------------
+
+# Una sola sentencia, en autocommit. La fila del subtipo y los permisos caen
+# por ON DELETE CASCADE; los triggers diferidos de la jerarquía y de la
+# excepción ignoran un cliente borrado. Con comprobantes, fk_comprobante_cliente
+# (ON DELETE RESTRICT) da 23503 "update or delete on table" y app/errores.py lo
+# traduce a 409.
+BORRAR = "DELETE FROM cliente WHERE id_cliente = %(id_cliente)s RETURNING id_cliente"
+
+
+def borrar(conn: Connection, id_cliente: int) -> bool:
+    """Borra el cliente con su subtipo y sus permisos. False si no existe."""
+
+    return conn.execute(BORRAR, {"id_cliente": id_cliente}).fetchone() is not None

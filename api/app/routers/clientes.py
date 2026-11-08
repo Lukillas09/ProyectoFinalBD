@@ -136,3 +136,28 @@ def modificar_cliente(
             raise HTTPException(404, f"El cliente {id_cliente} no existe.")
         datos.actualizar_subtipo(conn, id_cliente, c)
     return _ficha(conn, id_cliente)
+
+
+@router.delete(
+    "/{id_cliente}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Borrar un cliente sin compras",
+    responses={
+        404: _error("El cliente no existe."),
+        409: _error("El cliente tiene comprobantes (23503, fk_comprobante_cliente)."),
+    },
+)
+def borrar_cliente(
+    id_cliente: int = Path(ge=1, le=MAX_BIGINT, description="Código del cliente."),
+    conn: Connection = Depends(conexion),
+) -> Response:
+    """Borra el cliente junto con la fila de su subtipo y sus permisos de exportación.
+
+    **Un cliente con compras no se puede borrar**: responde 409. Los
+    comprobantes son historia, y su clave foránea con `ON DELETE RESTRICT`
+    impide perderlos al borrar el cliente.
+    """
+
+    if not datos.borrar(conn, id_cliente):
+        raise HTTPException(404, f"El cliente {id_cliente} no existe.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -7,8 +7,10 @@ prueba que escribe crea sus propios clientes con la ``marca`` de la prueba:
 ninguna modifica ni borra clientes de la carga.
 """
 
+import os
 from decimal import Decimal
 
+import httpx
 import pytest
 
 
@@ -369,3 +371,80 @@ def test_put_de_cliente_inexistente_404(cliente, cuerpo) -> None:
 
     assert respuesta.status_code == 404
     assert respuesta.json() == {"detail": "El cliente 999999999 no existe.", "codigo": "no_encontrado"}
+
+
+# --- Baja -------------------------------------------------------------------
+
+@pytest.mark.parametrize("tipo", TIPOS)
+def test_delete_de_cliente_sin_compras_204(cliente, consultar, cuerpo, marca, tipo) -> None:
+    id_cliente = crear(cliente, cuerpo(tipo))
+
+    respuesta = cliente.delete(f"/clientes/{id_cliente}")
+
+    assert respuesta.status_code == 204
+    assert respuesta.content == b""
+    assert clientes_con_documento(consultar, marca) == 0
+    # El subtipo y los permisos cayeron en cascada.
+    assert consultar(FILAS_DEL_SUBTIPO[tipo], (id_cliente,)) == 0
+    assert consultar("SELECT count(*) FROM permiso_exportacion WHERE id_exportador = %s", (id_cliente,)) == 0
+    assert cliente.get(f"/clientes/{id_cliente}").status_code == 404
+
+
+def test_delete_de_cliente_con_compras_409(cliente, consultar) -> None:
+    # El único intento sobre un cliente de la carga, y tiene que fallar.
+    id_cliente = consultar("SELECT min(id_cliente) FROM comprobante")
+
+    respuesta = cliente.delete(f"/clientes/{id_cliente}")
+
+    assert respuesta.status_code == 409
+    assert respuesta.json() == {"detail": "No se puede borrar ni modificar: hay datos que dependen de este registro.",
+                                "codigo": "23503", "restriccion": "fk_comprobante_cliente"}
+    assert consultar("SELECT count(*) FROM cliente WHERE id_cliente = %s", (id_cliente,)) == 1
+
+
+def test_delete_de_cliente_inexistente_404(cliente) -> None:
+    respuesta = cliente.delete("/clientes/999999999")
+
+    assert respuesta.status_code == 404
+    assert respuesta.json() == {"detail": "El cliente 999999999 no existe.", "codigo": "no_encontrado"}
+
+
+# --- Swagger y HTTP real ----------------------------------------------------
+
+def test_clientes_en_openapi(cliente) -> None:
+    esquema = cliente.get("/openapi.json").json()
+    rutas = esquema["paths"]
+
+    codigos = {
+        ("/clientes", "get"): {"200", "422"},
+        ("/clientes/{id_cliente}", "get"): {"200", "404", "422"},
+        ("/clientes", "post"): {"201", "409", "422"},
+        ("/clientes/{id_cliente}", "put"): {"200", "404", "409", "422"},
+        ("/clientes/{id_cliente}", "delete"): {"204", "404", "409"},
+    }
+    for (ruta, metodo), esperados in codigos.items():
+        operacion = rutas[ruta][metodo]
+        assert operacion["tags"] == ["clientes"]
+        assert esperados <= set(operacion["responses"]), (ruta, metodo)
+    # El cuerpo es una unión discriminada: un esquema por tipo.
+    cuerpo_post = rutas["/clientes"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    assert cuerpo_post["discriminator"]["propertyName"] == "tipo"
+    assert {r["$ref"].rsplit("/", 1)[1] for r in cuerpo_post["oneOf"]} == {
+        "SocioEntrada", "DistribuidorEntrada", "ExportadorEntrada"}
+    assert "descuento" not in esquema["components"]["schemas"]["ExportadorEntrada"]["properties"]
+    assert "tipo` no se puede cambiar" in rutas["/clientes/{id_cliente}"]["put"]["description"]
+    assert "con compras no se puede borrar" in rutas["/clientes/{id_cliente}"]["delete"]["description"]
+
+
+def test_alta_y_baja_por_nginx(cuerpo) -> None:
+    # Como el front: por /api. Location trae el prefijo público.
+    raiz = os.environ["FRONT_URL"] + "/api"
+
+    alta = httpx.post(raiz + "/clientes", json=cuerpo("exportador"), timeout=10)
+    assert alta.status_code == 201, alta.text
+    id_cliente = alta.json()["id_cliente"]
+    assert alta.headers["location"] == f"/api/clientes/{id_cliente}"
+
+    baja = httpx.delete(f"{raiz}/clientes/{id_cliente}", timeout=10)
+    assert baja.status_code == 204
+    assert httpx.get(f"{raiz}/clientes/{id_cliente}", timeout=10).status_code == 404
