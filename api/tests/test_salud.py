@@ -29,4 +29,4 @@ def test_salud_responde_503_sin_base(monkeypatch: pytest.MonkeyPatch) -> None:
         respuesta = cliente.get("/salud")
 
     assert respuesta.status_code == 503
-    assert respuesta.json() == {"detail": "Base de datos no disponible."}
+    assert respuesta.json() == {"detail": "Base de datos no disponible.", "codigo": "no_disponible"}

@@ -1,4 +1,4 @@
-"""Pruebas de traducir(): una por familia de SQLSTATE, sin base de datos.
+"""Pruebas de traducir() (una por familia de SQLSTATE) y de traducir_http(), sin base de datos.
 
 Los mensajes primarios son los textos reales de PostgreSQL 16 registrados en
 tests/test_errores_db.py, que los provoca contra la base.
@@ -8,7 +8,7 @@ import logging
 
 import pytest
 
-from app.errores import traducir
+from app.errores import traducir, traducir_http
 
 
 def test_23505_unique_409_con_restriccion() -> None:
@@ -95,3 +95,27 @@ def test_conexion_503(sqlstate: str | None) -> None:
 def test_sqlstate_desconocido_500_registrado() -> None:
     t = traducir("XX000", "internal error")
     assert (t.status, t.cuerpo.codigo, t.nivel_log) == (500, "interno", logging.ERROR)
+
+
+# --- HTTPException --------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("status", "detail", "codigo", "texto"),
+    [
+        # Sin detalle propio, Starlette manda la frase en inglés: va el texto en español.
+        (404, "Not Found", "no_encontrado", "Recurso no encontrado."),
+        (405, "Method Not Allowed", "metodo_no_permitido", "Método no permitido para este recurso."),
+        # Un detalle propio de un endpoint se respeta.
+        (404, "El vino 7 no existe.", "no_encontrado", "El vino 7 no existe."),
+        (503, "Base de datos no disponible.", "no_disponible", "Base de datos no disponible."),
+        (418, "I'm a Teapot", "http_418", "Error en la solicitud."),
+    ],
+)
+def test_http_codigo_por_estado(status: int, detail: str, codigo: str, texto: str) -> None:
+    t = traducir_http(status, detail)
+    assert (t.status, t.cuerpo.codigo, t.cuerpo.detail) == (status, codigo, texto)
+
+
+def test_http_conserva_encabezados() -> None:
+    t = traducir_http(405, "Method Not Allowed", {"Allow": "GET"})
+    assert t.encabezados == {"Allow": "GET"}

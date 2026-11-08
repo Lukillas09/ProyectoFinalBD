@@ -12,13 +12,17 @@ P0002 los escriben los ``RAISE`` de las funciones, triggers y procedimientos.
 """
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from http import HTTPStatus
+from typing import Any
 
 import psycopg
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from psycopg_pool import PoolClosed, PoolTimeout
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.esquemas import ErrorCampo, ErrorRespuesta
 
@@ -28,9 +32,10 @@ logger = logging.getLogger(__name__)
 NO_DISPONIBLE = "Base de datos no disponible."
 INTERNO = "Error interno del servidor."
 
-# 23503 tiene dos mensajes en PostgreSQL 16 (lc_messages en inglés; lo
-# verifica tests/test_errores_db.py). diag.table_name no los distingue: en
-# los dos casos informa la tabla que referencia.
+# 23503 tiene dos mensajes en PostgreSQL 16, con el servidor en inglés
+# (lc_messages en_US.utf8, C o C.UTF-8). tests/test_errores_db.py provoca los
+# dos y verifica que empiecen así. diag.table_name no los distingue: en los
+# dos casos informa la tabla que referencia.
 FK_FALTA_REFERIDO = "insert or update on table "
 FK_CON_DEPENDIENTES = "update or delete on table "
 
@@ -98,6 +103,32 @@ def traducir(
     return Traduccion(500, ErrorRespuesta(detail=INTERNO, codigo="interno"), nivel_log=logging.ERROR)
 
 
+# HTTPException: las que levanta Starlette (ruta inexistente, método no
+# permitido) y las de los endpoints (404 "no existe", 503 de /salud).
+CODIGOS_HTTP: dict[int, tuple[str, str]] = {
+    400: ("solicitud_invalida", "Solicitud inválida."),
+    401: ("no_autenticado", "Falta autenticarse."),
+    403: ("prohibido", "Operación no permitida."),
+    404: ("no_encontrado", "Recurso no encontrado."),
+    405: ("metodo_no_permitido", "Método no permitido para este recurso."),
+    409: ("conflicto", "La operación entra en conflicto con el estado actual."),
+    500: ("interno", INTERNO),
+    503: ("no_disponible", NO_DISPONIBLE),
+}
+
+
+def traducir_http(status: int, detail: Any, encabezados: Mapping[str, str] | None = None) -> Traduccion:
+    """Decide la respuesta para una HTTPException, con el cuerpo ErrorRespuesta."""
+
+    codigo, texto_por_omision = CODIGOS_HTTP.get(status, (f"http_{status}", "Error en la solicitud."))
+    # Starlette usa la frase estándar en inglés ("Not Found") cuando nadie
+    # escribió un detalle; en ese caso va el texto en español. Un detalle
+    # propio ("El vino 7 no existe.") se respeta.
+    if not isinstance(detail, str) or detail == HTTPStatus(status).phrase:
+        detail = texto_por_omision
+    return Traduccion(status, ErrorRespuesta(detail=detail, codigo=codigo), encabezados=dict(encabezados or {}))
+
+
 def _responder(traduccion: Traduccion) -> JSONResponse:
     return JSONResponse(
         status_code=traduccion.status,
@@ -129,6 +160,15 @@ async def _pool_no_disponible(_: Request, exc: Exception) -> JSONResponse:
     return _responder(Traduccion(503, ErrorRespuesta(detail=NO_DISPONIBLE, codigo="no_disponible")))
 
 
+async def _error_http(_: Request, exc: Exception) -> Response:
+    # Registrado para la clase de Starlette, cubre también la HTTPException de
+    # FastAPI, que hereda de ella. Conserva los encabezados (Allow en 405).
+    assert isinstance(exc, StarletteHTTPException)
+    if exc.status_code in (204, 304):  # respuestas que no admiten cuerpo
+        return Response(status_code=exc.status_code, headers=exc.headers)
+    return _responder(traducir_http(exc.status_code, exc.detail, exc.headers))
+
+
 async def _validacion(_: Request, exc: Exception) -> JSONResponse:
     # Mismo formato que los errores de la base: el front muestra "detail".
     assert isinstance(exc, RequestValidationError)
@@ -147,3 +187,4 @@ def registrar_manejadores(app: FastAPI) -> None:
     app.add_exception_handler(PoolClosed, _pool_no_disponible)
     app.add_exception_handler(psycopg.Error, _error_postgresql)
     app.add_exception_handler(RequestValidationError, _validacion)
+    app.add_exception_handler(StarletteHTTPException, _error_http)

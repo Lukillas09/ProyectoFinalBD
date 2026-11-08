@@ -55,7 +55,10 @@ class ErrorRespuesta(BaseModel):
     detail: str = Field(examples=["RN-09: stock insuficiente del vino 1 en la sala 1."])
     codigo: str = Field(
         examples=["P0001"],
-        description="SQLSTATE de PostgreSQL, 'validacion', 'no_disponible' o 'interno'.",
+        description=(
+            "SQLSTATE de PostgreSQL, 'validacion', 'no_disponible', 'interno' o el código "
+            "de un error HTTP propio ('no_encontrado', 'metodo_no_permitido', ...)."
+        ),
     )
     restriccion: str | None = Field(
         default=None,
