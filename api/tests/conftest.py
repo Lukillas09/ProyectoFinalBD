@@ -55,6 +55,19 @@ def consultar() -> Iterator[Callable[..., Any]]:
     conn.close()
 
 
+@pytest.fixture(scope="session")
+def consultar_filas() -> Iterator[Callable[..., list[tuple]]]:
+    """Como ``consultar``, pero devuelve todas las filas de la lectura."""
+
+    conn = _conectar()
+
+    def ejecutar(sql: str, params: tuple = ()) -> list[tuple]:
+        return conn.execute(sql, params).fetchall()
+
+    yield ejecutar
+    conn.close()
+
+
 @pytest.fixture
 def marca() -> str:
     """Valor único por prueba, para no chocar con el dataset ni con otras pruebas."""

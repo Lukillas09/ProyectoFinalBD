@@ -1,6 +1,6 @@
 # Contrato de la API REST (Etapa 6) — borrador
 
-Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **No está implementado**: hoy sólo existe `GET /salud`. Sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
+Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, `GET /vinos` y `GET /vinos/{cod_vino}` (issue #25). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
 
 Principios que fija la consigna y `AGENTS.md`:
 
@@ -13,6 +13,7 @@ Principios que fija la consigna y `AGENTS.md`:
 Convenciones:
 
 - JSON en UTF-8.
+- Dinero y demás `NUMERIC` viajan como **string** con la escala de la columna: `"precio": "43660.00"`, `"porcentaje": "40.00"` (ver "Vinos").
 - Listados con `?limite=` (por omisión 20, máximo 100) y `?desplazamiento=` (por omisión 0). Responden `{"items": [...], "limite": n, "desplazamiento": n, "total": n}`.
 - Errores con el cuerpo `ErrorRespuesta` (sección 3): `{"detail", "codigo", "restriccion"?, "columna"?, "errores"?}`. El mensaje de una regla de negocio es el de la base, por ejemplo "RN-09: stock insuficiente del vino 1 en la sala 1."
 - Las rutas son las de la consigna. Detrás de nginx se publican bajo `/api` (ver la sección 5).
@@ -23,13 +24,88 @@ Convenciones:
 
 | Método y ruta | Cuerpo / parámetros | Respuesta | Errores esperados |
 |---|---|---|---|
-| `GET /vinos` | Filtros `tipo`, `id_cepa`, `cuit_bodega`, `anada`, más paginación | 200, listado | 400 (22P02, filtro mal formado) |
-| `GET /vinos/{cod}` | — | 200, ficha de `v_ficha_vino`: corte con cepas y porcentajes, maridajes, stock total | 404 si no existe |
+| `GET /vinos` | Filtros `tipo`, `id_cepa`, `cuit_bodega`, `anada`, más paginación | 200, `Pagina[VinoResumen]` | 422 (`validacion`, filtro inválido) |
+| `GET /vinos/{cod_vino}` | — | 200, `VinoDetalle`: bodega, composición y maridajes estructurados, stock total | 404 (`no_encontrado`); 422 si `cod_vino` no es un entero de 1 a 2^63−1 |
 | `POST /vinos` | `{nombre, tipo, anada, volumen_ml, graduacion, precio, cuit_bodega, composicion: [{id_cepa, porcentaje}], maridajes: [id_maridaje]}` | 201, con `cod_vino` | 409 (23505, vino repetido: `uq_vino_identidad_comercial`); 422 (23514, por ejemplo precio ≤ 0 o graduación fuera de 5–20); 422 (23503, bodega o cepa inexistente); 409 (P0001, la composición no suma 100 %) |
 | `PUT /vinos/{cod}` | Mismos campos | 200. Si cambia el precio, `trg_vino_auditoria_precio` registra la auditoría (RN-13) | 404, 422, 409 como en el alta |
 | `DELETE /vinos/{cod}` | — | 204 | 404; **409 (23503)** si tiene ventas, ingresos, transferencias **o historia de precios** (`fk_auditoria_precio_vino`). En la práctica, un vino al que se le cambió el precio no se puede borrar |
 
 El alta inserta `vino`, `composicion_vino` y `vino_maridaje` en **una transacción**. La regla de la composición al 100 % es un constraint trigger diferido: se verifica al confirmar.
+
+#### Catálogo implementado (issue #25)
+
+Código: `api/app/datos/vinos.py` (SQL), `api/app/routers/vinos.py` (rutas) y `api/app/esquemas.py` (modelos). Pruebas: `api/tests/test_vinos_catalogo.py`.
+
+**Filtros de `GET /vinos`.** Todos son opcionales y se combinan con AND. Cada uno se valida con el mismo dominio que la columna, así que un valor inválido responde 422 y nunca llega a la base:
+
+| Parámetro | Validación | Igual que en la base |
+|---|---|---|
+| `tipo` | `tinto`, `blanco`, `rosado` o `espumante` | `ck_vino_tipo` |
+| `id_cepa` | Entero de 1 a 2.147.483.647 | `INTEGER` |
+| `cuit_bodega` | 11 dígitos (`^[0-9]{11}$`) | `cuit_dom` |
+| `anada` | Entero de 1900 a 9999 | `ck_vino_anada` |
+
+- Los vinos salen ordenados por `cod_vino`, así las páginas son estables.
+- `id_cepa` devuelve los vinos que tienen esa cepa en su composición. Se resuelve con `EXISTS`, así un vino de corte aparece una sola vez.
+- El SQL es siempre el mismo: cada filtro tiene la forma `(%(x)s::tipo IS NULL OR columna = %(x)s)` y el valor viaja como parámetro.
+
+```json
+GET /vinos?limite=2&tipo=tinto&anada=2020
+{
+  "items": [
+    {"cod_vino": 7, "nombre": "Malbec Icono", "tipo": "tinto", "anada": 2020, "volumen_ml": 750,
+     "graduacion": "15.50", "precio": "54730.00", "cuit_bodega": "30584932674", "bodega": "Bodega Molina S.R.L."},
+    {"cod_vino": 9, "nombre": "Tempranillo Joven", "tipo": "tinto", "anada": 2020, "volumen_ml": 750,
+     "graduacion": "15.50", "precio": "16380.00", "cuit_bodega": "33525245174", "bodega": "Bodega Fernandez S.A."}
+  ],
+  "limite": 2, "desplazamiento": 0, "total": 34
+}
+```
+
+Un desplazamiento mayor que el total responde 200 con la lista vacía: `GET /vinos?tipo=rosado&desplazamiento=1000` devuelve `{"items": [], "limite": 20, "desplazamiento": 1000, "total": 70}`.
+
+**Ficha (`GET /vinos/{cod_vino}`).** Composición y maridajes vienen estructurados, no como texto, para que el formulario de edición de la Etapa 7 los use directo. Los nombres de los campos son los del cuerpo de `POST /vinos`. `stock_total` es depósito más salas (`v_stock_total_vino`).
+
+```json
+GET /vinos/5
+{
+  "cod_vino": 5, "nombre": "Merlot Selección", "tipo": "tinto", "anada": 2021, "volumen_ml": 750,
+  "graduacion": "14.50", "precio": "36340.00", "cuit_bodega": "30505499219", "bodega": "Bodega Fernandez S.A.",
+  "stock_total": 2805,
+  "composicion": [
+    {"id_cepa": 3, "cepa": "Merlot", "tipo_cepa": "tinta", "porcentaje": "40.00"},
+    {"id_cepa": 4, "cepa": "Syrah", "tipo_cepa": "tinta", "porcentaje": "40.00"},
+    {"id_cepa": 2, "cepa": "Cabernet Sauvignon", "tipo_cepa": "tinta", "porcentaje": "20.00"}
+  ],
+  "maridajes": [
+    {"id_maridaje": 1, "nombre": "Carnes rojas", "temperatura_servicio_c": "17.0"},
+    {"id_maridaje": 7, "nombre": "Entradas y fiambres", "temperatura_servicio_c": "10.0"}
+  ]
+}
+```
+
+- La composición va de mayor a menor porcentaje, y los maridajes por nombre: el mismo orden que `v_ficha_vino`.
+- La ficha sale de **una sola sentencia**, con `json_agg` en subconsultas, así que es una sola foto de los datos. Con tres consultas sueltas en autocommit, un cambio de composición entre una y otra dejaría una ficha mezclada.
+- No se usa `v_ficha_vino`, porque arma la composición y los maridajes como texto ("Malbec 85%, Cabernet 15%").
+
+**Errores:**
+
+- `GET /vinos/999999` → 404 `{"detail": "El vino 999999 no existe.", "codigo": "no_encontrado"}`.
+- `GET /vinos?tipo=tinto' OR '1'='1` → 422 `{"detail": "Datos de entrada inválidos.", "codigo": "validacion", "errores": [{"campo": "query.tipo", "mensaje": "Input should be 'tinto', 'blanco', 'rosado' or 'espumante'"}]}`.
+
+**Por qué el dinero va como string.** Los modelos usan `Decimal`, y Pydantic lo serializa como string. Así se conserva la escala exacta de `NUMERIC` (`"43660.00"`) y el valor no pasa nunca por un `float`, ni en Python ni en el `JSON.parse` del navegador.
+
+- En OpenAPI figura como `string`.
+- El front convierte con `Number()` sólo para mostrar.
+- Los porcentajes y temperaturas de la ficha salen de un JSON de PostgreSQL. Se leen con `json.loads(parse_float=Decimal)` por el mismo motivo: por omisión, `json.loads` los convertiría en `float`.
+
+**Rendimiento.** Medido con `EXPLAIN (ANALYZE, BUFFERS)` sobre la carga ESCALA=1 (600 vinos en 8 páginas de 8 kB, 867 filas de composición). Todas las consultas tardan menos de 1,3 ms. Ningún filtro usa índices de la Etapa 4, y no se agregan índices:
+
+- sin filtro de bodega, el planificador recorre `pk_vino` en orden y corta en el `LIMIT`;
+- `cuit_bodega` usa `uq_vino_identidad_comercial`, cuya primera columna es `cuit_bodega`;
+- el `EXISTS` de `id_cepa` se resuelve con un hash de `composicion_vino`.
+
+En el detalle, `v_stock_total_vino` recorre `stock_sala` entero (4.000 filas, 0,12 ms), porque la PK `(id_sala, cod_vino)` no sirve para buscar por vino. Con este tamaño, un índice no se justifica. Los tiempos están en el PR del issue #25.
 
 ### Clientes
 
