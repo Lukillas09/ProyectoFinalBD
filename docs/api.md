@@ -1,6 +1,6 @@
 # Contrato de la API REST (Etapa 6) — borrador
 
-Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, `GET /vinos` y `GET /vinos/{cod_vino}` (issue #25). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
+Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
 
 Principios que fija la consigna y `AGENTS.md`:
 
@@ -26,11 +26,11 @@ Convenciones:
 |---|---|---|---|
 | `GET /vinos` | Filtros `tipo`, `id_cepa`, `cuit_bodega`, `anada`, más paginación | 200, `Pagina[VinoResumen]` | 422 (`validacion`, filtro inválido) |
 | `GET /vinos/{cod_vino}` | — | 200, `VinoDetalle`: bodega, composición y maridajes estructurados, stock total | 404 (`no_encontrado`); 422 si `cod_vino` no es un entero de 1 a 2^63−1 |
-| `POST /vinos` | `{nombre, tipo, anada, volumen_ml, graduacion, precio, cuit_bodega, composicion: [{id_cepa, porcentaje}], maridajes: [id_maridaje]}` | 201, con `cod_vino` | 409 (23505, vino repetido: `uq_vino_identidad_comercial`); 422 (23514, por ejemplo precio ≤ 0 o graduación fuera de 5–20); 422 (23503, bodega o cepa inexistente); 409 (P0001, la composición no suma 100 %) |
-| `PUT /vinos/{cod}` | Mismos campos | 200. Si cambia el precio, `trg_vino_auditoria_precio` registra la auditoría (RN-13) | 404, 422, 409 como en el alta |
-| `DELETE /vinos/{cod}` | — | 204 | 404; **409 (23503)** si tiene ventas, ingresos, transferencias **o historia de precios** (`fk_auditoria_precio_vino`). En la práctica, un vino al que se le cambió el precio no se puede borrar |
+| `POST /vinos` | `VinoEntrada`: `{nombre, tipo, anada, volumen_ml, graduacion, precio, cuit_bodega, composicion: [{id_cepa, porcentaje}], maridajes: [id_maridaje]}` | 201, `VinoDetalle` (la ficha del GET) y `Location: /vinos/{cod_vino}` | 409 (23505, vino repetido: `uq_vino_identidad_comercial`); 422 (23514, por ejemplo precio ≤ 0 o graduación fuera de 5–20); 422 (23503, bodega, cepa o maridaje inexistente); 409 (P0001, la composición no suma 100 %); 422 (`validacion`, forma inválida) |
+| `PUT /vinos/{cod_vino}` | `VinoEntrada`: reemplazo completo, incluidas composición y maridajes | 200, `VinoDetalle`. Si cambia el precio, `trg_vino_auditoria_precio` registra la auditoría (RN-13) | 404 (`no_encontrado`); 409 y 422 como en el alta |
+| `DELETE /vinos/{cod_vino}` | — | 204 | 404; **409 (23503)** si tiene ventas, ingresos, transferencias **o historia de precios** (`fk_auditoria_precio_vino`). En la práctica, un vino al que se le cambió el precio no se puede borrar |
 
-El alta inserta `vino`, `composicion_vino` y `vino_maridaje` en **una transacción**. La regla de la composición al 100 % es un constraint trigger diferido: se verifica al confirmar.
+El alta inserta `vino`, `composicion_vino` y `vino_maridaje` en **una transacción**. La regla de la composición al 100 % es un constraint trigger diferido: se verifica al confirmar. Detalle en "ABM implementado (issue #26)".
 
 #### Catálogo implementado (issue #25)
 
@@ -106,6 +106,110 @@ GET /vinos/5
 - el `EXISTS` de `id_cepa` se resuelve con un hash de `composicion_vino`.
 
 En el detalle, `v_stock_total_vino` recorre `stock_sala` entero (4.000 filas, 0,12 ms), porque la PK `(id_sala, cod_vino)` no sirve para buscar por vino. Con este tamaño, un índice no se justifica. Los tiempos están en el PR del issue #25.
+
+#### ABM implementado (issue #26)
+
+Código: `api/app/datos/vinos.py` (`insertar*`, `actualizar`, `reemplazar_*`, `borrar`), `api/app/routers/vinos.py` y `VinoEntrada` en `api/app/esquemas.py`. Pruebas: `api/tests/test_vinos_abm.py`.
+
+**Cuerpo de `POST` y `PUT` (`VinoEntrada`).** Todos los campos son obligatorios, también `maridajes` (puede ser `[]`). En un `PUT`, un campo omitido no puede significar "borralo". Los decimales se aceptan como string (`"4500.00"`, como los devuelve la API) o como número JSON.
+
+```json
+{"nombre": "Malbec Cabernet Demo", "tipo": "tinto", "anada": 2024, "volumen_ml": 750,
+ "graduacion": "13.50", "precio": "4500.00", "cuit_bodega": "30505499219",
+ "composicion": [{"id_cepa": 1, "porcentaje": "60.00"}, {"id_cepa": 2, "porcentaje": "40.00"}],
+ "maridajes": [1, 2]}
+```
+
+**Qué valida la API y qué valida la base.** Pydantic valida sólo la forma. Las reglas de negocio las rechaza PostgreSQL y llegan traducidas por `app/errores.py`:
+
+| Valida Pydantic (422 `validacion`) | Rechaza PostgreSQL |
+|---|---|
+| Tipos y campos obligatorios | Composición que no suma 100 %: P0001 → 409 (constraint trigger diferido, RN-05) |
+| `tipo` (los valores de `ck_vino_tipo`), `anada` 1900–9999, `cuit_bodega` de 11 dígitos, `nombre` de 1 a 100 caracteres | `precio` ≤ 0, `graduacion` fuera de 5–20, `volumen_ml` ≤ 0, `porcentaje` fuera de (0, 100]: 23514 → 422 |
+| Escala de los NUMERIC: `precio` hasta 2 decimales, `graduacion` y `porcentaje` también | Bodega, cepa o maridaje inexistente: 23503 → 422 |
+| Al menos una cepa; cepas y maridajes sin repetir | Vino repetido (misma bodega, nombre, añada y volumen): 23505 → 409 |
+
+La escala se valida porque PostgreSQL redondearía en silencio `1000.005` a `1000.01` en `NUMERIC(14,2)`. Es la forma de la columna, no una regla de negocio.
+
+**Alta (`POST /vinos`).** Responde 201 con la ficha, la misma de `GET /vinos/{cod_vino}`, y con `Location`.
+
+- Las tres inserciones van en **una transacción** (`with conn.transaction():` en el endpoint). La composición y los maridajes se insertan con `unnest` de arrays: una sentencia por tabla, sin importar el largo de las listas.
+- **La suma al 100 % se verifica en el `COMMIT`.** Los constraint triggers `ctrg_vino_composicion` y `ctrg_composicion_vino_suma` son `DEFERRABLE INITIALLY DEFERRED`: dentro de la transacción, la composición pasa por estados intermedios (el vino sin cepas, después 60 + 40), y la regla se evalúa recién al confirmar. Si falla, el `COMMIT` termina en `ROLLBACK` y no queda ni el vino ni sus maridajes. Las pruebas lo verifican con `count(*)`.
+- La ficha se lee **después del COMMIT**, en la misma conexión: la respuesta muestra lo confirmado.
+- `Location` es una ruta relativa con el prefijo público: `/vinos/668` directo y `/api/vinos/668` por nginx.
+- `cod_vino` es `IDENTITY`. `bodegas_api` no tiene `USAGE` sobre `vino_cod_vino_seq` (`nextval()` da 42501) y no lo necesita, porque el valor por omisión de una columna `IDENTITY` no verifica ese privilegio. Lo prueba `test_alta_sin_usage_sobre_la_secuencia`.
+- Los números de la secuencia no vuelven atrás con el `ROLLBACK`: un alta rechazada en el `COMMIT` deja un hueco en `cod_vino`. En el ejemplo de abajo, el alta con 90 % consumió el 669.
+
+```json
+POST /vinos  (el cuerpo de arriba)
+201  Location: /api/vinos/668
+{"cod_vino": 668, "nombre": "Malbec Cabernet Demo", "tipo": "tinto", "anada": 2024, "volumen_ml": 750,
+ "graduacion": "13.50", "precio": "4500.00", "cuit_bodega": "30505499219", "bodega": "Bodega Fernandez S.A.",
+ "stock_total": 0,
+ "composicion": [{"id_cepa": 1, "cepa": "Malbec", "tipo_cepa": "tinta", "porcentaje": "60.00"},
+                 {"id_cepa": 2, "cepa": "Cabernet Sauvignon", "tipo_cepa": "tinta", "porcentaje": "40.00"}],
+ "maridajes": [{"id_maridaje": 1, "nombre": "Carnes rojas", "temperatura_servicio_c": "17.0"},
+               {"id_maridaje": 2, "nombre": "Quesos duros", "temperatura_servicio_c": "16.0"}]}
+
+POST /vinos con 60 % + 30 %
+409  {"detail": "RN-05: la composición del vino 669 suma 90.00 %; debe sumar exactamente 100 %.", "codigo": "P0001"}
+
+POST /vinos con "precio": "-100.00"
+422  {"detail": "Un valor no cumple una regla de validación.", "codigo": "23514", "restriccion": "ck_vino_precio_positivo"}
+
+POST /vinos con "graduacion": "25.00"
+422  {"detail": "Un valor no cumple una regla de validación.", "codigo": "23514", "restriccion": "ck_vino_graduacion"}
+
+POST /vinos repetido
+409  {"detail": "Ya existe un registro con esos datos.", "codigo": "23505", "restriccion": "uq_vino_identidad_comercial"}
+
+POST /vinos con la cepa 1 dos veces
+422  {"detail": "Datos de entrada inválidos.", "codigo": "validacion",
+      "errores": [{"campo": "body.composicion", "mensaje": "Value error, una cepa aparece más de una vez en la composición"}]}
+```
+
+**Modificación (`PUT /vinos/{cod_vino}`): reemplazo completo.** Responde 200 con la ficha actualizada.
+
+- En una transacción:
+  1. `UPDATE vino … RETURNING cod_vino`; sin fila, 404;
+  2. `DELETE` de la composición y los maridajes del vino;
+  3. `INSERT` de los nuevos.
+- La suma al 100 % se verifica al confirmar, sobre el estado final. Si la composición nueva no suma 100, el `ROLLBACK` deja **todo** como estaba: composición, maridajes, precio y su auditoría.
+- El 404 sale del propio `UPDATE`, sin una consulta previa: no hay ventana entre "existe" y "actualizo". El `UPDATE` además bloquea la fila del vino hasta el `COMMIT`, así que dos `PUT` del mismo vino se aplican uno después del otro.
+- **Auditoría de precio (RN-13).**
+  - La escribe `trg_vino_auditoria_precio`, no la API. `bodegas_api` sólo tiene `SELECT` sobre `auditoria_precio`.
+  - El `UPDATE` siempre incluye `precio`, pero el trigger tiene `WHEN (OLD.precio IS DISTINCT FROM NEW.precio)`: un precio igual al actual no deja fila. Tampoco la deja `"4950.0"` frente a `4950.00`, porque en `NUMERIC` son iguales.
+  - **`usuario_bd` siempre es `bodegas_api`.** El trigger es `SECURITY DEFINER` y registra `session_user`, la cuenta que abrió la conexión. `current_user`, o el `DEFAULT CURRENT_USER` de la columna, dirían el propietario. La API se conecta siempre con la misma cuenta y no hay autenticación de usuarios finales, así que la base no puede saber qué persona hizo el cambio.
+
+```json
+PUT /vinos/668 con "precio": "4950.00"
+200  {... "precio": "4950.00" ...}
+SELECT precio_anterior, precio_nuevo, usuario_bd FROM auditoria_precio WHERE cod_vino = 668;
+ 4500.00 | 4950.00 | bodegas_api                  (una fila; repetir el PUT con "4950.0" no agrega otra)
+
+PUT /vinos/668 con [{"id_cepa": 3, "porcentaje": "80.00"}]
+409  {"detail": "RN-05: la composición del vino 668 suma 80.00 %; debe sumar exactamente 100 %.", "codigo": "P0001"}
+     (composicion_vino conserva 60/40)
+
+PUT /vinos/999999
+404  {"detail": "El vino 999999 no existe.", "codigo": "no_encontrado"}
+```
+
+**Baja (`DELETE /vinos/{cod_vino}`).** Una sentencia, `DELETE … RETURNING`. Responde 204 sin cuerpo, o 404 si el vino no existe.
+
+- `composicion_vino` y `vino_maridaje` caen por `ON DELETE CASCADE`. El trigger diferido de la composición ignora un vino borrado.
+- **Un vino al que se le cambió el precio no se puede borrar**, como uno con ventas, ingresos, transferencias o stock: responde 409. Es una decisión de diseño (RN-14). `auditoria_precio` es historia, y su FK con `ON DELETE RESTRICT` impide perderla al borrar el maestro. Swagger lo dice en la descripción del endpoint.
+- Para retirar del catálogo un vino con historia haría falta una baja lógica (por ejemplo, una columna `activo`), que hoy no está en el modelo.
+
+```json
+DELETE /vinos/668          (tiene un cambio de precio)
+409  {"detail": "No se puede borrar ni modificar: hay datos que dependen de este registro.", "codigo": "23503", "restriccion": "fk_auditoria_precio_vino"}
+
+DELETE /vinos/1            (tiene ventas)
+409  {"detail": "No se puede borrar ni modificar: hay datos que dependen de este registro.", "codigo": "23503", "restriccion": "fk_renglon_comprobante_vino"}
+```
+
+**Sin autenticación.** Como todo el contrato de la consigna, las escrituras no piden credenciales. Antes de publicar la API en la nube (Etapa 8) habría que protegerlas, con una clave o restringiéndolas en nginx. Es una decisión de alcance pendiente.
 
 ### Clientes
 
@@ -223,7 +327,7 @@ Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cad
 | Endpoint | Resultado con `007_roles.sql` |
 |---|---|
 | `GET /vinos` (con cepa y bodega), `GET /vinos/{cod}` | OK |
-| `POST /vinos` (vino, composición y maridaje; diferidos verificados) | OK |
+| `POST /vinos` (vino, composición y maridaje; diferidos verificados) | OK. Sin `USAGE` sobre `vino_cod_vino_seq` (`nextval()` da 42501): el `INSERT` en la columna `IDENTITY` no lo necesita (verificado de nuevo en el #26) |
 | `PUT /vinos/{cod}` (precio) | OK; `auditoria_precio` recibe 1 fila por el trigger |
 | `DELETE /vinos/{cod}` | OK sin dependientes. 23503 con historia de precios (`fk_auditoria_precio_vino`) o con ventas (`fk_renglon_comprobante_vino`) |
 | `GET /clientes` (con localidad), `POST` de los tres tipos con permiso de exportación, `PUT`, `DELETE` | OK; 23503 al borrar un cliente con ventas |
@@ -246,7 +350,7 @@ Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cad
     - `FastAPI(root_path="/api")` fijo: rompe el acceso directo, que pasaría a pedir `/api/openapi.json` al puerto de la API;
     - una `location` extra en nginx para `/openapi.json`: "Try it out" llamaría a `/salud` del front.
 - **Pruebas.** La consigna pide al menos 8 pruebas automáticas, 3 de ellas sobre reglas de la base. Candidatas: venta sin stock (409), transición de estado inválida (409), precio negativo (422). Se corren con `api/tests/ejecutar.sh`, en un proyecto de Compose aislado y cargado (`api/README.md`, "Pruebas").
-- **Inyección SQL.** La demostración de inyección fallida se hace sobre un filtro de `GET /vinos`: el valor viaja como parámetro y se compara como texto.
+- **Inyección SQL.** La demostración de inyección fallida se hace sobre un filtro de `GET /vinos`: el valor viaja como parámetro y se compara como texto. Para el issue #34 hay una segunda en una escritura: `test_texto_con_caracteres_especiales_se_guarda_tal_cual` da de alta un vino llamado `Malbec '; DROP TABLE vino; -- …`. El nombre se guarda tal cual y la tabla sigue existiendo.
 
 ## 6. Preguntas abiertas para la cátedra
 
