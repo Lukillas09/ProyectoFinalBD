@@ -1,6 +1,14 @@
 # API (FastAPI + Psycopg 3)
 
-Hoy la API tiene la **base común de la Etapa 6** (issue #24) y un solo endpoint, `GET /salud`:
+## Estado actual
+
+| Endpoint | Issue |
+|---|---|
+| `GET /salud` | Infraestructura |
+| `GET /vinos` (filtros `tipo`, `id_cepa`, `cuit_bodega`, `anada` y paginación) | #25 |
+| `GET /vinos/{cod_vino}` (ficha con composición y maridajes estructurados) | #25 |
+
+Todo se apoya en la **base común de la Etapa 6** (issue #24):
 
 - traducción de errores por SQLSTATE;
 - conexión por pedido y transacciones explícitas;
@@ -8,7 +16,7 @@ Hoy la API tiene la **base común de la Etapa 6** (issue #24) y un solo endpoint
 - Swagger detrás de nginx;
 - pruebas aisladas.
 
-Los endpoints de negocio llegan con los issues #25 a #32, según el contrato de [docs/api.md](../docs/api.md).
+Los demás endpoints de negocio llegan con los issues #26 a #32, según el contrato de [docs/api.md](../docs/api.md).
 
 ## Qué hay
 
@@ -17,7 +25,9 @@ Los endpoints de negocio llegan con los issues #25 a #32, según el contrato de 
 | `app/config.py` | Lee y valida la configuración desde variables de entorno (`DB_HOST`, `DB_USER`, …). Nunca arma ni registra una URL con la contraseña |
 | `app/database.py` | Pool (`check_connection`, `autocommit=True`), la dependencia `conexion` y el `SELECT 1` de `/salud` |
 | `app/errores.py` | `traducir()`, una función pura SQLSTATE → HTTP, y `registrar_manejadores()` |
-| `app/esquemas.py` | `ErrorRespuesta`, `Paginacion` y `Pagina[T]` |
+| `app/esquemas.py` | `ErrorRespuesta`, `Paginacion` y `Pagina[T]`; modelos y filtros de vinos |
+| `app/datos/vinos.py` | SQL del catálogo de vinos: `listar()` y `detalle()` |
+| `app/routers/vinos.py` | `GET /vinos` y `GET /vinos/{cod_vino}` |
 | `app/main.py` | `crear_app()`: ciclo de vida del pool, middleware del prefijo `/api`, manejadores de error, OpenAPI y `/salud` |
 | `tests/` | Pruebas con pytest, más `ejecutar.sh` (ver "Pruebas") |
 
@@ -64,15 +74,16 @@ Los endpoints **no capturan** `psycopg.Error`: lo dejan subir y `app/errores.py`
 - Los 42501 y los SQLSTATE desconocidos responden 500 y quedan en el log (SQLSTATE, mensaje primario y nombres de tabla o restricción).
 - Los errores de validación de FastAPI usan el mismo cuerpo: `codigo` "validacion" y la lista `errores` con `campo` y `mensaje`.
 
-**"No existe" y otros errores propios: `HTTPException`.** Un `GET` por clave que no encuentra la fila responde 404 así:
+**"No existe" y otros errores propios: `HTTPException`.** Un `GET` por clave que no encuentra la fila responde 404 así (código real en `app/routers/vinos.py`):
 
 ```python
-@router.get("/vinos/{cod_vino}")
-def obtener_vino(cod_vino: int, conn: Connection = Depends(conexion)) -> Vino:
-    vino = datos.vinos.obtener(conn, cod_vino)
+@router.get("/{cod_vino}")
+def obtener_vino(cod_vino: int = Path(ge=1, le=MAX_BIGINT),
+                 conn: Connection = Depends(conexion)) -> VinoDetalle:
+    vino = datos.detalle(conn, cod_vino)
     if vino is None:
         raise HTTPException(404, f"El vino {cod_vino} no existe.")
-    return vino
+    return VinoDetalle(**vino)
 ```
 
 ```json
@@ -103,35 +114,14 @@ Parámetros comunes con `Depends()`: `limite` (por omisión 20, de 1 a 100) y `d
 
 `total` sale **de la misma consulta**, con `count(*) OVER ()`: un solo viaje a la base y la misma foto de los datos que los `items`. Si la página quedó vacía porque el desplazamiento supera el total, no hay filas de donde leerlo y se cuenta aparte. La respuesta es 200 con `items: []`, nunca 404.
 
-Boceto para el issue #25. El patrón ejecutado y probado es `_localidades` en `tests/conftest.py`.
+El ejemplo real es `GET /vinos`:
 
-```python
-# app/datos/vinos.py
-def listar(conn: Connection, tipo: str | None, pagina: Paginacion) -> tuple[list[dict], int]:
-    with conn.cursor(row_factory=dict_row) as cur:
-        filas = cur.execute(
-            "SELECT cod_vino, nombre, tipo, count(*) OVER () AS total FROM vino "
-            "WHERE (%(tipo)s::text IS NULL OR tipo = %(tipo)s) "
-            "ORDER BY cod_vino LIMIT %(limite)s OFFSET %(desplazamiento)s",
-            {"tipo": tipo, "limite": pagina.limite, "desplazamiento": pagina.desplazamiento},
-        ).fetchall()
-    if filas:
-        return filas, filas[0]["total"]
-    if pagina.desplazamiento > 0:  # página vacía por el desplazamiento
-        total = conn.execute("SELECT count(*) FROM vino WHERE ...", {...}).fetchone()[0]
-        return [], total
-    return [], 0
+- `app/datos/vinos.py` (`listar`, con las constantes `LISTAR` y `CONTAR`);
+- `app/routers/vinos.py` (`listar_vinos`).
 
-# app/routers/vinos.py
-@router.get("/vinos")
-def listar_vinos(tipo: str | None = None, pagina: Paginacion = Depends(),
-                 conn: Connection = Depends(conexion)) -> Pagina[VinoResumen]:
-    items, total = datos.vinos.listar(conn, tipo, pagina)
-    return Pagina[VinoResumen](items=items, limite=pagina.limite,
-                               desplazamiento=pagina.desplazamiento, total=total)
-```
+Los filtros opcionales se escriben como `(%(x)s::tipo IS NULL OR columna = %(x)s)`. La consulta es siempre la misma, y el cast le dice a PostgreSQL el tipo del parámetro aunque llegue NULL. Los filtros se declaran en una clase de dependencia (`FiltrosVino`, como `Paginacion`), con el mismo dominio que la columna; así un valor inválido responde 422 y no llega a la base.
 
-El patrón está probado contra la base en `tests/test_paginacion.py`, sobre `localidad`. Siempre hace falta `ORDER BY`: sin él, `LIMIT/OFFSET` no garantiza páginas estables.
+El patrón está probado contra la base en `tests/test_paginacion.py`, sobre `localidad`, y en `tests/test_vinos_catalogo.py`. Siempre hace falta `ORDER BY`: sin él, `LIMIT/OFFSET` no garantiza páginas estables.
 
 ## Swagger
 
@@ -146,14 +136,16 @@ Sólo se acepta exactamente `/api`. Swagger incrusta el prefijo en su HTML sin e
 
 ```
 app/
-  datos/      una función por consulta, SQL parametrizado y visible (llega con #25)
-  routers/    un router por recurso: valida, llama a datos/, responde (llega con #25)
+  datos/      una función por consulta, SQL parametrizado y visible (vinos.py)
+  routers/    un router por recurso: valida, llama a datos/, responde (vinos.py)
 ```
 
 - **SQL sólo en `app/datos/`.** Siempre parámetros (`%s` o `%(nombre)s`), nunca f-strings ni concatenación con datos del usuario. Columnas explícitas, nunca `SELECT *`.
 - **Los routers no calculan** importes, descuentos ni stock: llaman a `fn_registrar_venta` y a `CALL sp_*`, y devuelven lo que la base calculó.
 - **Rol de conexión:** `bodegas_api`, nunca el propietario. Los privilegios de cada endpoint están verificados en `docs/api.md`, sección 4.
-- No se crean carpetas ni archivos vacíos por adelantado: cada pieza entra con su primer uso real, y cada endpoint con sus pruebas.
+- No se crean carpetas ni archivos vacíos por adelantado: cada pieza entra con su primer uso real, y cada endpoint con sus pruebas. `datos/` y `routers/` no tienen `__init__.py`: Python los importa como paquetes de espacio de nombres.
+- **Dinero y `NUMERIC` como `Decimal`**, nunca `float`. En el JSON salen como string (`"precio": "43660.00"`). Si un `NUMERIC` llega dentro de un JSON armado en PostgreSQL (`json_agg`), se lee con `set_json_loads(partial(json.loads, parse_float=Decimal), cur)`, como en `datos/vinos.py`.
+- Un router por recurso se registra en `crear_app()` (`app/main.py`), junto con su etiqueta en `ETIQUETAS`.
 
 ## Pruebas
 
