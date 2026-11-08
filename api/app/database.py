@@ -1,7 +1,10 @@
-"""Pool y consultas SQL de infraestructura."""
+"""Pool, conexión por pedido y consultas SQL de infraestructura."""
 
 import logging
+from collections.abc import Iterator
 
+from fastapi import Request
+from psycopg import Connection
 from psycopg import Error as PsycopgError
 from psycopg_pool import ConnectionPool, PoolClosed, PoolTimeout
 
@@ -26,6 +29,24 @@ def create_pool(settings: Settings) -> ConnectionPool:
         open=False,
         name="bodegas-api-pool",
     )
+
+
+def conexion(request: Request) -> Iterator[Connection]:
+    """Dependencia de FastAPI: una conexión del pool para el pedido.
+
+    La conexión está en autocommit: cada sentencia suelta se confirma sola.
+    Una operación de varias sentencias abre su transacción dentro del
+    endpoint, con ``with conn.transaction():``. Así el COMMIT, y los errores
+    de los constraint triggers diferidos que aparecen en él, ocurren antes de
+    armar la respuesta (ver api/README.md).
+
+    Si el pool no entrega una conexión a tiempo, PoolTimeout llega al
+    manejador de app/errores.py y la respuesta es 503.
+    """
+
+    pool: ConnectionPool = request.app.state.db_pool
+    with pool.connection(timeout=request.app.state.db_pool_timeout_seconds) as conn:
+        yield conn
 
 
 def database_is_available(

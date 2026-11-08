@@ -128,13 +128,21 @@ services:
       DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-5}
       DB_POOL_TIMEOUT_SECONDS: ${DB_POOL_TIMEOUT_SECONDS:-2}
       DB_CONNECT_TIMEOUT_SECONDS: ${DB_CONNECT_TIMEOUT_SECONDS:-3}
+      # Swagger se prueba directo contra la API y a través de nginx.
+      API_URL: http://api:8000
+      FRONT_URL: http://front
     depends_on:
       db:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      api:
+        condition: service_healthy
+      front:
+        condition: service_healthy
     networks:
       - datos
+      - web
     restart: "no"
 
   front:
