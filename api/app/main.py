@@ -9,7 +9,7 @@ from app.config import Settings
 from app.database import create_pool, database_is_available
 from app.errores import registrar_manejadores
 from app.esquemas import ErrorRespuesta
-from app.routers import vinos
+from app.routers import clientes, vinos
 
 
 DESCRIPCION = """
@@ -26,6 +26,9 @@ ETIQUETAS = [
     {"name": "vinos", "description": "Catálogo de vinos (listado con filtros y paginación, y ficha "
                                      "con bodega, composición, maridajes y stock total) y su alta, "
                                      "modificación y baja."},
+    {"name": "clientes", "description": "Clientes de los tres tipos (socio, distribuidor y "
+                                        "exportador) con los datos de su subtipo y el descuento "
+                                        "que les aplica la base."},
 ]
 
 # Prefijo con el que nginx publica la API (front/nginx.conf, location /api/).
@@ -110,6 +113,7 @@ def crear_app() -> FastAPI:
     registrar_manejadores(application)
     application.include_router(router)
     application.include_router(vinos.router)
+    application.include_router(clientes.router)
     return application
 
 
