@@ -1,6 +1,12 @@
-"""Modelos Pydantic y parámetros compartidos por todos los endpoints."""
+"""Modelos Pydantic y parámetros de los endpoints.
 
-from typing import Generic, TypeVar
+Los importes y demás NUMERIC se modelan con Decimal, nunca con float. Pydantic
+los serializa como string en el JSON ("4500.00"): se conserva la escala exacta
+de PostgreSQL y el valor no pasa por un double (docs/api.md, "Vinos").
+"""
+
+from decimal import Decimal
+from typing import Generic, Literal, TypeVar
 
 from fastapi import Query
 from pydantic import BaseModel, Field
@@ -71,3 +77,51 @@ class ErrorRespuesta(BaseModel):
     errores: list[ErrorCampo] | None = Field(
         default=None, description="Datos de entrada inválidos (codigo 'validacion')."
     )
+
+
+# --- Vinos (issue #25) ----------------------------------------------------
+
+# Los valores de ck_vino_tipo (002_constraints.sql).
+TipoVino = Literal["tinto", "blanco", "rosado", "espumante"]
+
+# Rangos de los tipos de PostgreSQL: un valor fuera de rango responde 422 sin
+# llegar a la base.
+MAX_INTEGER = 2_147_483_647
+MAX_BIGINT = 9_223_372_036_854_775_807
+
+
+class FiltrosVino:
+    """Filtros opcionales de GET /vinos, combinados con AND.
+
+    Cada uno se valida con el mismo dominio que la columna en la base, así un
+    valor inválido responde 422 (codigo "validacion") y nunca llega al SQL.
+    """
+
+    def __init__(
+        self,
+        tipo: TipoVino | None = Query(None, description="Tipo de vino (ck_vino_tipo)."),
+        id_cepa: int | None = Query(None, ge=1, le=MAX_INTEGER,
+                                    description="Vinos que tienen esta cepa en su composición."),
+        cuit_bodega: str | None = Query(None, pattern=r"^[0-9]{11}$",
+                                        description="CUIT de la bodega: 11 dígitos (cuit_dom)."),
+        anada: int | None = Query(None, ge=1900, le=9999, description="Añada (ck_vino_anada)."),
+    ) -> None:
+        self.tipo = tipo
+        self.id_cepa = id_cepa
+        self.cuit_bodega = cuit_bodega
+        self.anada = anada
+
+
+class VinoResumen(BaseModel):
+    """Un vino del listado. Mismos nombres que el cuerpo de POST /vinos (#26)."""
+
+    cod_vino: int
+    nombre: str
+    tipo: TipoVino
+    anada: int
+    volumen_ml: int
+    graduacion: Decimal = Field(examples=["13.50"])
+    precio: Decimal = Field(examples=["4500.00"], description="Pesos, como string con 2 decimales.")
+    cuit_bodega: str
+    bodega: str = Field(description="Razón social de la bodega.")
+

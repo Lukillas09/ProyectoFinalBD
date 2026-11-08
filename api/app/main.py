@@ -9,6 +9,7 @@ from app.config import Settings
 from app.database import create_pool, database_is_available
 from app.errores import registrar_manejadores
 from app.esquemas import ErrorRespuesta
+from app.routers import vinos
 
 
 DESCRIPCION = """
@@ -22,6 +23,8 @@ por SQLSTATE: todos los errores responden con el modelo `ErrorRespuesta`
 
 ETIQUETAS = [
     {"name": "infraestructura", "description": "Estado de la API y de su conexión a PostgreSQL."},
+    {"name": "vinos", "description": "Catálogo de vinos: listado con filtros y paginación, y ficha "
+                                     "con bodega, composición, maridajes y stock total."},
 ]
 
 # Prefijo con el que nginx publica la API (front/nginx.conf, location /api/).
@@ -105,6 +108,7 @@ def crear_app() -> FastAPI:
     application.add_middleware(PrefijoDelProxy)
     registrar_manejadores(application)
     application.include_router(router)
+    application.include_router(vinos.router)
     return application
 
 
