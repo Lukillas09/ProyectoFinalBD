@@ -135,3 +135,30 @@ def modificar_vino(
         datos.reemplazar_composicion(conn, cod_vino, vino.composicion)
         datos.reemplazar_maridajes(conn, cod_vino, vino.maridajes)
     return _ficha_confirmada(conn, cod_vino)
+
+
+@router.delete(
+    "/{cod_vino}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Borrar un vino sin historia",
+    responses={
+        404: _error("El vino no existe."),
+        409: _error("El vino tiene ventas, ingresos, transferencias, stock o cambios de precio "
+                    "(23503, por ejemplo fk_auditoria_precio_vino)."),
+    },
+)
+def borrar_vino(
+    cod_vino: int = Path(ge=1, le=MAX_BIGINT, description="Código del vino."),
+    conn: Connection = Depends(conexion),
+) -> Response:
+    """Borra el vino junto con su composición y sus maridajes.
+
+    **Un vino al que se le cambió el precio no se puede borrar**, como uno con
+    ventas, ingresos, transferencias o stock: responde 409. Es una decisión de
+    diseño (RN-14). `auditoria_precio` es historia, y su clave foránea con
+    `ON DELETE RESTRICT` impide perderla al borrar el vino.
+    """
+
+    if not datos.borrar(conn, cod_vino):
+        raise HTTPException(404, f"El vino {cod_vino} no existe.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

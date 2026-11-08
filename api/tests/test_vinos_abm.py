@@ -7,8 +7,10 @@ negocio vienen de PostgreSQL (CHECK, FK, constraint trigger diferido), no de
 Python, y cada uno verifica con una consulta que no quedaron filas a medias.
 """
 
+import os
 from decimal import Decimal
 
+import httpx
 import pytest
 
 
@@ -338,3 +340,84 @@ def test_put_de_vino_inexistente_404(cliente, consultar, cuerpo) -> None:
     assert respuesta.status_code == 404
     assert respuesta.json() == {"detail": f"El vino {inexistente} no existe.", "codigo": "no_encontrado"}
     assert vinos_con_nombre(consultar, cuerpo["nombre"]) == 0
+
+
+# --- Baja -------------------------------------------------------------------
+
+def test_delete_de_vino_sin_historia_204(cliente, consultar, cuerpo) -> None:
+    cod = crear(cliente, cuerpo)
+
+    respuesta = cliente.delete(f"/vinos/{cod}")
+
+    assert (respuesta.status_code, respuesta.content) == (204, b"")
+    # La composición y los maridajes caen por ON DELETE CASCADE.
+    assert consultar("SELECT count(*) FROM vino WHERE cod_vino = %s", (cod,)) == 0
+    assert consultar("SELECT count(*) FROM composicion_vino WHERE cod_vino = %s", (cod,)) == 0
+    assert consultar("SELECT count(*) FROM vino_maridaje WHERE cod_vino = %s", (cod,)) == 0
+    assert cliente.get(f"/vinos/{cod}").status_code == 404
+
+
+def test_delete_de_vino_inexistente_404(cliente, consultar) -> None:
+    inexistente = consultar("SELECT max(cod_vino) + 1000 FROM vino")
+
+    respuesta = cliente.delete(f"/vinos/{inexistente}")
+
+    assert respuesta.status_code == 404
+    assert respuesta.json() == {"detail": f"El vino {inexistente} no existe.", "codigo": "no_encontrado"}
+
+
+def test_delete_de_vino_con_ventas_409(cliente, consultar) -> None:
+    # Único contacto con el dataset: el borrado tiene que fallar.
+    con_ventas = consultar("SELECT min(cod_vino) FROM renglon_comprobante")
+
+    respuesta = cliente.delete(f"/vinos/{con_ventas}")
+
+    assert respuesta.status_code == 409
+    assert respuesta.json() == {
+        "detail": "No se puede borrar ni modificar: hay datos que dependen de este registro.",
+        "codigo": "23503", "restriccion": "fk_renglon_comprobante_vino"}
+    assert consultar("SELECT count(*) FROM vino WHERE cod_vino = %s", (con_ventas,)) == 1
+
+
+def test_delete_de_vino_con_cambio_de_precio_409(cliente, consultar, cuerpo) -> None:
+    # RN-14: la historia de precios no se pierde al borrar el vino.
+    cod = crear(cliente, cuerpo)
+    assert cliente.put(f"/vinos/{cod}", json={**cuerpo, "precio": "1100.00"}).status_code == 200
+
+    respuesta = cliente.delete(f"/vinos/{cod}")
+
+    assert respuesta.status_code == 409
+    assert (respuesta.json()["codigo"], respuesta.json()["restriccion"]) == ("23503", "fk_auditoria_precio_vino")
+    assert consultar("SELECT count(*) FROM vino WHERE cod_vino = %s", (cod,)) == 1
+    assert consultar("SELECT count(*) FROM composicion_vino WHERE cod_vino = %s", (cod,)) == 2
+
+
+# --- Swagger y HTTP real ----------------------------------------------------
+
+def test_abm_en_openapi(cliente) -> None:
+    rutas = cliente.get("/openapi.json").json()["paths"]
+
+    codigos = {
+        ("/vinos", "post"): {"201", "409", "422"},
+        ("/vinos/{cod_vino}", "put"): {"200", "404", "409", "422"},
+        ("/vinos/{cod_vino}", "delete"): {"204", "404", "409"},
+    }
+    for (ruta, metodo), esperados in codigos.items():
+        operacion = rutas[ruta][metodo]
+        assert operacion["tags"] == ["vinos"]
+        assert esperados <= set(operacion["responses"]), (ruta, metodo)
+    assert "cambió el precio no se puede borrar" in rutas["/vinos/{cod_vino}"]["delete"]["description"]
+
+
+def test_alta_y_baja_por_nginx(cuerpo) -> None:
+    # Como el front: por /api. Location trae el prefijo público.
+    raiz = os.environ["FRONT_URL"] + "/api"
+
+    alta = httpx.post(raiz + "/vinos", json=cuerpo, timeout=10)
+    assert alta.status_code == 201, alta.text
+    cod = alta.json()["cod_vino"]
+    assert alta.headers["location"] == f"/api/vinos/{cod}"
+
+    baja = httpx.delete(raiz + "/vinos/" + str(cod), timeout=10)
+    assert baja.status_code == 204
+    assert httpx.get(raiz + "/vinos/" + str(cod), timeout=10).status_code == 404

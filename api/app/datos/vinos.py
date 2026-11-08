@@ -215,3 +215,19 @@ def reemplazar_composicion(conn: Connection, cod_vino: int, composicion: list[Ce
 def reemplazar_maridajes(conn: Connection, cod_vino: int, maridajes: list[int]) -> None:
     conn.execute(BORRAR_MARIDAJES, {"cod_vino": cod_vino})
     insertar_maridajes(conn, cod_vino, maridajes)
+
+
+# --- Baja (issue #26) -----------------------------------------------------
+
+# Una sola sentencia, en autocommit. composicion_vino y vino_maridaje caen por
+# ON DELETE CASCADE (el trigger diferido de la composición ignora un vino
+# borrado). Ventas, ingresos, transferencias, stock y auditoría de precio
+# tienen ON DELETE RESTRICT (RN-14): el 23503 "update or delete on table" lo
+# traduce app/errores.py a 409.
+BORRAR = "DELETE FROM vino WHERE cod_vino = %(cod_vino)s RETURNING cod_vino"
+
+
+def borrar(conn: Connection, cod_vino: int) -> bool:
+    """Borra el vino. False si no existe."""
+
+    return conn.execute(BORRAR, {"cod_vino": cod_vino}).fetchone() is not None
