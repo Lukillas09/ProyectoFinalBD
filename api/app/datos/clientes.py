@@ -8,7 +8,10 @@ los valores como parámetros.
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from app.esquemas import FiltrosCliente, Paginacion
+from app.esquemas import (
+    ClienteBase, ClienteEntrada, DistribuidorEntrada, FiltrosCliente, Paginacion, PermisoExportacion,
+    SocioEntrada,
+)
 
 
 # ORDER BY la PK: sin un orden total, LIMIT/OFFSET no da páginas estables.
@@ -85,3 +88,82 @@ def detalle(conn: Connection, id_cliente: int) -> dict | None:
 
     with conn.cursor(row_factory=dict_row) as cur:
         return cur.execute(DETALLE, {"id_cliente": id_cliente}).fetchone()
+
+
+# --- Alta (issue #27) -----------------------------------------------------
+# Estas funciones no abren transacciones: las llama el endpoint dentro de
+# ``with conn.transaction():``. La totalidad de la jerarquía (todo cliente
+# tiene la fila de su subtipo) es un constraint trigger diferido y se
+# verifica en el COMMIT; si una inserción falla, el ROLLBACK se lleva todo.
+
+# id_cliente es IDENTITY y fecha_alta tiene DEFAULT CURRENT_DATE: los pone la
+# base. descuento_excepcion no se escribe: el descuento no viaja en el cuerpo.
+INSERTAR = """
+INSERT INTO cliente (nombre_razon_social, tipo_documento, nro_documento, direccion, id_localidad, tipo)
+VALUES (%(nombre_razon_social)s, %(tipo_documento)s, %(nro_documento)s, %(direccion)s,
+        %(id_localidad)s, %(tipo)s::tipo_cliente)
+RETURNING id_cliente
+"""
+
+# La fila del subtipo no lleva tipo: lo pone su DEFAULT ('socio', ...), y la
+# FK compuesta (id_cliente, tipo) comprueba que coincida con cliente.tipo.
+INSERTAR_SOCIO = "INSERT INTO socio_club (id_cliente) VALUES (%(id_cliente)s)"
+
+INSERTAR_DISTRIBUIDOR = """
+INSERT INTO distribuidor (id_cliente, zona_cobertura, nro_habilitacion)
+VALUES (%(id_cliente)s, %(zona_cobertura)s, %(nro_habilitacion)s)
+"""
+
+INSERTAR_EXPORTADOR = """
+INSERT INTO exportador (id_cliente, pais_destino_principal)
+VALUES (%(id_cliente)s, %(pais_destino_principal)s)
+"""
+
+# Arrays paralelos con unnest, como la composición de un vino: una sentencia
+# para todos los permisos. El cast da el tipo también a una lista vacía.
+INSERTAR_PERMISOS = """
+INSERT INTO permiso_exportacion (codigo_permiso, id_exportador, fecha_emision, fecha_vencimiento)
+SELECT p.codigo, %(id_cliente)s, p.emision, p.vencimiento
+FROM unnest(%(codigos)s::varchar[], %(emisiones)s::date[], %(vencimientos)s::date[])
+     AS p(codigo, emision, vencimiento)
+"""
+
+
+def _comunes(c: ClienteBase) -> dict:
+    return c.model_dump(include={"nombre_razon_social", "tipo_documento", "nro_documento",
+                                 "direccion", "id_localidad", "tipo"})
+
+
+def insertar(conn: Connection, c: ClienteEntrada) -> int:
+    """Inserta la fila de cliente y devuelve el id_cliente que asignó la base."""
+
+    fila = conn.execute(INSERTAR, _comunes(c)).fetchone()
+    assert fila is not None  # INSERT … RETURNING siempre devuelve la fila
+    return fila[0]
+
+
+def insertar_permisos(conn: Connection, id_cliente: int, permisos: list[PermisoExportacion]) -> None:
+    conn.execute(INSERTAR_PERMISOS, {
+        "id_cliente": id_cliente,
+        "codigos": [p.codigo_permiso for p in permisos],
+        "emisiones": [p.fecha_emision for p in permisos],
+        "vencimientos": [p.fecha_vencimiento for p in permisos],
+    })
+
+
+def insertar_subtipo(conn: Connection, id_cliente: int, c: ClienteEntrada) -> None:
+    """Inserta la fila del subtipo (y los permisos de un exportador).
+
+    El isinstance sólo elige la tabla según el modelo que validó Pydantic; no
+    decide ninguna regla.
+    """
+
+    if isinstance(c, SocioEntrada):
+        conn.execute(INSERTAR_SOCIO, {"id_cliente": id_cliente})
+    elif isinstance(c, DistribuidorEntrada):
+        conn.execute(INSERTAR_DISTRIBUIDOR, {"id_cliente": id_cliente, "zona_cobertura": c.zona_cobertura,
+                                             "nro_habilitacion": c.nro_habilitacion})
+    else:
+        conn.execute(INSERTAR_EXPORTADOR, {"id_cliente": id_cliente,
+                                           "pais_destino_principal": c.pais_destino_principal})
+        insertar_permisos(conn, id_cliente, c.permisos)

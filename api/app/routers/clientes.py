@@ -6,14 +6,15 @@ operaciones de varias sentencias abren la transacción acá, con
 trigger diferido que se verifica recién en el COMMIT, al salir del bloque.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response, status
 from psycopg import Connection
 from pydantic import TypeAdapter
 
 from app.database import conexion
 from app.datos import clientes as datos
 from app.esquemas import (
-    MAX_BIGINT, ClienteDetalle, ClienteResumen, ErrorRespuesta, FiltrosCliente, Pagina, Paginacion,
+    MAX_BIGINT, ClienteDetalle, ClienteEntrada, ClienteResumen, ErrorRespuesta, FiltrosCliente, Pagina,
+    Paginacion,
 )
 
 
@@ -25,6 +26,16 @@ _FICHA = TypeAdapter(ClienteDetalle)
 
 def _error(descripcion: str) -> dict:
     return {"model": ErrorRespuesta, "description": descripcion}
+
+
+def _ficha(conn: Connection, id_cliente: int) -> ClienteDetalle:
+    """La ficha del cliente, o 404. Después de un alta o una modificación se
+    lee tras el COMMIT, en la misma conexión: muestra lo que quedó confirmado."""
+
+    fila = datos.detalle(conn, id_cliente)
+    if fila is None:
+        raise HTTPException(404, f"El cliente {id_cliente} no existe.")
+    return _FICHA.validate_python(fila)
 
 
 @router.get("", summary="Listar clientes con filtros")
@@ -56,7 +67,40 @@ def obtener_cliente(
     """Datos comunes, los de su subtipo (y los permisos si es exportador) y el
     descuento que le aplica la base (`fn_descuento_cliente`, RN-06)."""
 
-    fila = datos.detalle(conn, id_cliente)
-    if fila is None:
-        raise HTTPException(404, f"El cliente {id_cliente} no existe.")
-    return _FICHA.validate_python(fila)
+    return _ficha(conn, id_cliente)
+
+
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    summary="Dar de alta un cliente con su subtipo",
+    responses={
+        409: _error("Documento repetido (23505, uq_cliente_documento), habilitación repetida "
+                    "(uq_distribuidor_habilitacion) o código de permiso ya usado (pk_permiso_exportacion)."),
+        422: _error("Forma inválida (validacion: por ejemplo, un distribuidor sin nro_habilitacion), "
+                    "permiso que vence antes de emitirse (23514) o localidad inexistente (23503)."),
+    },
+)
+def crear_cliente(
+    c: ClienteEntrada,
+    request: Request,
+    response: Response,
+    conn: Connection = Depends(conexion),
+) -> ClienteDetalle:
+    """Inserta el cliente y la fila de su subtipo (y los permisos si es
+    exportador) en **una transacción**. El cuerpo cambia según `tipo`.
+
+    La base exige que todo cliente tenga la fila de su subtipo (constraint
+    trigger diferido, verificado al confirmar): si cualquier inserción falla,
+    no queda nada guardado. El descuento no se envía: lo calcula la base y
+    aparece en la ficha que se responde.
+    """
+
+    with conn.transaction():
+        id_cliente = datos.insertar(conn, c)
+        datos.insertar_subtipo(conn, id_cliente, c)
+    # Ruta relativa con el prefijo público, como en vinos: /clientes/N directo
+    # y /api/clientes/N por nginx.
+    response.headers["Location"] = request.scope.get("root_path", "") + router.url_path_for(
+        "obtener_cliente", id_cliente=id_cliente)
+    return _ficha(conn, id_cliente)

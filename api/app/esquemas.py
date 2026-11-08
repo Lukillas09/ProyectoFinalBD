@@ -313,3 +313,12 @@ class ExportadorDetalle(ExportadorEntrada, _DatosDeLaBase):
 ClienteDetalle = Annotated[
     SocioDetalle | DistribuidorDetalle | ExportadorDetalle, Field(discriminator="tipo")
 ]
+
+
+# Cuerpo de POST /clientes y de PUT /clientes/{id_cliente}: el campo tipo elige
+# el modelo, así un distribuidor sin nro_habilitacion responde 422 antes de
+# llegar a la base. Un campo que no es del modelo, como descuento o
+# descuento_excepcion, se ignora (como en VinoEntrada).
+ClienteEntrada = Annotated[
+    SocioEntrada | DistribuidorEntrada | ExportadorEntrada, Field(discriminator="tipo")
+]
