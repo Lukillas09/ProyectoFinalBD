@@ -268,3 +268,104 @@ def test_exclusividad_por_la_fk_compuesta(error_de_la_base, consultar, marca) ->
     assert error.sqlstate == "23503"
     assert error.diag.constraint_name == "fk_distribuidor_cliente"
     assert clientes_con_documento(consultar, marca[-10:]) == 0
+
+
+# --- Modificación -----------------------------------------------------------
+
+def permisos_en_la_base(consultar_filas, id_cliente: int) -> list[str]:
+    return [f[0] for f in consultar_filas(PERMISOS_EN_LA_BASE, (id_cliente,))]
+
+
+def test_put_de_socio_cambia_los_datos_comunes(cliente, consultar, cuerpo) -> None:
+    id_cliente = crear(cliente, cuerpo("socio"))
+    ficha = cliente.get(f"/clientes/{id_cliente}").json()
+    # Lo que devuelve el GET se puede reenviar: id_cliente, localidad,
+    # fecha_alta y descuento se ignoran.
+    cambiado = ficha | {"nombre_razon_social": "Nombre nuevo", "direccion": "Calle 2", "fecha_alta": "2000-01-01"}
+
+    respuesta = cliente.put(f"/clientes/{id_cliente}", json=cambiado)
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert respuesta.json() == ficha | {"nombre_razon_social": "Nombre nuevo", "direccion": "Calle 2"}
+    assert consultar("SELECT nombre_razon_social || ' | ' || direccion || ' | ' || fecha_alta::text "
+                     "FROM cliente WHERE id_cliente = %s", (id_cliente,)) == \
+        f"Nombre nuevo | Calle 2 | {ficha['fecha_alta']}"
+
+
+def test_put_de_distribuidor_cambia_su_subtipo(cliente, consultar, cuerpo, marca) -> None:
+    id_cliente = crear(cliente, cuerpo("distribuidor"))
+    cambiado = cuerpo("distribuidor") | {"zona_cobertura": "Valle de Uco", "nro_habilitacion": f"HAB2-{marca}"}
+
+    respuesta = cliente.put(f"/clientes/{id_cliente}", json=cambiado)
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert (respuesta.json()["zona_cobertura"], respuesta.json()["nro_habilitacion"]) == \
+        ("Valle de Uco", f"HAB2-{marca}")
+    assert consultar("SELECT zona_cobertura || ' | ' || nro_habilitacion FROM distribuidor "
+                     "WHERE id_cliente = %s", (id_cliente,)) == f"Valle de Uco | HAB2-{marca}"
+
+
+def test_put_de_exportador_reemplaza_los_permisos(cliente, consultar, consultar_filas, cuerpo, marca) -> None:
+    datos = cuerpo("exportador")
+    id_cliente = crear(cliente, datos)
+    nuevo = {"codigo_permiso": f"{marca}-3", "fecha_emision": "2025-06-01", "fecha_vencimiento": "2028-06-01"}
+    cambiado = datos | {"pais_destino_principal": "Uruguay", "permisos": [datos["permisos"][0], nuevo]}
+
+    respuesta = cliente.put(f"/clientes/{id_cliente}", json=cambiado)
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert respuesta.json()["pais_destino_principal"] == "Uruguay"
+    assert permisos_en_la_base(consultar_filas, id_cliente) == [f"{marca}-1", f"{marca}-3"]
+    assert consultar("SELECT pais_destino_principal FROM exportador WHERE id_cliente = %s",
+                     (id_cliente,)) == "Uruguay"
+
+
+@pytest.mark.parametrize(
+    ("tipo", "nuevo_tipo", "restriccion"),
+    [
+        ("socio", "distribuidor", "fk_socio_club_cliente"),
+        ("distribuidor", "exportador", "fk_distribuidor_cliente"),
+        ("exportador", "socio", "fk_exportador_cliente"),
+    ],
+)
+def test_put_que_cambia_el_tipo_409(cliente, consultar, cuerpo, tipo, nuevo_tipo, restriccion) -> None:
+    id_cliente = crear(cliente, cuerpo(tipo))
+
+    respuesta = cliente.put(f"/clientes/{id_cliente}", json=cuerpo(nuevo_tipo) | {"direccion": "Calle 9"})
+
+    # Lo impide la FK compuesta del subtipo actual (ON UPDATE RESTRICT), no la API.
+    assert respuesta.status_code == 409
+    assert respuesta.json() == {"detail": "No se puede borrar ni modificar: hay datos que dependen de este registro.",
+                                "codigo": "23503", "restriccion": restriccion}
+    assert consultar("SELECT tipo::text || ' | ' || direccion FROM cliente WHERE id_cliente = %s",
+                     (id_cliente,)) == f"{tipo} | Calle 1"
+
+
+def test_put_que_deja_la_excepcion_sin_respaldo_409(cliente, consultar, consultar_filas, cuerpo, marca) -> None:
+    datos = cuerpo("exportador", permisos=4)
+    id_cliente = crear(cliente, datos)
+    # La excepción del 35 % la asigna U6, no la API: acá se pone con SQL, como
+    # bodegas_api. trg_cliente_excepcion la acepta porque tiene 4 permisos.
+    assert consultar("UPDATE cliente SET descuento_excepcion = 35 WHERE id_cliente = %s "
+                     "RETURNING descuento_excepcion", (id_cliente,)) == Decimal("35.00")
+    assert cliente.get(f"/clientes/{id_cliente}").json()["descuento"] == "35.00"
+
+    respuesta = cliente.put(f"/clientes/{id_cliente}", json=datos | {"permisos": datos["permisos"][:2]})
+
+    assert respuesta.status_code == 409
+    assert respuesta.json() == {
+        "detail": f"RN-06: el exportador {id_cliente} conserva la excepción del 35 % con sólo 2 permiso(s).",
+        "codigo": "P0001"}
+    assert permisos_en_la_base(consultar_filas, id_cliente) == [f"{marca}-{i}" for i in range(1, 5)]
+
+    # Con los cuatro permisos el PUT pasa, y el descuento sigue siendo el de la excepción.
+    respuesta = cliente.put(f"/clientes/{id_cliente}", json=datos | {"pais_destino_principal": "Chile"})
+    assert respuesta.status_code == 200, respuesta.text
+    assert respuesta.json()["descuento"] == "35.00"
+
+
+def test_put_de_cliente_inexistente_404(cliente, cuerpo) -> None:
+    respuesta = cliente.put("/clientes/999999999", json=cuerpo("socio"))
+
+    assert respuesta.status_code == 404
+    assert respuesta.json() == {"detail": "El cliente 999999999 no existe.", "codigo": "no_encontrado"}

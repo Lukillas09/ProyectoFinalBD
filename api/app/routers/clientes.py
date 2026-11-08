@@ -104,3 +104,35 @@ def crear_cliente(
     response.headers["Location"] = request.scope.get("root_path", "") + router.url_path_for(
         "obtener_cliente", id_cliente=id_cliente)
     return _ficha(conn, id_cliente)
+
+
+@router.put(
+    "/{id_cliente}",
+    summary="Modificar un cliente (datos comunes y del subtipo)",
+    responses={
+        404: _error("El cliente no existe."),
+        409: _error("Cambio de tipo (23503: la FK compuesta del subtipo lo impide, por ejemplo "
+                    "fk_socio_club_cliente), documento, habilitación o permiso repetido (23505), o un "
+                    "exportador con la excepción del 35 % que queda con tres permisos o menos (P0001, RN-06)."),
+        422: _error("Forma inválida (validacion), permiso que vence antes de emitirse (23514) o "
+                    "localidad inexistente (23503)."),
+    },
+)
+def modificar_cliente(
+    c: ClienteEntrada,
+    id_cliente: int = Path(ge=1, le=MAX_BIGINT, description="Código del cliente."),
+    conn: Connection = Depends(conexion),
+) -> ClienteDetalle:
+    """Reemplaza los datos comunes y los del subtipo, **incluidos los permisos**
+    de un exportador, en una transacción.
+
+    **El `tipo` no se puede cambiar**: tiene que ser el del cliente. Si es
+    otro, la clave foránea compuesta del subtipo actual rechaza el cambio y
+    responde 409. `fecha_alta` y el descuento no se modifican por acá.
+    """
+
+    with conn.transaction():
+        if not datos.actualizar(conn, id_cliente, c):
+            raise HTTPException(404, f"El cliente {id_cliente} no existe.")
+        datos.actualizar_subtipo(conn, id_cliente, c)
+    return _ficha(conn, id_cliente)

@@ -9,8 +9,8 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 
 from app.esquemas import (
-    ClienteBase, ClienteEntrada, DistribuidorEntrada, FiltrosCliente, Paginacion, PermisoExportacion,
-    SocioEntrada,
+    ClienteBase, ClienteEntrada, DistribuidorEntrada, ExportadorEntrada, FiltrosCliente, Paginacion,
+    PermisoExportacion, SocioEntrada,
 )
 
 
@@ -167,3 +167,61 @@ def insertar_subtipo(conn: Connection, id_cliente: int, c: ClienteEntrada) -> No
         conn.execute(INSERTAR_EXPORTADOR, {"id_cliente": id_cliente,
                                            "pais_destino_principal": c.pais_destino_principal})
         insertar_permisos(conn, id_cliente, c.permisos)
+
+
+# --- Modificación (issue #27) ---------------------------------------------
+
+# tipo va en el SET, igual que el precio de un vino. Con el mismo valor,
+# PostgreSQL no revisa las FK que apuntan a (id_cliente, tipo). Si cambia, la
+# FK compuesta del subtipo actual (ON UPDATE RESTRICT) rechaza el UPDATE con
+# 23503 y app/errores.py lo traduce a 409: el tipo no se cambia porque la base
+# lo impide, no porque lo revise la API. descuento_excepcion y fecha_alta no
+# se tocan. RETURNING dice si el cliente existía, sin una consulta previa.
+ACTUALIZAR = """
+UPDATE cliente
+SET nombre_razon_social = %(nombre_razon_social)s, tipo_documento = %(tipo_documento)s,
+    nro_documento = %(nro_documento)s, direccion = %(direccion)s, id_localidad = %(id_localidad)s,
+    tipo = %(tipo)s::tipo_cliente
+WHERE id_cliente = %(id_cliente)s
+RETURNING id_cliente
+"""
+
+ACTUALIZAR_DISTRIBUIDOR = """
+UPDATE distribuidor
+SET zona_cobertura = %(zona_cobertura)s, nro_habilitacion = %(nro_habilitacion)s
+WHERE id_cliente = %(id_cliente)s
+"""
+
+ACTUALIZAR_EXPORTADOR = """
+UPDATE exportador
+SET pais_destino_principal = %(pais_destino_principal)s
+WHERE id_cliente = %(id_cliente)s
+"""
+
+BORRAR_PERMISOS = "DELETE FROM permiso_exportacion WHERE id_exportador = %(id_cliente)s"
+
+
+def actualizar(conn: Connection, id_cliente: int, c: ClienteEntrada) -> bool:
+    """Reemplaza los datos comunes del cliente. False si el cliente no existe."""
+
+    return conn.execute(ACTUALIZAR, {**_comunes(c), "id_cliente": id_cliente}).fetchone() is not None
+
+
+def actualizar_subtipo(conn: Connection, id_cliente: int, c: ClienteEntrada) -> None:
+    """Reemplaza los datos del subtipo. Los permisos de un exportador se
+    reemplazan enteros: DELETE de los suyos e INSERT de los del cuerpo.
+
+    Si el exportador tiene la excepción del 35 % y queda con tres permisos o
+    menos, ctrg_permiso_excepcion (diferido) rechaza el COMMIT (RN-06) y el
+    ROLLBACK deja los permisos como estaban.
+    """
+
+    if isinstance(c, DistribuidorEntrada):
+        conn.execute(ACTUALIZAR_DISTRIBUIDOR, {"id_cliente": id_cliente, "zona_cobertura": c.zona_cobertura,
+                                               "nro_habilitacion": c.nro_habilitacion})
+    elif isinstance(c, ExportadorEntrada):
+        conn.execute(ACTUALIZAR_EXPORTADOR, {"id_cliente": id_cliente,
+                                             "pais_destino_principal": c.pais_destino_principal})
+        conn.execute(BORRAR_PERMISOS, {"id_cliente": id_cliente})
+        insertar_permisos(conn, id_cliente, c.permisos)
+    # Un socio no tiene datos propios.
