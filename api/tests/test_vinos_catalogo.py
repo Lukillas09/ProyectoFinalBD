@@ -4,8 +4,10 @@ Los datos se buscan en el dataset con consultas como bodegas_api: los ids y
 valores cambian con la carga, así que ninguna prueba los escribe fijos.
 """
 
+import os
 from decimal import Decimal
 
+import httpx
 import pytest
 
 
@@ -158,3 +160,96 @@ def test_texto_malicioso_en_un_filtro_no_llega_a_la_base(cliente) -> None:
     assert respuesta.json()["codigo"] == "validacion"
     assert "items" not in respuesta.json()
 
+
+# --- Ficha ------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def vino_con_stock(consultar) -> int:
+    """Un vino de corte con stock en el depósito y en al menos una sala."""
+
+    return consultar(
+        "SELECT d.cod_vino FROM stock_deposito d "
+        "WHERE d.cantidad > 0 "
+        "  AND EXISTS (SELECT 1 FROM stock_sala s WHERE s.cod_vino = d.cod_vino AND s.cantidad > 0) "
+        "  AND (SELECT count(*) FROM composicion_vino c WHERE c.cod_vino = d.cod_vino) >= 2 "
+        "ORDER BY d.cod_vino LIMIT 1")
+
+
+def test_ficha_coincide_con_la_base(cliente, consultar, consultar_filas, vino_con_stock) -> None:
+    cod_vino = vino_con_stock
+    respuesta = cliente.get(f"/vinos/{cod_vino}")
+
+    assert respuesta.status_code == 200
+    ficha = respuesta.json()
+    nombre, precio, razon_social = consultar_filas(
+        "SELECT v.nombre, v.precio::text, b.razon_social FROM vino v JOIN bodega b ON b.cuit = v.cuit_bodega "
+        "WHERE v.cod_vino = %s", (cod_vino,))[0]
+    assert (ficha["cod_vino"], ficha["nombre"], ficha["precio"], ficha["bodega"]) == \
+        (cod_vino, nombre, precio, razon_social)
+
+    # Composición estructurada: igual a composicion_vino (porcentajes como texto,
+    # sin floats), de mayor a menor, y suma 100.
+    composicion = consultar_filas(
+        "SELECT c.id_cepa, ce.nombre, ce.tipo, c.porcentaje::text FROM composicion_vino c "
+        "JOIN cepa ce ON ce.id_cepa = c.id_cepa WHERE c.cod_vino = %s "
+        "ORDER BY c.porcentaje DESC, ce.nombre", (cod_vino,))
+    assert [(c["id_cepa"], c["cepa"], c["tipo_cepa"], c["porcentaje"]) for c in ficha["composicion"]] == \
+        [tuple(fila) for fila in composicion]
+    assert len(ficha["composicion"]) >= 2
+    assert sum(Decimal(c["porcentaje"]) for c in ficha["composicion"]) == 100
+
+    maridajes = consultar_filas(
+        "SELECT m.id_maridaje, m.nombre, m.temperatura_servicio_c::text FROM vino_maridaje vm "
+        "JOIN maridaje m ON m.id_maridaje = vm.id_maridaje WHERE vm.cod_vino = %s ORDER BY m.nombre",
+        (cod_vino,))
+    assert [(m["id_maridaje"], m["nombre"], m["temperatura_servicio_c"]) for m in ficha["maridajes"]] == \
+        [tuple(fila) for fila in maridajes]
+
+    # Stock calculado directo de las tablas, no de la vista que usa la API.
+    stock = consultar(
+        "SELECT (SELECT cantidad FROM stock_deposito WHERE cod_vino = %s) "
+        "     + (SELECT sum(cantidad) FROM stock_sala WHERE cod_vino = %s)", (cod_vino, cod_vino))
+    assert ficha["stock_total"] == stock > 0
+
+
+def test_ficha_de_vino_inexistente_404(cliente, consultar) -> None:
+    cod_vino = consultar("SELECT max(cod_vino) + 1000 FROM vino")
+
+    respuesta = cliente.get(f"/vinos/{cod_vino}")
+
+    assert respuesta.status_code == 404
+    assert respuesta.json() == {"detail": f"El vino {cod_vino} no existe.", "codigo": "no_encontrado"}
+
+
+@pytest.mark.parametrize("cod_vino", ["abc", "0", "9223372036854775808"])
+def test_ficha_con_codigo_invalido_422(cliente, cod_vino) -> None:
+    respuesta = cliente.get(f"/vinos/{cod_vino}")
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["errores"][0]["campo"] == "path.cod_vino"
+
+
+# --- OpenAPI ----------------------------------------------------------------
+
+def test_vinos_en_openapi(cliente) -> None:
+    esquema = cliente.get("/openapi.json").json()
+
+    assert esquema["paths"]["/vinos"]["get"]["tags"] == ["vinos"]
+    assert esquema["paths"]["/vinos/{cod_vino}"]["get"]["tags"] == ["vinos"]
+    assert "vinos" in [etiqueta["name"] for etiqueta in esquema["tags"]]
+    parametros = {p["name"]: p for p in esquema["paths"]["/vinos"]["get"]["parameters"]}
+    assert set(parametros) == {"tipo", "id_cepa", "cuit_bodega", "anada", "limite", "desplazamiento"}
+    # El dinero se publica como string.
+    assert esquema["components"]["schemas"]["VinoResumen"]["properties"]["precio"]["type"] == "string"
+
+
+@pytest.mark.parametrize("base", ["API_URL", "FRONT_URL"])
+def test_vinos_por_http_real(base: str, vino_con_stock: int) -> None:
+    # Contra la API del servicio api, directo y por nginx (/api), como el front.
+    raiz = os.environ[base] + ("/api" if base == "FRONT_URL" else "")
+
+    listado = httpx.get(raiz + "/vinos", params={"limite": 1}, timeout=10)
+    ficha = httpx.get(raiz + "/vinos/" + str(vino_con_stock), timeout=10)
+
+    assert (listado.status_code, len(listado.json()["items"])) == (200, 1)
+    assert (ficha.status_code, ficha.json()["cod_vino"]) == (200, vino_con_stock)

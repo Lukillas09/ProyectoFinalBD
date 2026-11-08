@@ -125,3 +125,27 @@ class VinoResumen(BaseModel):
     cuit_bodega: str
     bodega: str = Field(description="Razón social de la bodega.")
 
+
+class CepaEnVino(BaseModel):
+    """Una cepa de la composición de un vino."""
+
+    id_cepa: int
+    cepa: str
+    tipo_cepa: Literal["tinta", "blanca"]
+    porcentaje: Decimal = Field(examples=["85.00"])
+
+
+class MaridajeDeVino(BaseModel):
+    """Un maridaje sugerido para un vino."""
+
+    id_maridaje: int
+    nombre: str
+    temperatura_servicio_c: Decimal = Field(examples=["16.0"])
+
+
+class VinoDetalle(VinoResumen):
+    """Ficha de un vino: composición y maridajes estructurados, para editar."""
+
+    stock_total: int = Field(description="Depósito central más la suma de las salas.")
+    composicion: list[CepaEnVino] = Field(description="Ordenada por porcentaje, de mayor a menor.")
+    maridajes: list[MaridajeDeVino] = Field(description="Ordenados por nombre.")
