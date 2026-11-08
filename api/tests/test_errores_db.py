@@ -14,12 +14,24 @@ from fastapi.testclient import TestClient
 from psycopg import Connection
 
 from app.database import conexion
+from app.errores import FK_CON_DEPENDIENTES, FK_FALTA_REFERIDO
 from app.main import crear_app
 
 
-def test_la_base_responde_en_ingles(consultar) -> None:
-    # Los textos de 23503 dependen de lc_messages; bodegas_api no puede cambiarlo.
-    assert consultar("SHOW lc_messages") == "en_US.utf8"
+@pytest.mark.parametrize(
+    ("caso", "prefijo"),
+    [("falta_relacionado", FK_FALTA_REFERIDO), ("con_dependientes", FK_CON_DEPENDIENTES)],
+)
+def test_textos_de_23503_que_reconoce_la_traduccion(error_de_la_base, consultar, marca, caso, prefijo) -> None:
+    # La traducción de 23503 depende del idioma de los mensajes del servidor
+    # (lc_messages, que bodegas_api no puede cambiar). No se fija su valor:
+    # en_US.utf8, C y C.UTF-8 dan los mismos textos, y en la nube puede ser
+    # otro. Se verifica lo que importa: los dos textos reales.
+    error = error_de_la_base(caso)
+
+    assert error.sqlstate == "23503"
+    assert error.diag.message_primary.startswith(prefijo)
+    assert consultar("SELECT count(*) FROM vino WHERE nombre = %s", (marca,)) == 0
 
 
 @pytest.mark.parametrize(

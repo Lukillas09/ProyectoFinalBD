@@ -110,6 +110,20 @@ ESCENARIOS: dict[str, Callable[[Connection, str], None]] = {
 }
 
 
+@pytest.fixture
+def error_de_la_base(marca: str) -> Callable[[str], psycopg.Error]:
+    """Ejecuta un escenario directo en la base, sin la API, y devuelve el error
+    de PostgreSQL tal como lo recibe psycopg (para mirar sus textos)."""
+
+    def ejecutar(caso: str) -> psycopg.Error:
+        with _conectar() as conn, pytest.raises(psycopg.Error) as info:
+            with conn.transaction():
+                ESCENARIOS[caso](conn, marca)
+        return info.value
+
+    return ejecutar
+
+
 def _localidades(conn: Connection, pagina: Paginacion) -> Pagina[dict]:
     # Patrón de listado paginado documentado en api/README.md: el total sale
     # de la misma consulta con count(*) OVER (); si la página quedó vacía por
