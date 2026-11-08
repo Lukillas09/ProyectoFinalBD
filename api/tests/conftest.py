@@ -100,6 +100,24 @@ def _con_dependientes(conn: Connection, marca: str) -> None:
     conn.execute("DELETE FROM vino WHERE nombre = %s", (marca,))
 
 
+# Un cliente socio sin su fila de subtipo (la totalidad se verifica en el COMMIT).
+SOCIO = (
+    "INSERT INTO cliente (nombre_razon_social, tipo_documento, nro_documento, direccion, "
+    "id_localidad, tipo) VALUES (%s, 'DNI', %s, 'Calle 1', (SELECT min(id_localidad) FROM localidad), "
+    "'socio') RETURNING id_cliente"
+)
+
+
+def _subtipo_ajeno(conn: Connection, marca: str) -> None:
+    # Exclusividad de la jerarquía: la fila de distribuidor lleva tipo
+    # 'distribuidor' (DEFAULT y CHECK), y la FK compuesta (id_cliente, tipo) no
+    # encuentra un cliente distribuidor con ese id. Falla en el INSERT, no en
+    # el COMMIT.
+    id_cliente = conn.execute(SOCIO, (marca, marca[-10:])).fetchone()[0]
+    conn.execute("INSERT INTO distribuidor (id_cliente, zona_cobertura, nro_habilitacion) "
+                 "VALUES (%s, 'Sur', %s)", (id_cliente, marca))
+
+
 ESCENARIOS: dict[str, Callable[[Connection, str], None]] = {
     "unico": _unico,
     "falta_relacionado": _falta_relacionado,
@@ -116,10 +134,8 @@ ESCENARIOS: dict[str, Callable[[Connection, str], None]] = {
     "serializacion": lambda conn, marca: conn.execute(
         "DO $$ BEGIN RAISE EXCEPTION 'conflicto simulado' USING ERRCODE = '40001'; END $$"),
     # Constraint trigger diferido: el error aparece recién en el COMMIT.
-    "diferido": lambda conn, marca: conn.execute(
-        "INSERT INTO cliente (nombre_razon_social, tipo_documento, nro_documento, direccion, "
-        "id_localidad, tipo) VALUES (%s, 'DNI', %s, 'Calle 1', (SELECT min(id_localidad) FROM localidad), "
-        "'socio')", (marca, marca[-10:])),
+    "diferido": lambda conn, marca: conn.execute(SOCIO, (marca, marca[-10:])),
+    "subtipo_ajeno": _subtipo_ajeno,
 }
 
 

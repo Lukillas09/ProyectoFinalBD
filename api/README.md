@@ -10,6 +10,11 @@
 | `POST /vinos` (con composición y maridajes, en una transacción) | #26 |
 | `PUT /vinos/{cod_vino}` (reemplazo completo; la auditoría de precio la registra la base) | #26 |
 | `DELETE /vinos/{cod_vino}` (409 si tiene ventas, movimientos, stock o cambios de precio) | #26 |
+| `GET /clientes` (filtros `tipo`, `id_localidad` y paginación) | #27 |
+| `GET /clientes/{id_cliente}` (ficha con su subtipo, permisos y el descuento que calcula la base) | #27 |
+| `POST /clientes` (cliente, subtipo y permisos en una transacción; cuerpo según `tipo`) | #27 |
+| `PUT /clientes/{id_cliente}` (datos comunes y del subtipo; el `tipo` no se cambia) | #27 |
+| `DELETE /clientes/{id_cliente}` (409 si tiene comprobantes) | #27 |
 
 Todo se apoya en la **base común de la Etapa 6** (issue #24):
 
@@ -19,7 +24,7 @@ Todo se apoya en la **base común de la Etapa 6** (issue #24):
 - Swagger detrás de nginx;
 - pruebas aisladas.
 
-Los demás endpoints de negocio llegan con los issues #27 a #32, según el contrato de [docs/api.md](../docs/api.md).
+Los demás endpoints de negocio llegan con los issues #28 a #32, según el contrato de [docs/api.md](../docs/api.md).
 
 ## Qué hay
 
@@ -28,9 +33,11 @@ Los demás endpoints de negocio llegan con los issues #27 a #32, según el contr
 | `app/config.py` | Lee y valida la configuración desde variables de entorno (`DB_HOST`, `DB_USER`, …). Nunca arma ni registra una URL con la contraseña |
 | `app/database.py` | Pool (`check_connection`, `autocommit=True`), la dependencia `conexion` y el `SELECT 1` de `/salud` |
 | `app/errores.py` | `traducir()`, una función pura SQLSTATE → HTTP, y `registrar_manejadores()` |
-| `app/esquemas.py` | `ErrorRespuesta`, `Paginacion` y `Pagina[T]`; modelos, filtros y cuerpo de entrada (`VinoEntrada`) de vinos |
+| `app/esquemas.py` | `ErrorRespuesta`, `Paginacion` y `Pagina[T]`; modelos, filtros y cuerpo de entrada (`VinoEntrada`) de vinos; uniones discriminadas por `tipo` de clientes (`ClienteEntrada`, `ClienteDetalle`) |
 | `app/datos/vinos.py` | SQL de vinos: `listar()`, `detalle()`, `insertar*()`, `actualizar()`, `reemplazar_*()` y `borrar()` |
 | `app/routers/vinos.py` | `GET`, `POST`, `PUT` y `DELETE` de `/vinos` |
+| `app/datos/clientes.py` | SQL de clientes: `listar()`, `detalle()`, `insertar()`, `insertar_subtipo()`, `insertar_permisos()`, `actualizar()`, `actualizar_subtipo()` y `borrar()` |
+| `app/routers/clientes.py` | `GET`, `POST`, `PUT` y `DELETE` de `/clientes` |
 | `app/main.py` | `crear_app()`: ciclo de vida del pool, middleware del prefijo `/api`, manejadores de error, OpenAPI y `/salud` |
 | `tests/` | Pruebas con pytest, más `ejecutar.sh` (ver "Pruebas") |
 
@@ -147,8 +154,8 @@ Sólo se acepta exactamente `/api`. Swagger incrusta el prefijo en su HTML sin e
 
 ```
 app/
-  datos/      una función por consulta, SQL parametrizado y visible (vinos.py)
-  routers/    un router por recurso: valida, llama a datos/, responde (vinos.py)
+  datos/      una función por consulta, SQL parametrizado y visible (vinos.py, clientes.py)
+  routers/    un router por recurso: valida, llama a datos/, responde (vinos.py, clientes.py)
 ```
 
 - **SQL sólo en `app/datos/`.** Siempre parámetros (`%s` o `%(nombre)s`), nunca f-strings ni concatenación con datos del usuario. Columnas explícitas, nunca `SELECT *`.
@@ -156,7 +163,8 @@ app/
 - **Rol de conexión:** `bodegas_api`, nunca el propietario. Los privilegios de cada endpoint están verificados en `docs/api.md`, sección 4.
 - No se crean carpetas ni archivos vacíos por adelantado: cada pieza entra con su primer uso real, y cada endpoint con sus pruebas. `datos/` y `routers/` no tienen `__init__.py`: Python los importa como paquetes de espacio de nombres.
 - **Validación de entrada sólo de forma.** Pydantic valida tipos, dominio y escala de cada columna, y repetidos en las listas. Las reglas de negocio (por ejemplo, `precio > 0` o la composición al 100 %) no se repiten en Python: las rechaza PostgreSQL y las traduce `app/errores.py` (ver `VinoEntrada`).
-- **Listas en una sola sentencia.** Las filas hijas se insertan con `unnest` de arrays (`INSERT … SELECT … FROM unnest(%(ids)s::integer[], …)`), como en `datos/vinos.py`.
+- **Un cuerpo distinto por tipo: unión discriminada.** Cuando los campos obligatorios dependen de un discriminador, como el `tipo` de un cliente, el cuerpo es `Annotated[A | B | C, Field(discriminator="tipo")]`: Pydantic elige el modelo por `tipo` y un campo faltante del subtipo responde 422 (`body.distribuidor.nro_habilitacion`). En OpenAPI queda como `oneOf` con `discriminator`. La ficha de respuesta usa la misma forma y se arma con `TypeAdapter(...).validate_python(fila)` (ver `routers/clientes.py`).
+- **Listas en una sola sentencia.** Las filas hijas se insertan con `unnest` de arrays (`INSERT … SELECT … FROM unnest(%(ids)s::integer[], …)`), como en `datos/vinos.py` y los permisos de `datos/clientes.py`.
 - **Dinero y `NUMERIC` como `Decimal`**, nunca `float`. En el JSON salen como string (`"precio": "43660.00"`). Si un `NUMERIC` llega dentro de un JSON armado en PostgreSQL (`json_agg`), se lee con `set_json_loads(partial(json.loads, parse_float=Decimal), cur)`, como en `datos/vinos.py`.
 - Un router por recurso se registra en `crear_app()` (`app/main.py`), junto con su etiqueta en `ETIQUETAS`.
 

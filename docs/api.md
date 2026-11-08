@@ -1,6 +1,6 @@
 # Contrato de la API REST (Etapa 6) — borrador
 
-Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
+Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26), y el CRUD de clientes de los tres tipos (`/clientes`, issue #27). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
 
 Principios que fija la consigna y `AGENTS.md`:
 
@@ -215,13 +215,116 @@ DELETE /vinos/1            (tiene ventas)
 
 | Método y ruta | Cuerpo / parámetros | Respuesta | Errores esperados |
 |---|---|---|---|
-| `GET /clientes` | Filtros `tipo`, `id_localidad`, más paginación | 200 | 400 |
-| `GET /clientes/{id}` | — | 200, con los datos de su subtipo | 404 |
-| `POST /clientes` | `{nombre_razon_social, tipo_documento, nro_documento, direccion, id_localidad, tipo, ...}`. Según `tipo`: `distribuidor: {zona_cobertura, nro_habilitacion}`, `exportador: {pais_destino_principal, permisos: [...]}` | 201, con `id_cliente` | 409 (23505, documento repetido: `uq_cliente_documento`); 422 (23514, 23502); 422 (23503, localidad inexistente, o un subtipo que no corresponde al tipo: `fk_distribuidor_cliente`); 409 (P0001 al confirmar: "Jerarquía de clientes: el cliente … no tiene su fila de subtipo.") |
-| `PUT /clientes/{id}` | Datos comunes y del subtipo. `tipo` no se cambia | 200 | 404, 409, 422 |
-| `DELETE /clientes/{id}` | — | 204. Los subtipos se borran en cascada | 404; **409 (23503)** si tiene comprobantes (`fk_comprobante_cliente`) |
+| `GET /clientes` | Filtros `tipo` (`socio`, `distribuidor`, `exportador`) e `id_localidad`, más paginación | 200, `Pagina[ClienteResumen]` | 422 (`validacion`, filtro inválido) |
+| `GET /clientes/{id_cliente}` | — | 200, `ClienteDetalle`: datos comunes, los de su subtipo, permisos si es exportador y `descuento` (`fn_descuento_cliente`) | 404 (`no_encontrado`) |
+| `POST /clientes` | `ClienteEntrada`, según `tipo`: comunes `{nombre_razon_social, tipo_documento, nro_documento, direccion, id_localidad, tipo}`; `distribuidor` agrega `{zona_cobertura, nro_habilitacion}`; `exportador` agrega `{pais_destino_principal, permisos: [{codigo_permiso, fecha_emision, fecha_vencimiento}]}` | 201, `ClienteDetalle` y `Location: /clientes/{id_cliente}` | 409 (23505: `uq_cliente_documento`, `uq_distribuidor_habilitacion`, `pk_permiso_exportacion`); 422 (23514, `ck_permiso_exportacion_fechas`); 422 (23503, `fk_cliente_localidad`); 422 (`validacion`, por ejemplo un distribuidor sin `nro_habilitacion`) |
+| `PUT /clientes/{id_cliente}` | `ClienteEntrada`: datos comunes y del subtipo, incluidos los permisos. `tipo` tiene que ser el del cliente | 200, `ClienteDetalle` | 404; **409 (23503)** si cambia el `tipo` (`fk_socio_club_cliente`, `fk_distribuidor_cliente` o `fk_exportador_cliente`); 409 (P0001, RN-06) si un exportador con la excepción del 35 % queda con tres permisos o menos; 409 y 422 como en el alta |
+| `DELETE /clientes/{id_cliente}` | — | 204. El subtipo y los permisos se borran en cascada | 404; **409 (23503)** si tiene comprobantes (`fk_comprobante_cliente`) |
 
-El alta inserta `cliente` y su fila de subtipo en **una transacción**: la regla de totalidad de la jerarquía es diferida. El descuento no se envía: lo calcula `fn_descuento_cliente` (RN-06), y la excepción del 35 % sólo se acepta para exportadores (U6).
+El alta inserta `cliente`, su fila de subtipo y los permisos en **una transacción**: la regla de totalidad de la jerarquía es diferida. El descuento no se envía: lo calcula `fn_descuento_cliente` (RN-06). Detalle en "CRUD implementado (issue #27)".
+
+#### CRUD implementado (issue #27)
+
+Código: `api/app/datos/clientes.py`, `api/app/routers/clientes.py` y los modelos de clientes en `api/app/esquemas.py`. Pruebas: `api/tests/test_clientes.py`.
+
+**Supertipo más subtipos.**
+
+- `cliente` guarda los datos comunes y el discriminador `tipo`. Cada subtipo tiene su tabla: `socio_club` no agrega columnas, `distribuidor` y `exportador` sí, y el exportador tiene además sus `permiso_exportacion`.
+- **Exclusividad: FK compuesta.** Cada fila de subtipo lleva un `tipo` constante, con DEFAULT y CHECK (`ck_distribuidor_tipo`, …), y referencia `cliente (id_cliente, tipo)`. Un cliente sólo puede tener la fila del subtipo que declara. Si un socio recibe una fila en `distribuidor`, la base responde 23503 `fk_distribuidor_cliente`; lo prueba el escenario `subtipo_ajeno`.
+- **Totalidad: constraint trigger diferido.** Una FK no puede exigir que exista el hijo. `ctrg_cliente_subtipo` y los `ctrg_*_total` verifican en el `COMMIT` que todo cliente tenga la fila de su tipo: P0001 "Jerarquía de clientes: el cliente N es de tipo X y no tiene su fila de subtipo." Es diferido porque dentro de la transacción el cliente existe un momento sin su subtipo. Lo prueba el escenario `diferido`.
+
+**Cuerpo de `POST` y `PUT`: una unión discriminada por `tipo`** (`ClienteEntrada`). Todos los tipos llevan los datos comunes: `nombre_razon_social`, `tipo_documento`, `nro_documento`, `direccion` e `id_localidad`. Según el tipo:
+
+| `tipo` | Campos propios, todos obligatorios |
+|---|---|
+| `socio` | — |
+| `distribuidor` | `zona_cobertura`, `nro_habilitacion` |
+| `exportador` | `pais_destino_principal`, `permisos: [{codigo_permiso, fecha_emision, fecha_vencimiento}]` (puede ser `[]`) |
+
+```json
+{"tipo": "exportador", "nombre_razon_social": "Vinos del Sur Export S.A.", "tipo_documento": "CUIT",
+ "nro_documento": "30712345678", "direccion": "Av. San Martín 1234", "id_localidad": 21,
+ "pais_destino_principal": "Brasil",
+ "permisos": [{"codigo_permiso": "PE-DEMO-1", "fecha_emision": "2025-03-01", "fecha_vencimiento": "2027-03-01"},
+              {"codigo_permiso": "PE-DEMO-2", "fecha_emision": "2025-06-01", "fecha_vencimiento": "2026-06-01"}]}
+```
+
+En Swagger el cuerpo aparece como `oneOf` con `discriminator: tipo`, un esquema por tipo.
+
+**Qué valida la API y qué valida la base.**
+
+| Valida Pydantic (422 `validacion`) | Rechaza PostgreSQL |
+|---|---|
+| `tipo` existente; los campos obligatorios de ese tipo (un distribuidor sin `nro_habilitacion` responde `body.distribuidor.nro_habilitacion`) | Documento repetido: 23505 `uq_cliente_documento` → 409 |
+| Largo de cada `VARCHAR`; fechas con formato válido | Habilitación repetida: 23505 `uq_distribuidor_habilitacion` → 409 |
+| Códigos de permiso sin repetir dentro del cuerpo | Código de permiso ya usado (es una PK global): 23505 `pk_permiso_exportacion` → 409 |
+| | Permiso que vence antes de emitirse: 23514 `ck_permiso_exportacion_fechas` → 422 |
+| | Localidad inexistente: 23503 `fk_cliente_localidad` → 422 |
+
+**El descuento no viaja en el cuerpo.**
+
+- Lo calcula `fn_descuento_cliente` (RN-06): la excepción del 35 % si el cliente la tiene, o 10, 20 o 30 según el tipo. La ficha lo muestra en `descuento`.
+- Si el cuerpo trae `descuento` o `descuento_excepcion`, se ignoran, como cualquier campo que no es del modelo. La API nunca escribe esa columna.
+- Si el descuento viajara en el cuerpo, cualquiera podría elegirse el suyo, y la base tendría dos fuentes de verdad para el mismo dato. La excepción del 35 % la asigna U6, y `trg_cliente_excepcion` exige más de tres permisos.
+- `fecha_alta` tampoco se envía: la pone el `DEFAULT CURRENT_DATE` y el PUT no la cambia.
+
+**Alta (`POST /clientes`).** Responde 201 con la ficha y `Location`.
+
+- En una transacción:
+  1. `INSERT` en `cliente`;
+  2. `INSERT` de la fila del subtipo, sin `tipo`: lo pone su DEFAULT y la FK compuesta comprueba que coincida;
+  3. permisos con `unnest` de arrays, como la composición de un vino.
+- **Un alta fallida no deja el cliente sin su subtipo.** El cliente se inserta primero: si después falla el subtipo o un permiso, el ROLLBACK se lo lleva. Las pruebas lo verifican con `count(*)` en cuatro casos: habilitación repetida, permiso que vence antes, permiso de otro exportador y localidad inexistente.
+- `id_cliente` es `IDENTITY`: `bodegas_api` no tiene `USAGE` sobre su secuencia y no lo necesita, como en vinos.
+
+**Modificación (`PUT /clientes/{id_cliente}`).** Reemplaza los datos comunes y los del subtipo en una transacción. Los permisos de un exportador se reemplazan enteros: `DELETE` de los suyos e `INSERT` de los del cuerpo. El 404 sale del `UPDATE … RETURNING`. Lo que devuelve el GET se puede reenviar, porque `id_cliente`, `localidad`, `fecha_alta` y `descuento` se ignoran.
+
+- **El `tipo` no se cambia, y lo impide la base.** `tipo` va en el `SET` del `UPDATE`.
+  - Con el mismo valor, PostgreSQL no revisa las FK.
+  - Si cambia, la FK compuesta del subtipo actual (`ON UPDATE RESTRICT`) rechaza el `UPDATE` con 23503 y responde 409. Por ejemplo, un exportador enviado como socio da `fk_exportador_cliente`.
+  - Cambiar de tipo exigiría borrar el subtipo viejo e insertar el nuevo en una transacción. La totalidad diferida lo permite, pero el issue lo deja fuera.
+- **Permisos y excepción (RN-06).** Si el exportador tiene la excepción del 35 % y el PUT lo deja con tres permisos o menos, `ctrg_permiso_excepcion` (diferido) rechaza el `COMMIT`: 409 "RN-06: el exportador N conserva la excepción del 35 % con sólo 2 permiso(s).", y los permisos quedan como estaban.
+
+**Baja (`DELETE /clientes/{id_cliente}`).** Una sentencia, `DELETE … RETURNING`. Responde 204, o 404 si el cliente no existe.
+
+- La fila del subtipo y los permisos caen por `ON DELETE CASCADE`. Los triggers diferidos ignoran un cliente borrado.
+- **Un cliente con compras no se puede borrar:** `fk_comprobante_cliente` (`ON DELETE RESTRICT`) responde 409. Los comprobantes son historia.
+
+Respuestas reales por `/api/...` (proyecto aislado con la carga `ESCALA=0.1`):
+
+```json
+POST /clientes  (el cuerpo de arriba)
+201  Location: /api/clientes/2005
+{"id_cliente": 2005, "localidad": "General Alvear", "fecha_alta": "2026-11-08", "descuento": "30.00",
+ "nombre_razon_social": "Vinos del Sur Export S.A.", "tipo_documento": "CUIT", "nro_documento": "30712345678",
+ "direccion": "Av. San Martín 1234", "id_localidad": 21, "tipo": "exportador", "pais_destino_principal": "Brasil",
+ "permisos": [{"codigo_permiso": "PE-DEMO-1", "fecha_emision": "2025-03-01", "fecha_vencimiento": "2027-03-01"},
+              {"codigo_permiso": "PE-DEMO-2", "fecha_emision": "2025-06-01", "fecha_vencimiento": "2026-06-01"}]}
+
+POST /clientes distribuidor sin nro_habilitacion
+422  {"detail": "Datos de entrada inválidos.", "codigo": "validacion",
+      "errores": [{"campo": "body.distribuidor.nro_habilitacion", "mensaje": "Field required"}]}
+
+POST /clientes distribuidor con una habilitación existente   (después: 0 clientes con ese documento)
+409  {"detail": "Ya existe un registro con esos datos.", "codigo": "23505", "restriccion": "uq_distribuidor_habilitacion"}
+
+POST /clientes exportador con un permiso que vence antes de emitirse
+422  {"detail": "Un valor no cumple una regla de validación.", "codigo": "23514", "restriccion": "ck_permiso_exportacion_fechas"}
+
+POST /clientes con un documento repetido
+409  {"detail": "Ya existe un registro con esos datos.", "codigo": "23505", "restriccion": "uq_cliente_documento"}
+
+PUT /clientes/2005 con "tipo": "socio"
+409  {"detail": "No se puede borrar ni modificar: hay datos que dependen de este registro.", "codigo": "23503", "restriccion": "fk_exportador_cliente"}
+
+DELETE /clientes/1          (tiene compras)
+409  {"detail": "No se puede borrar ni modificar: hay datos que dependen de este registro.", "codigo": "23503", "restriccion": "fk_comprobante_cliente"}
+
+DELETE /clientes/2005
+204  (sin permisos ni fila de exportador)
+```
+
+El mensaje genérico del 409 por cambio de tipo es el de toda FK con dependientes (sección 3). La `restriccion` dice cuál fue: el subtipo actual del cliente.
 
 ### Comprobantes
 
@@ -330,7 +433,7 @@ Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cad
 | `POST /vinos` (vino, composición y maridaje; diferidos verificados) | OK. Sin `USAGE` sobre `vino_cod_vino_seq` (`nextval()` da 42501): el `INSERT` en la columna `IDENTITY` no lo necesita (verificado de nuevo en el #26) |
 | `PUT /vinos/{cod}` (precio) | OK; `auditoria_precio` recibe 1 fila por el trigger |
 | `DELETE /vinos/{cod}` | OK sin dependientes. 23503 con historia de precios (`fk_auditoria_precio_vino`) o con ventas (`fk_renglon_comprobante_vino`) |
-| `GET /clientes` (con localidad), `POST` de los tres tipos con permiso de exportación, `PUT`, `DELETE` | OK; 23503 al borrar un cliente con ventas |
+| `GET /clientes` (con localidad), `POST` de los tres tipos con permiso de exportación, `PUT`, `DELETE` | OK; 23503 al borrar un cliente con ventas. Sin `USAGE` sobre la secuencia de `cliente`: el `INSERT` en la columna `IDENTITY` no lo necesita (verificado en el #27). Cambiar `tipo` en el `UPDATE` da 23503 por la FK compuesta del subtipo |
 | `POST /comprobantes`, `GET /comprobantes/{nro}` | OK; P0001 "RN-09: stock insuficiente del vino 1 en la sala 1." al vender sin stock; 23503 con cliente o sala inexistente; 23502 con vino inexistente |
 | Terminar o procesar un documento inexistente | P0002 "La transferencia 99999999 no existe." |
 | Transferencias e ingresos: alta, renglones, terminar, procesar | OK; los dos documentos llegan a `procesado` |
