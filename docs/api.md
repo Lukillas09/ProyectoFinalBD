@@ -810,10 +810,11 @@ Las capturas de evidencia real se encuentran en `docs/img/inyeccion/`:
 
 | Archivo | Descripción |
 |---|---|
-| `caso_a_legitimo.png` | Solicitud legítima `GET /vinos?tipo=tinto` y respuesta 200 |
-| `caso_b_inyeccion.png` | Solicitud con `tipo=tinto' OR '1'='1` y respuesta 422 |
-| `caso_c_integridad.png` | Verificación de `count(*)` antes y después de los intentos |
-| `codigo_parametrizado.png` | Fragmento de `api/app/datos/vinos.py` mostrando placeholders y `execute(sql, params)` |
+| `01_consulta_legitima.png` | Solicitud legítima `GET /vinos?tipo=tinto` y respuesta 200 |
+| `02_inyeccion_rechazada.png` | Solicitud con `tipo=tinto' OR '1'='1` y respuesta 422 |
+| `03_integridad_tabla.png` | Verificación de `count(*)` antes y después de los intentos |
+| `04_consulta_parametrizada.png` | Fragmento de `api/app/datos/vinos.py` mostrando placeholders y `execute(sql, params)` |
+| `05_resultados_pruebas.png` | Resultado completo de la suite de 14 pruebas automatizadas |
 
 ### Resultado de la prueba automatizada
 
