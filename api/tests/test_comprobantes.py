@@ -97,7 +97,6 @@ def test_venta_correcta_estructura(cliente, consultar, consultar_filas, marca) -
     )
 
     # 1. HTTP 201
-    print(f"DEBUG status={respuesta.status_code} body={respuesta.text}")
     assert respuesta.status_code == 201, (
         f"Expected 201, got {respuesta.status_code}: {respuesta.text}"
     )
@@ -298,6 +297,7 @@ def test_venta_vino_inexistente_422(cliente, consultar, marca) -> None:
     data = respuesta.json()
     detalle = data.get("detail", "")
     # Debe contener el número 999999 y no ser el error interno de PostgreSQL
+    assert respuesta.json()["codigo"] == "dato_invalido", respuesta.json()
     assert "999999" in detalle, f"Expected '999999' in detail, got: {detalle}"
 
 
@@ -352,6 +352,8 @@ def test_obtener_comprobante_inexistente_404(cliente, marca) -> None:
         f"Expected 404, got {respuesta.status_code}: {respuesta.text}"
     )
     data = respuesta.json()
-    detalle = data.get("detail", "")
-    assert "999999" in detalle or "no existe" in detalle.lower(), \
-        f"Expected '999999 no existe' in message, got: {detalle}"
+    # El 404 tiene que venir del endpoint y no del de "ruta inexistente": si la
+    # ruta no se registra, ese otro 404 también diría "no_encontrado" pero con
+    # el texto genérico, sin el número pedido.
+    assert data["codigo"] == "no_encontrado", data
+    assert "999999" in data["detail"], f"Se esperaba el número en el mensaje: {data}"

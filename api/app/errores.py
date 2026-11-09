@@ -112,6 +112,9 @@ CODIGOS_HTTP: dict[int, tuple[str, str]] = {
     404: ("no_encontrado", "Recurso no encontrado."),
     405: ("metodo_no_permitido", "Método no permitido para este recurso."),
     409: ("conflicto", "La operación entra en conflicto con el estado actual."),
+    # Un dato bien formado que no corresponde a nada (por ejemplo, un vino
+    # inexistente en una venta); la forma inválida sigue siendo "validacion".
+    422: ("dato_invalido", "Los datos enviados no se pueden procesar."),
     500: ("interno", INTERNO),
     503: ("no_disponible", NO_DISPONIBLE),
 }

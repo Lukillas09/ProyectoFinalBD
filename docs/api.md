@@ -330,12 +330,12 @@ El mensaje genérico del 409 por cambio de tipo es el de toda FK con dependiente
 
 | Método y ruta | Cuerpo / parámetros | Respuesta | Errores esperados |
 |---|---|---|---|
-| `POST /comprobantes` | `{id_cliente, id_sala, renglones: [{cod_vino, cantidad}]}` | 201: `{nro_comprobante, fecha, subtotal, descuento, total, renglones: [...]}` leídos de la base después de la venta | **409 (P0001)**: "RN-09: stock insuficiente…", vino repetido, cantidad no positiva, venta sin renglones. 422 (23503): cliente o sala inexistente (`fk_comprobante_cliente`, `fk_comprobante_sala_venta`). 422 (23502): vino inexistente (ver la nota) |
-| `GET /comprobantes/{nro}` | — | 200, cabecera y renglones | 404 |
+| `POST /comprobantes` | `{id_cliente, id_sala, renglones: [{cod_vino, cantidad}]}` | 201 con `Location`: `{nro_comprobante, fecha, id_cliente, id_sala, subtotal, descuento, total, renglones: [{cod_vino, nombre_vino, cantidad, precio_unitario, descuento_porcentaje, total_parcial}]}`, leídos de la base en la misma transacción de la venta | **409 (P0001)**: "RN-09: stock insuficiente…", vino repetido, cantidad no positiva, venta sin renglones. 422 (23503): cliente o sala inexistente (`fk_comprobante_cliente`, `fk_comprobante_sala_venta`). 422 (`dato_invalido`): vino inexistente, "No existen los vinos: 999999." (ver la nota) |
+| `GET /comprobantes/{nro}` | — | 200, cabecera con los importes guardados y renglones | 404 (`no_encontrado`) |
 
 La venta es una sola llamada a `fn_registrar_venta(id_cliente, id_sala, vinos[], cantidades[])`, que crea cabecera y renglones en la misma transacción: todo o nada. La API no tiene `INSERT` sobre `comprobante` (sección 4).
 
-Nota, verificada: con un `cod_vino` inexistente la base responde `23502: null value in column "precio_unitario"`, porque el trigger no encuentra el precio antes de que actúe la FK. El código se traduce bien (422), pero el mensaje no es claro para el usuario. Hay dos opciones: que la API valide la existencia del vino antes de vender, o una 009 que haga que el trigger levante P0002 ("El vino % no existe."). Queda como decisión de la Etapa 6.
+Nota: con un `cod_vino` inexistente la base responde `23502: null value in column "precio_unitario"`, porque el trigger no encuentra el precio antes de que actúe la FK. **Decisión (issue #28):** la API consulta en una sola sentencia qué vinos pedidos no existen, dentro de la misma transacción de la venta, y responde 422 con sus códigos. Se descartó una migración `009`: el mensaje mejora sin tocar la base. Las demás reglas (venta vacía, cantidad no positiva, vino repetido, stock) no se validan en la API: las decide `fn_registrar_venta` y llegan como P0001 con el mensaje de la regla.
 
 ### Transferencias e ingresos
 
