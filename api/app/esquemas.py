@@ -367,3 +367,47 @@ class ComprobanteSalida(BaseModel):
     descuento: Decimal = Field(examples=["450.00"], description="Descuento en pesos.")
     total: Decimal = Field(examples=["4050.00"], description="Neto: subtotal − descuento.")
     renglones: list[ComprobanteRenglonRespuesta]
+
+
+# --- Transferencias (issue #29) ---------------------------------------------
+# Como en el resto, Pydantic valida sólo la forma. Estado y fecha de
+# confección no viajan en el cuerpo: los fija la base (DEFAULT, trigger de
+# fecha y procedimientos). Las reglas (cantidad positiva, RN-11, RN-12) las
+# decide PostgreSQL y llegan traducidas por app/errores.py.
+
+# Los valores del ENUM estado_documento (001_esquema.sql), compartido con ingresos.
+EstadoDocumento = Literal["en_confeccion", "terminado", "procesado"]
+
+
+class TransferenciaEntrada(BaseModel):
+    """Cuerpo de POST /transferencias. Si llegan estado o fecha, se ignoran."""
+
+    id_sala: int = Field(ge=1, le=MAX_INTEGER, description="Sala que recibe las botellas.")
+
+
+class RenglonTransferenciaEntrada(BaseModel):
+    """Cuerpo de POST /transferencias/{nro}/renglones."""
+
+    cod_vino: int = Field(ge=1, le=MAX_BIGINT)
+    # Sólo el rango de INTEGER: que sea positiva lo rechaza
+    # ck_renglon_transferencia_cantidad_positiva (23514).
+    cantidad: int = Field(ge=-MAX_INTEGER - 1, le=MAX_INTEGER, examples=[12])
+
+
+class RenglonTransferencia(BaseModel):
+    """Un renglón guardado: vino y botellas a mover del depósito a la sala."""
+
+    cod_vino: int
+    nombre_vino: str
+    cantidad: int
+
+
+class TransferenciaDetalle(BaseModel):
+    """Transferencia con su estado y sus renglones (GET y respuesta de cada operación)."""
+
+    nro_transferencia: int
+    id_sala: int
+    fecha_confeccion: date = Field(description="La fija la base al crearla (RN-11) y no cambia.")
+    estado: EstadoDocumento = Field(
+        description="en_confeccion -> terminado -> procesado, sin retrocesos (RN-11).")
+    renglones: list[RenglonTransferencia] = Field(description="Ordenados por código de vino.")
