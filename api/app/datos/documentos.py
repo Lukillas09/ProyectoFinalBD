@@ -26,6 +26,27 @@ VALUES (%(id_sala)s)
 RETURNING nro_transferencia
 """
 
+# Un renglón para una transferencia existente. El INSERT ... SELECT no
+# inserta nada si la transferencia no existe, y RETURNING sin fila es el 404:
+# sin consulta previa no hay ventana entre "existe" y "agrego" (y la API no
+# puede borrar transferencias). Sin esto, el trigger RN-12 dejaría pasar el
+# renglón y la FK respondería 23503, que es 422. El bloqueo de una
+# transferencia que ya no está en confección (RN-12), la cantidad positiva y
+# el vino repetido los rechaza la base.
+RENGLON_TRANSFERENCIA = """
+INSERT INTO renglon_transferencia (nro_transferencia, cod_vino, cantidad)
+SELECT t.nro_transferencia, %(cod_vino)s::bigint, %(cantidad)s::integer
+FROM transferencia AS t
+WHERE t.nro_transferencia = %(nro)s
+RETURNING nro_transferencia
+"""
+
+# Procedimientos SECURITY DEFINER: validan la transición (RN-11) y, al
+# procesar, mueven el stock del depósito a la sala con FOR UPDATE. Un número
+# inexistente responde P0002 (404).
+TERMINAR_TRANSFERENCIA = "CALL sp_terminar_transferencia(%(nro)s::bigint)"
+PROCESAR_TRANSFERENCIA = "CALL sp_procesar_transferencia(%(nro)s::bigint)"
+
 # Cabecera y renglones en una sola sentencia: una sola foto de los datos,
 # aunque otro pedido agregue un renglón al mismo tiempo.
 TRANSFERENCIA = """
@@ -49,6 +70,23 @@ def crear_transferencia(conn: Connection, id_sala: int) -> int:
     """Crea la cabecera en confección y devuelve su número."""
 
     return conn.execute(ALTA_TRANSFERENCIA, {"id_sala": id_sala}).fetchone()[0]
+
+
+def agregar_renglon_transferencia(conn: Connection, nro: int, cod_vino: int, cantidad: int) -> bool:
+    """Agrega un renglón; False si la transferencia no existe."""
+
+    fila = conn.execute(
+        RENGLON_TRANSFERENCIA, {"nro": nro, "cod_vino": cod_vino, "cantidad": cantidad}
+    ).fetchone()
+    return fila is not None
+
+
+def terminar_transferencia(conn: Connection, nro: int) -> None:
+    conn.execute(TERMINAR_TRANSFERENCIA, {"nro": nro})
+
+
+def procesar_transferencia(conn: Connection, nro: int) -> None:
+    conn.execute(PROCESAR_TRANSFERENCIA, {"nro": nro})
 
 
 def obtener_transferencia(conn: Connection, nro: int) -> dict | None:
