@@ -1,4 +1,5 @@
-"""Reportes de sólo lectura (issue #31): S1, S8, S6 y S7 de la Etapa 5.
+"""Reportes de sólo lectura: S1, S8, S6 y S7 de la Etapa 5 (issue #31) y la
+trazabilidad de un vino (issue #32).
 
 Los parámetros se validan con el dominio de cada columna (422 "validacion").
 Lo que depende de los datos (una sala inexistente, un período invertido una
@@ -8,14 +9,14 @@ app/datos/reportes.py.
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from psycopg import Connection
 
 from app.database import conexion
 from app.datos import reportes as datos
 from app.esquemas import (
-    MAX_INTEGER, ErrorRespuesta, ReporteTopVinos, ReporteTransportistaActivo, ReporteVentasPorSala,
-    ReporteVinosSinStock,
+    MAX_BIGINT, MAX_INTEGER, ErrorRespuesta, ReporteTopVinos, ReporteTransportistaActivo,
+    ReporteTrazabilidad, ReporteVentasPorSala, ReporteVinosSinStock,
 )
 
 
@@ -87,3 +88,27 @@ def transportista_activo(
     """El transportista con más ingresos; si varios empatan, todos. Vacío si no hubo ingresos."""
 
     return ReporteTransportistaActivo(dias=dias, items=datos.transportista_activo(conn, dias))
+
+
+@router.get(
+    "/trazabilidad/{cod_vino}",
+    summary="Lotes de uva que pudieron originar un vino (supuesto)",
+    responses={404: {"model": ErrorRespuesta, "description": "El vino no existe."}, **INVALIDO},
+)
+def trazabilidad(
+    cod_vino: int = Path(ge=1, le=MAX_BIGINT, description="Código del vino."),
+    conn: Connection = Depends(conexion),
+) -> ReporteTrazabilidad:
+    """El vino, su corte y los lotes de uva compatibles, con finca, parcela y análisis.
+
+    **Es una aproximación.** El modelo no registra con qué lotes se elaboró
+    cada vino. Se muestran los lotes que la bodega del vino recibió en la
+    campaña de su añada, de parcelas de las cepas de su corte (supuesto de
+    `docs/requisitos.md`, a la espera de la respuesta de la cátedra). Sin
+    lotes compatibles, `lotes` es `[]`.
+    """
+
+    reporte = datos.trazabilidad(conn, cod_vino)
+    if reporte is None:
+        raise HTTPException(404, f"El vino {cod_vino} no existe.")
+    return ReporteTrazabilidad(**reporte)

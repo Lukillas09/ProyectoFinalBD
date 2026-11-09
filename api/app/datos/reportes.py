@@ -12,12 +12,19 @@ convertidos en parámetros. Los cambios respecto de la Etapa 5 son:
   todos los transportistas empatados en el primer puesto, no uno solo.
 
 Los importes son los guardados en comprobante: la API no los recalcula.
+
+La trazabilidad (issue #32) no tiene consulta de la Etapa 5: es un supuesto
+documentado en docs/requisitos.md (ver TRAZABILIDAD).
 """
 
+import json
 from datetime import date
+from decimal import Decimal
+from functools import partial
 
 from psycopg import Connection
 from psycopg.rows import dict_row
+from psycopg.types.json import set_json_loads
 
 
 # S1. Agrega toda la historia de ventas: ningún índice la acelera (la mide
@@ -124,3 +131,73 @@ def transportista_activo(conn: Connection, dias: int) -> list[dict]:
     """Los transportistas con más ingresos en los últimos ``dias`` días, con empates."""
 
     return _filas(conn, TRANSPORTISTA_ACTIVO, {"dias": dias})
+
+
+# --- Trazabilidad (issue #32) -------------------------------------------------
+
+# El modelo no registra qué lotes se usaron para elaborar un vino. Supuesto
+# (docs/requisitos.md, sección 3.8): los lotes "posibles" de un vino son los
+# que su bodega recibió en la campaña de su añada, de parcelas plantadas con
+# alguna cepa de su corte. Es una aproximación, no una trazabilidad exacta.
+# Una sola sentencia, con json_agg anidado, como la ficha de vinos: una sola
+# foto de los datos. Los lotes van por fecha de cosecha y los análisis de
+# cada lote por fecha.
+TRAZABILIDAD = """
+SELECT v.cod_vino, v.nombre, v.anada, v.cuit_bodega,
+       b.razon_social AS bodega,
+       (SELECT json_agg(json_build_object(
+                 'id_cepa', c.id_cepa, 'cepa', c.nombre, 'tipo_cepa', c.tipo,
+                 'porcentaje', cv.porcentaje)
+               ORDER BY cv.porcentaje DESC, c.id_cepa)
+        FROM composicion_vino AS cv
+        JOIN cepa AS c ON c.id_cepa = cv.id_cepa
+        WHERE cv.cod_vino = v.cod_vino) AS corte,
+       COALESCE(
+         (SELECT json_agg(json_build_object(
+                   'nro_lote', l.nro_lote,
+                   'campania', l.campania,
+                   'fecha_cosecha', l.fecha_cosecha,
+                   'kilos', l.kilos,
+                   'id_cepa', c.id_cepa,
+                   'cepa', c.nombre,
+                   'id_finca', f.id_finca,
+                   'finca', f.nombre,
+                   'departamento', d.nombre,
+                   'provincia', d.provincia,
+                   'nro_parcela', l.nro_parcela,
+                   'analisis', COALESCE(
+                     (SELECT json_agg(json_build_object(
+                               'fecha_analisis', a.fecha_analisis,
+                               'grado_brix', a.grado_brix,
+                               'ph', a.ph,
+                               'acidez_total', a.acidez_total)
+                             ORDER BY a.fecha_analisis, a.id_analisis)
+                      FROM analisis_calidad AS a
+                      WHERE a.nro_lote = l.nro_lote),
+                     '[]'::json))
+                 ORDER BY l.fecha_cosecha, l.nro_lote)
+          FROM lote_uva AS l
+          JOIN parcela AS p ON p.id_finca = l.id_finca AND p.nro_parcela = l.nro_parcela
+          JOIN composicion_vino AS cv ON cv.cod_vino = v.cod_vino AND cv.id_cepa = p.id_cepa
+          JOIN cepa AS c ON c.id_cepa = p.id_cepa
+          JOIN finca AS f ON f.id_finca = l.id_finca
+          JOIN departamento AS d ON d.id_departamento = f.id_departamento
+          WHERE l.cuit_bodega = v.cuit_bodega
+            AND l.campania = v.anada),
+         '[]'::json) AS lotes
+FROM vino AS v
+JOIN bodega AS b ON b.cuit = v.cuit_bodega
+WHERE v.cod_vino = %(cod_vino)s
+"""
+
+# Por omisión, psycopg lee los números de un JSON como float. Con
+# parse_float=Decimal, kilos, porcentajes y mediciones llegan exactos.
+_JSON_CON_DECIMALES = partial(json.loads, parse_float=Decimal)
+
+
+def trazabilidad(conn: Connection, cod_vino: int) -> dict | None:
+    """El vino, su corte y los lotes que pudieron originarlo; None si el vino no existe."""
+
+    with conn.cursor(row_factory=dict_row) as cur:
+        set_json_loads(_JSON_CON_DECIMALES, cur)
+        return cur.execute(TRAZABILIDAD, {"cod_vino": cod_vino}).fetchone()
