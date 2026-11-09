@@ -14,7 +14,7 @@ from psycopg import Connection
 from app.database import conexion
 from app.datos import documentos as datos
 from app.esquemas import (
-    MAX_BIGINT, ErrorRespuesta, RenglonTransferenciaEntrada, TransferenciaDetalle, TransferenciaEntrada,
+    MAX_BIGINT, ErrorRespuesta, RenglonDocumentoEntrada, TransferenciaDetalle, TransferenciaEntrada,
 )
 
 
@@ -93,7 +93,7 @@ def obtener_transferencia(nro: int = NRO, conn: Connection = Depends(conexion)) 
     },
 )
 def agregar_renglon(
-    renglon: RenglonTransferenciaEntrada,
+    renglon: RenglonDocumentoEntrada,
     request: Request,
     response: Response,
     nro: int = NRO,

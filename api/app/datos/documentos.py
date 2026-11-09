@@ -1,4 +1,4 @@
-"""Consultas de los documentos de stock: transferencias (issue #29) e ingresos (#30).
+"""Consultas de los documentos de stock: transferencias (issue #29) e ingresos (issue #30).
 
 Cada documento tiene sus constantes SQL y una función por operación, con el
 nombre del documento en el nombre (``crear_transferencia``,
@@ -94,3 +94,79 @@ def obtener_transferencia(conn: Connection, nro: int) -> dict | None:
 
     with conn.cursor(row_factory=dict_row) as cur:
         return cur.execute(TRANSFERENCIA, {"nro": nro}).fetchone()
+
+
+# --- Ingresos ---------------------------------------------------------------
+
+# Sólo transportista y bodega: estado y fecha los fijan los DEFAULT (RN-10).
+# bodegas_api tiene INSERT únicamente sobre esas dos columnas.
+ALTA_INGRESO = """
+INSERT INTO ingreso (cod_transportista, cuit_bodega)
+VALUES (%(cod_transportista)s, %(cuit_bodega)s)
+RETURNING cod_ingreso
+"""
+
+# Mismo INSERT ... SELECT que en transferencias: sin fila devuelta, el
+# ingreso no existe (404). RN-12 (sólo en confección) y RN-16 (vino de la
+# bodega de origen, 009_ingreso_bodega.sql) los rechazan sus triggers.
+RENGLON_INGRESO = """
+INSERT INTO renglon_ingreso (cod_ingreso, cod_vino, cantidad)
+SELECT i.cod_ingreso, %(cod_vino)s::bigint, %(cantidad)s::integer
+FROM ingreso AS i
+WHERE i.cod_ingreso = %(cod)s
+RETURNING cod_ingreso
+"""
+
+# sp_procesar_ingreso suma al depósito con FOR UPDATE de la cabecera:
+# procesar dos veces no suma dos veces (RN-10).
+TERMINAR_INGRESO = "CALL sp_terminar_ingreso(%(cod)s::bigint)"
+PROCESAR_INGRESO = "CALL sp_procesar_ingreso(%(cod)s::bigint)"
+
+INGRESO = """
+SELECT i.cod_ingreso, i.fecha, i.estado, i.cod_transportista, i.cuit_bodega,
+       COALESCE(
+         (SELECT json_agg(json_build_object(
+                   'cod_vino', r.cod_vino,
+                   'nombre_vino', v.nombre,
+                   'cantidad', r.cantidad)
+                 ORDER BY r.cod_vino)
+          FROM renglon_ingreso AS r
+          JOIN vino AS v ON v.cod_vino = r.cod_vino
+          WHERE r.cod_ingreso = i.cod_ingreso),
+         '[]'::json) AS renglones
+FROM ingreso AS i
+WHERE i.cod_ingreso = %(cod)s
+"""
+
+
+def crear_ingreso(conn: Connection, cod_transportista: int, cuit_bodega: str) -> int:
+    """Crea la cabecera en confección y devuelve su código."""
+
+    fila = conn.execute(
+        ALTA_INGRESO, {"cod_transportista": cod_transportista, "cuit_bodega": cuit_bodega}
+    ).fetchone()
+    return fila[0]
+
+
+def agregar_renglon_ingreso(conn: Connection, cod: int, cod_vino: int, cantidad: int) -> bool:
+    """Agrega un renglón; False si el ingreso no existe."""
+
+    fila = conn.execute(
+        RENGLON_INGRESO, {"cod": cod, "cod_vino": cod_vino, "cantidad": cantidad}
+    ).fetchone()
+    return fila is not None
+
+
+def terminar_ingreso(conn: Connection, cod: int) -> None:
+    conn.execute(TERMINAR_INGRESO, {"cod": cod})
+
+
+def procesar_ingreso(conn: Connection, cod: int) -> None:
+    conn.execute(PROCESAR_INGRESO, {"cod": cod})
+
+
+def obtener_ingreso(conn: Connection, cod: int) -> dict | None:
+    """Cabecera y renglones, o None si el ingreso no existe."""
+
+    with conn.cursor(row_factory=dict_row) as cur:
+        return cur.execute(INGRESO, {"cod": cod}).fetchone()
