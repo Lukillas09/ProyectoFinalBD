@@ -430,3 +430,78 @@ class IngresoDetalle(BaseModel):
     cod_transportista: int
     cuit_bodega: str = Field(description="Bodega de origen: todos los vinos son suyos (RN-16).")
     renglones: list[RenglonDocumento] = Field(description="Ordenados por código de vino.")
+
+
+# --- Reportes (issue #31) ----------------------------------------------------
+# Lectura de las consultas S1, S8, S6 y S7 de la Etapa 5. Cada respuesta
+# repite los parámetros efectivos (los valores por omisión los resuelve la
+# base) junto con las filas, para que el front pueda mostrar el período.
+
+class VinoMasVendido(BaseModel):
+    """Una fila de S1: botellas vendidas de un vino en toda la historia."""
+
+    cod_vino: int
+    nombre: str
+    tipo: TipoVino
+    precio: Decimal = Field(examples=["43660.00"])
+    bodega: str
+    total_botellas: int
+
+
+class ReporteTopVinos(BaseModel):
+    limite: int
+    items: list[VinoMasVendido] = Field(description="De más a menos botellas; empates por código de vino.")
+
+
+class VentasDeSala(BaseModel):
+    """Una fila de S8: ventas de una sala en el período, con los importes guardados."""
+
+    id_sala: int
+    calle: str
+    numero: str
+    localidad: str
+    num_comprobantes: int
+    importe_bruto: Decimal = Field(examples=["1234500.00"], description="Suma de subtotales.")
+    total_descuento: Decimal = Field(examples=["123450.00"])
+    total_ventas: Decimal = Field(examples=["1111050.00"], description="Suma de totales netos.")
+
+
+class ReporteVentasPorSala(BaseModel):
+    desde: date = Field(description="Primer día incluido.")
+    hasta: date = Field(description="Último día incluido.")
+    items: list[VentasDeSala] = Field(description="De mayor a menor total; sólo salas con ventas.")
+
+
+class VinoSinStock(BaseModel):
+    """Una fila de S6: vino sin stock en la sala, pero con stock en el depósito."""
+
+    cod_vino: int
+    nombre: str
+    tipo: TipoVino
+    graduacion: Decimal = Field(examples=["13.50"])
+    precio: Decimal = Field(examples=["43660.00"])
+    stock_sala: int
+    stock_deposito: int
+
+
+class ReporteVinosSinStock(BaseModel):
+    id_sala: int
+    items: list[VinoSinStock] = Field(description="Ordenados por nombre; candidatos a una transferencia.")
+
+
+class TransportistaActivo(BaseModel):
+    """Una fila de S7: transportista y sus ingresos en el período."""
+
+    cod_transportista: int
+    razon_social: str
+    cuit: str
+    email: str
+    telefono: str
+    domicilio: str
+    ingresos: int = Field(description="Ingresos registrados en los últimos `dias` días.")
+
+
+class ReporteTransportistaActivo(BaseModel):
+    dias: int
+    items: list[TransportistaActivo] = Field(
+        description="Los transportistas con más ingresos: más de uno si empatan; vacío si no hubo ingresos.")
