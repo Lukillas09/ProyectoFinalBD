@@ -1,6 +1,6 @@
 # Contrato de la API REST (Etapa 6) — borrador
 
-Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26), el CRUD de clientes de los tres tipos (`/clientes`, issue #27), la venta y consulta de comprobantes (`/comprobantes`, issue #28) y los circuitos de transferencias (`/transferencias`, issue #29) e ingresos (`/ingresos`, issue #30). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
+Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26), el CRUD de clientes de los tres tipos (`/clientes`, issue #27), la venta y consulta de comprobantes (`/comprobantes`, issue #28) y los circuitos de transferencias (`/transferencias`, issue #29) e ingresos (`/ingresos`, issue #30), y los cuatro reportes de sólo lectura (`/reportes/...`, issue #31; falta trazabilidad). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
 
 Principios que fija la consigna y `AGENTS.md`:
 
@@ -485,13 +485,76 @@ POST /ingresos/999999999/terminar
 
 ### Reportes (consultas de la sección 8, sólo lectura)
 
-| Método y ruta | Parámetros | Consulta base |
+| Método y ruta | Parámetros | Respuesta | Errores | Consulta base |
+|---|---|---|---|---|
+| `GET /reportes/top-vinos` | `limite` (10; 1 a 100) | 200, `{limite, items: [{cod_vino, nombre, tipo, precio, bodega, total_botellas}]}` | 422 (`validacion`) | S1 |
+| `GET /reportes/ventas-por-sala` | `desde`, `hasta` (fechas; por omisión, el último trimestre) | 200, `{desde, hasta, items: [{id_sala, calle, numero, localidad, num_comprobantes, importe_bruto, total_descuento, total_ventas}]}` | 422 (`validacion`, fecha inválida); 422 (`dato_invalido`, `desde` posterior a `hasta`) | S8 |
+| `GET /reportes/vinos-sin-stock` | `id_sala` (obligatoria) | 200, `{id_sala, items: [{cod_vino, nombre, tipo, graduacion, precio, stock_sala, stock_deposito}]}` | 404 (`no_encontrado`); 422 (`validacion`) | S6 |
+| `GET /reportes/transportista-activo` | `dias` (30; 1 a 3650) | 200, `{dias, items: [{cod_transportista, razon_social, cuit, email, telefono, domicilio, ingresos}]}`, con todos los empatados | 422 (`validacion`) | S7 |
+| `GET /reportes/trazabilidad/{cod}` | — | — | — | **Pregunta a la cátedra** (sección 6) |
+
+#### Reportes implementados (issue #31)
+
+Código: `api/app/datos/reportes.py` (el SQL de S1, S8, S6 y S7 de `consultas/select.sql`, parametrizado), `api/app/routers/reportes.py` y los modelos `Reporte*` de `api/app/esquemas.py`. Pruebas: `api/tests/test_reportes.py`.
+
+**Mismo resultado que la Etapa 5.** Cada prueba ejecuta la consulta de `select.sql`, con el valor fijo reemplazado por el parámetro, y la compara con la respuesta de la API. Las diferencias son buscadas:
+
+| Reporte | Cambio respecto de la Etapa 5 | Por qué |
 |---|---|---|
-| `GET /reportes/top-vinos` | `limite` (10) | S1 |
-| `GET /reportes/ventas-por-sala` | `desde`, `hasta` (por omisión, el último trimestre) | S8 y `v_ventas_mensuales_sala` |
-| `GET /reportes/vinos-sin-stock` | `id_sala` | S6 |
-| `GET /reportes/transportista-activo` | `dias` (30) | S7 |
-| `GET /reportes/trazabilidad/{cod}` | — | **Pregunta a la cátedra** (sección 6) |
+| Todos | Desempate en el `ORDER BY` (código de vino o de sala) | Con valores iguales, el orden de PostgreSQL no está definido: dos llamadas podían devolver distinto orden, y el `LIMIT 10` de S1 podía cortar otro vino. La prueba de S1 compara las cantidades en orden y que cada fila sea del ranking real |
+| `ventas-por-sala` | Período `[desde, hasta]`, ambos días incluidos. Por omisión, `CURRENT_DATE − 3 meses` y `CURRENT_DATE`, que calcula la base | Sin parámetros da lo mismo que S8. La respuesta devuelve el período efectivo. `desde > hasta` se valida **después** de resolver las omisiones: `?hasta=2000-01-01` solo también es un período invertido |
+| `vinos-sin-stock` | 404 si la sala no existe | S6 con una sala inexistente devolvería todos los vinos con stock en el depósito: el `LEFT JOIN` no encuentra stock de sala y lo toma como cero |
+| `transportista-activo` | `dias` en lugar de "1 month", y `FETCH FIRST 1 ROW WITH TIES` en lugar de `LIMIT 1` | El issue pide contemplar empates: `LIMIT 1` elegía uno de los empatados sin criterio. La prueba fabrica un empate (crea ingresos por la API en el último día) y verifica que salgan los dos. Sin ingresos en el período, `items` es `[]` |
+
+- **Importes guardados.** `ventas-por-sala` suma `subtotal`, `descuento` y `total` de `comprobante`, que mantiene la base (RN-08). La API no recalcula nada.
+- **Días de la base, en UTC.** "Hoy" es el `CURRENT_DATE` del servidor de base, como en la Etapa 5; ver la nota de la zona horaria en transferencias.
+- **`vinos-sin-stock` no pagina.** Devuelve todos los vinos que cumplen (unos 500 para la sala 1 con la carga actual), como S6. Si el front lo necesitara, se agregaría `limite`/`desplazamiento` con el patrón de los listados.
+
+**Rendimiento.** `EXPLAIN (ANALYZE, BUFFERS)` del SQL exacto de `reportes.py`, como `bodegas_api`, sobre la carga `ESCALA=1` (150.125 comprobantes, 538.306 renglones) después de `VACUUM ANALYZE`. Parámetros por omisión y sala 1. Mediana de 5 corridas, descartada la primera:
+
+| Reporte | Tiempo | Plan | Índice |
+|---|---|---|---|
+| `ventas-por-sala` | 3,3 ms | Index Scan sobre 5.478 comprobantes del trimestre | **`idx_comprobante_fecha`** (Etapa 4) |
+| `vinos-sin-stock` | 1,0 ms | Bitmap Index Scan de las filas de la sala; `vino` (600) y `stock_deposito` recorridos | `pk_stock_sala (id_sala, cod_vino)` |
+| `transportista-activo` | 0,44 ms | Seq Scan de `ingreso` (5.000 filas) | Ninguno; la tabla es chica |
+| `top-vinos` | 87 ms | Parallel Seq Scan de los 538.306 renglones y HashAggregate | Ninguno puede ayudar |
+
+- **`ventas-por-sala` usa el índice, pero no con Index Only Scan.** En la Etapa 4 (`docs/rendimiento.md`, C1), S8 sumaba sólo `total`, que está en el `INCLUDE`. Este reporte también suma `subtotal` y `descuento`, que no están, así que lee la tabla: 95 páginas, 3,3 ms. Agregarlas al `INCLUDE` agrandaría el índice para ahorrar menos de 3 ms; no se justifica.
+- **`top-vinos` recorre toda la historia en cada llamada.** Es el caso C7 de la Etapa 4: un ranking sin filtro agrega la tabla entera y ningún índice lo evita (78 ms medidos entonces). Si el front lo pidiera seguido, la alternativa sería una vista materializada refrescada periódicamente, con su costo de desactualización. No se agrega sin una necesidad medida.
+- **Ningún índice nuevo.** Ninguna de estas mediciones lo justifica (criterio de `docs/rendimiento.md`).
+
+Respuestas reales por `/api/...` (proyecto aislado con la carga `ESCALA=0.1`; se muestran las primeras filas):
+
+```json
+GET /reportes/top-vinos?limite=3
+200  {"limite": 3, "items": [
+  {"cod_vino": 2, "nombre": "Chardonnay Joven", "tipo": "blanco", "precio": "11270.00", "bodega": "Bodega Lopez S.R.L.", "total_botellas": 8896},
+  {"cod_vino": 24, "nombre": "Sauvignon Blanc Joven", "tipo": "blanco", "precio": "25910.00", "bodega": "Bodega Fernandez S.A.", "total_botellas": 8763},
+  {"cod_vino": 26, "nombre": "Chardonnay Joven", "tipo": "blanco", "precio": "84860.00", "bodega": "Bodega Molina S.R.L.", "total_botellas": 8609}]}
+
+GET /reportes/ventas-por-sala
+200  {"desde": "2026-08-09", "hasta": "2026-11-09", "items": [
+  {"id_sala": 16, "calle": "Calle Güemes", "numero": "481", "localidad": "San Rafael", "num_comprobantes": 25,
+   "importe_bruto": "22312290.00", "total_descuento": "5090113.00", "total_ventas": "17222177.00"}, ...]}   (40 salas)
+
+GET /reportes/vinos-sin-stock?id_sala=1
+200  {"id_sala": 1, "items": [
+  {"cod_vino": 12, "nombre": "Bonarda Clásico", "tipo": "rosado", "graduacion": "12.00", "precio": "24360.00", "stock_sala": 0, "stock_deposito": 93}, ...]}
+
+GET /reportes/transportista-activo?dias=1          (con el empate que fabrica la prueba)
+200  {"dias": 1, "items": [
+  {"cod_transportista": 1, "razon_social": "Transportes Pereyra", ..., "ingresos": 12},
+  {"cod_transportista": 2, "razon_social": "Transportes Gonzalez", ..., "ingresos": 12}]}
+
+GET /reportes/ventas-por-sala?desde=2026-05-01&hasta=2026-04-01
+422  {"detail": "El período es inválido: desde (2026-05-01) es posterior a hasta (2026-04-01).", "codigo": "dato_invalido"}
+
+GET /reportes/vinos-sin-stock?id_sala=99999
+404  {"detail": "La sala 99999 no existe.", "codigo": "no_encontrado"}
+
+GET /reportes/vinos-sin-stock
+422  {"detail": "Datos de entrada inválidos.", "codigo": "validacion", "errores": [{"campo": "query.id_sala", "mensaje": "Field required"}]}
+```
 
 ### Salud
 

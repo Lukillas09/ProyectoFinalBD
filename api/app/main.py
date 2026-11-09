@@ -9,7 +9,7 @@ from app.config import Settings
 from app.database import create_pool, database_is_available
 from app.errores import registrar_manejadores
 from app.esquemas import ErrorRespuesta
-from app.routers import clientes, comprobantes, ingresos, transferencias, vinos
+from app.routers import clientes, comprobantes, ingresos, reportes, transferencias, vinos
 
 
 DESCRIPCION = """
@@ -35,6 +35,9 @@ ETIQUETAS = [
     {"name": "ingresos", "description": "Ingresos de una bodega al depósito central: alta, "
                                         "renglones (sólo vinos de esa bodega), terminar y "
                                         "procesar. El stock lo suma la base al procesar."},
+    {"name": "reportes", "description": "Reportes de sólo lectura (consultas S1, S8, S6 y S7): "
+                                        "vinos más vendidos, ventas por sala, vinos sin stock en "
+                                        "una sala y transportista más activo."},
 ]
 
 # Prefijo con el que nginx publica la API (front/nginx.conf, location /api/).
@@ -123,6 +126,7 @@ def crear_app() -> FastAPI:
     application.include_router(comprobantes.router)
     application.include_router(transferencias.router)
     application.include_router(ingresos.router)
+    application.include_router(reportes.router)
     return application
 
 
