@@ -92,11 +92,12 @@ Ya existen:
 - la lógica de negocio en la base (Etapa 2: migraciones 003 a 007);
 - la carga masiva reproducible (Etapa 3: `db/seed/`, servicio `seed` con perfil propio);
 - los índices de rendimiento (Etapa 4: `008_indices.sql`, medición en `db/perf/`, informe en `docs/rendimiento.md`);
-- las consultas de la Etapa 5, cerrada: S1-S12, U1-U6, I1-I6 y D1-D6 en `consultas/`, informe en `docs/consultas.md` y planes en `docs/consultas/planes/`.
+- las consultas de la Etapa 5, cerrada: S1-S12, U1-U6, I1-I6 y D1-D6 en `consultas/`, informe en `docs/consultas.md` y planes en `docs/consultas/planes/`;
+- **la API REST completa (Etapa 6): catálogo y ABM de vinos, CRUD de clientes (3 subtipos), venta y consulta de comprobantes, circuitos de transferencias e ingresos, reportes de solo lectura (S1, S8, S6, S7) y trazabilidad como supuesto; 252 pruebas automatizadas en entorno aislado; ver `docs/api.md` y `docs/cierre_etapa6.md`.**
 
 Una vez integradas en `main`, las migraciones no se modifican: cualquier corrección va en una migración nueva. La Etapa 6 agregó `009_ingreso_bodega.sql` (RN-16, issue #30) y `010_privilegios_trazabilidad.sql` (lectura de la producción de uva, issue #32). La próxima migración es `011`; sólo se crea con una necesidad justificada y aprobada. El alcance de la trazabilidad es un supuesto documentado en `docs/requisitos.md` (sección 3.8) hasta que responda la cátedra.
 
-**La próxima es la Etapa 6: API REST.** El contrato borrador está en `docs/api.md` y la organización prevista del código en `api/README.md`. Cada endpoint entra con su función de acceso a datos y su prueba en `api/tests/`. No se crean archivos vacíos por adelantado. Las pantallas del front son de la Etapa 7.
+**La Etapa 6 (API REST) está completada y verificada.** El contrato definitivo está en `docs/api.md`, la organización del código en `api/README.md`, y el informe de cierre en `docs/cierre_etapa6.md`. Cada endpoint tiene su función de acceso a datos en `api/app/datos/` y su prueba en `api/tests/`. Las pantallas del front son de la Etapa 7.
 
 Convenciones de las consultas (Etapa 5):
 - Se ejecutan con `docker compose exec db /opt/bodegas/consultas/ejecutar.sh <archivo>.sql` (propietario, `ON_ERROR_STOP=1`). Los `.sql` llegan a la imagen de `db` como contexto adicional: al cambiarlos, reconstruir con `docker compose up -d --build db`.
