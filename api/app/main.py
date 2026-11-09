@@ -9,7 +9,7 @@ from app.config import Settings
 from app.database import create_pool, database_is_available
 from app.errores import registrar_manejadores
 from app.esquemas import ErrorRespuesta
-from app.routers import clientes, vinos
+from app.routers import clientes, vinos, comprobantes
 
 
 DESCRIPCION = """
@@ -114,6 +114,7 @@ def crear_app() -> FastAPI:
     application.include_router(router)
     application.include_router(vinos.router)
     application.include_router(clientes.router)
+    application.include_router(comprobantes.router)
     return application
 
 

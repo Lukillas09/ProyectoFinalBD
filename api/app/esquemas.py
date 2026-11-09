@@ -5,7 +5,7 @@ los serializa como string en el JSON ("4500.00"): se conserva la escala exacta
 de PostgreSQL y el valor no pasa por un double (docs/api.md, "Vinos").
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Generic, Literal, TypeVar
 
@@ -322,3 +322,48 @@ ClienteDetalle = Annotated[
 ClienteEntrada = Annotated[
     SocioEntrada | DistribuidorEntrada | ExportadorEntrada, Field(discriminator="tipo")
 ]
+
+
+# --- Comprobantes (issue #28) ------------------------------------------------
+
+class ComprobanteRenglonEntrada(BaseModel):
+    """Renglón pedido en POST /comprobantes."""
+
+    # Sólo la forma: que la cantidad sea positiva y que un vino no se repita lo
+    # decide fn_registrar_venta (RN-15, RN-08), con su mensaje de regla.
+    cod_vino: int = Field(ge=1, le=MAX_BIGINT)
+    cantidad: int = Field(ge=-2_147_483_648, le=2_147_483_647)
+
+
+class ComprobanteEntrada(BaseModel):
+    """Cuerpo de POST /comprobantes."""
+
+    id_cliente: int = Field(ge=1, le=MAX_BIGINT)
+    id_sala: int = Field(ge=1, le=2_147_483_647)
+    renglones: list[ComprobanteRenglonEntrada]
+
+
+class ComprobanteRenglonRespuesta(BaseModel):
+    """Renglón guardado: precio y descuento congelados al vender (RN-06)."""
+
+    cod_vino: int
+    nombre_vino: str
+    cantidad: int
+    precio_unitario: Decimal = Field(examples=["4500.00"])
+    descuento_porcentaje: Decimal = Field(examples=["10.00"])
+    total_parcial: Decimal = Field(
+        examples=["4050.00"], description="Subtotal neto del renglón, calculado por la base."
+    )
+
+
+class ComprobanteSalida(BaseModel):
+    """Respuesta de POST /comprobantes y de GET /comprobantes/{nro}."""
+
+    nro_comprobante: int
+    fecha: datetime
+    id_cliente: int
+    id_sala: int
+    subtotal: Decimal = Field(examples=["4500.00"], description="Bruto: suma de cantidad × precio.")
+    descuento: Decimal = Field(examples=["450.00"], description="Descuento en pesos.")
+    total: Decimal = Field(examples=["4050.00"], description="Neto: subtotal − descuento.")
+    renglones: list[ComprobanteRenglonRespuesta]
