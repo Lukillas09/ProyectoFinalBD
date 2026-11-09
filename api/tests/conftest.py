@@ -39,6 +39,36 @@ def _conectar() -> Connection:
     )
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    # Las tres pruebas de reglas que nombra la consigna (Etapa 6): se corren
+    # solas con `api/tests/ejecutar.sh -m consigna`.
+    config.addinivalue_line(
+        "markers",
+        "consigna: prueba de regla de la base que exige la consigna "
+        "(stock insuficiente, cambio de estado inválido, precio negativo)")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _base_cargada() -> None:
+    """Corta la sesión con un mensaje claro si la base no tiene la carga.
+
+    Las pruebas buscan sus datos en el dataset (salas, vinos con stock,
+    clientes). Contra una base recién migrada y vacía fallarían decenas de
+    pruebas por motivos ajenos a la API; api/tests/ejecutar.sh levanta el
+    proyecto aislado y lo carga antes de correrlas.
+    """
+
+    try:
+        with _conectar() as conn:
+            vinos = conn.execute("SELECT count(*) FROM vino").fetchone()[0]
+    except psycopg.Error:
+        return  # sin base: lo informan las propias pruebas (por ejemplo, /salud)
+    if vinos == 0:
+        pytest.exit("La base no tiene la carga masiva. Correr las pruebas con "
+                    "api/tests/ejecutar.sh, que crea un proyecto aislado, lo carga y lo baja.",
+                    returncode=2)
+
+
 @pytest.fixture(scope="session")
 def consultar() -> Iterator[Callable[..., Any]]:
     """Ejecuta una consulta de lectura en una conexión aparte y devuelve el

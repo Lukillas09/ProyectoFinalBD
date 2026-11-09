@@ -96,11 +96,14 @@ def test_alta_con_sala_inexistente_422(cliente, consultar) -> None:
     assert consultar("SELECT count(*) FROM transferencia") == antes
 
 
-def test_alta_sin_sala_422(cliente) -> None:
+def test_alta_sin_sala_422(cliente, consultar) -> None:
+    antes = consultar("SELECT count(*) FROM transferencia")
+
     respuesta = cliente.post("/transferencias", json={})
 
     assert respuesta.status_code == 422
     assert respuesta.json()["codigo"] == "validacion"
+    assert consultar("SELECT count(*) FROM transferencia") == antes
 
 
 # --- Circuito completo -------------------------------------------------------
@@ -151,7 +154,10 @@ def test_renglon_en_transferencia_terminada_409(cliente, consultar, consultar_fi
     assert consultar("SELECT count(*) FROM renglon_transferencia WHERE nro_transferencia = %s", (nro,)) == 1
 
 
+@pytest.mark.consigna
 def test_procesar_sin_terminar_409(cliente, consultar, consultar_filas) -> None:
+    """Prueba de la consigna: cambio de estado inválido -> 409, sin cambios (RN-11)."""
+
     id_sala = _sala(consultar)
     cod_vino, _ = _vino_con_stock(consultar_filas)
     nro = _nueva(cliente, id_sala)

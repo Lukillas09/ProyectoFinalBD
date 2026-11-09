@@ -112,6 +112,7 @@ def test_composicion_que_suma_90_no_deja_el_vino(cliente, consultar, cuerpo) -> 
     assert vinos_con_nombre(consultar, cuerpo["nombre"]) == 0
 
 
+@pytest.mark.consigna  # el primer caso es el "precio negativo -> 422" de la consigna
 @pytest.mark.parametrize(("campo", "valor", "restriccion"), [
     ("precio", "-100.00", "ck_vino_precio_positivo"),
     ("precio", "0.00", "ck_vino_precio_positivo"),
@@ -320,6 +321,8 @@ def test_put_que_choca_con_otro_vino_409(cliente, cuerpo) -> None:
 
     assert respuesta.status_code == 409
     assert respuesta.json()["restriccion"] == "uq_vino_identidad_comercial"
+    # El otro vino quedó como estaba: el UPDATE se revirtió.
+    assert cliente.get(f"/vinos/{cod_otro}").json()["nombre"] == otro["nombre"]
 
 
 def test_put_con_bodega_inexistente_422(cliente, consultar, cuerpo) -> None:
