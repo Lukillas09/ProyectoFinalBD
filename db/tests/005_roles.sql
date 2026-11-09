@@ -190,6 +190,25 @@ SELECT pg_temp.esperar_error(
   $sql$ CREATE TABLE intruso (id INTEGER) $sql$, '42501');
 \echo 'OK: la API opera por los caminos previstos y no toca stock, auditoría, importes ni estados.'
 
+-- Trazabilidad (010_privilegios_trazabilidad.sql): la API lee la producción
+-- de uva y sigue sin poder escribirla.
+SELECT count(*) FROM lote_uva AS l
+JOIN parcela AS p ON p.id_finca = l.id_finca AND p.nro_parcela = l.nro_parcela
+JOIN finca AS f ON f.id_finca = p.id_finca
+JOIN departamento AS d ON d.id_departamento = f.id_departamento
+LEFT JOIN analisis_calidad AS a ON a.nro_lote = l.nro_lote;
+SELECT pg_temp.esperar_error(
+  $sql$ INSERT INTO departamento (nombre, provincia) VALUES ('X', 'Y') $sql$, '42501');
+SELECT pg_temp.esperar_error(
+  $sql$ UPDATE finca SET superficie_ha = 1 $sql$, '42501');
+SELECT pg_temp.esperar_error(
+  $sql$ DELETE FROM parcela $sql$, '42501');
+SELECT pg_temp.esperar_error(
+  $sql$ UPDATE lote_uva SET kilos = 1 $sql$, '42501');
+SELECT pg_temp.esperar_error(
+  $sql$ DELETE FROM analisis_calidad $sql$, '42501');
+\echo 'OK: la API lee la producción de uva para la trazabilidad y no puede modificarla.'
+
 RESET ROLE;
 
 -------------------------------------------------------------------------------

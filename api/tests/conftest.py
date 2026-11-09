@@ -141,7 +141,7 @@ ESCENARIOS: dict[str, Callable[[Connection, str], None]] = {
     "regla": lambda conn, marca: conn.execute(
         "SELECT fn_registrar_venta(1, 1, ARRAY[]::BIGINT[], ARRAY[]::INTEGER[])"),
     "no_existe": lambda conn, marca: conn.execute("CALL sp_procesar_transferencia(-1)"),
-    "permiso": lambda conn, marca: conn.execute("SELECT count(*) FROM parcela"),
+    "permiso": lambda conn, marca: conn.execute("SELECT count(*) FROM empleado"),
     "serializacion": lambda conn, marca: conn.execute(
         "DO $$ BEGIN RAISE EXCEPTION 'conflicto simulado' USING ERRCODE = '40001'; END $$"),
     # Constraint trigger diferido: el error aparece recién en el COMMIT.

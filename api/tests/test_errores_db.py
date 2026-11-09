@@ -109,7 +109,7 @@ def test_permiso_denegado_500_sin_detalles_y_al_log(cliente, marca, caplog) -> N
     assert respuesta.status_code == 500
     assert respuesta.json() == {"detail": "Error interno del servidor.", "codigo": "interno"}
     registro = caplog.text
-    assert "42501" in registro and "parcela" in registro
+    assert "42501" in registro and "empleado" in registro
     assert os.environ["DB_PASSWORD"] not in registro
     assert os.environ["DB_HOST"] not in registro
 

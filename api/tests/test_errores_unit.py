@@ -79,10 +79,10 @@ def test_concurrencia_503_con_retry_after(sqlstate: str) -> None:
 
 
 def test_42501_500_sin_detalles_y_registrado() -> None:
-    t = traducir("42501", "permission denied for table parcela")
+    t = traducir("42501", "permission denied for table empleado")
     assert t.status == 500
     assert t.cuerpo.codigo == "interno"
-    assert "parcela" not in t.cuerpo.detail
+    assert "empleado" not in t.cuerpo.detail
     assert t.nivel_log == logging.ERROR
 
 
