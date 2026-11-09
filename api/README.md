@@ -19,6 +19,9 @@
 | `POST /transferencias` y `GET /transferencias/{nro}` (cabecera en confección; estado y renglones) | #29 |
 | `POST /transferencias/{nro}/renglones` (sólo en confección, RN-12) | #29 |
 | `POST /transferencias/{nro}/terminar` y `/procesar` (`CALL sp_*_transferencia`; la base mueve el stock) | #29 |
+| `POST /ingresos` y `GET /ingresos/{cod}` (cabecera en confección; estado y renglones) | #30 |
+| `POST /ingresos/{cod}/renglones` (sólo en confección, RN-12, y sólo vinos de la bodega de origen, RN-16) | #30 |
+| `POST /ingresos/{cod}/terminar` y `/procesar` (`CALL sp_*_ingreso`; la base suma al depósito) | #30 |
 
 Todo se apoya en la **base común de la Etapa 6** (issue #24):
 
@@ -28,7 +31,7 @@ Todo se apoya en la **base común de la Etapa 6** (issue #24):
 - Swagger detrás de nginx;
 - pruebas aisladas.
 
-Los demás endpoints de negocio llegan con los issues #30 a #32, según el contrato de [docs/api.md](../docs/api.md).
+Los demás endpoints de negocio llegan con los issues #31 y #32, según el contrato de [docs/api.md](../docs/api.md).
 
 ## Qué hay
 
@@ -42,8 +45,9 @@ Los demás endpoints de negocio llegan con los issues #30 a #32, según el contr
 | `app/routers/vinos.py` | `GET`, `POST`, `PUT` y `DELETE` de `/vinos` |
 | `app/datos/clientes.py` | SQL de clientes: `listar()`, `detalle()`, `insertar()`, `insertar_subtipo()`, `insertar_permisos()`, `actualizar()`, `actualizar_subtipo()` y `borrar()` |
 | `app/routers/clientes.py` | `GET`, `POST`, `PUT` y `DELETE` de `/clientes` |
-| `app/datos/documentos.py` | SQL de los documentos de stock, una función por operación y por documento: `crear_transferencia()`, `agregar_renglon_transferencia()`, `terminar_transferencia()`, `procesar_transferencia()` y `obtener_transferencia()`. Ingresos (#30) agrega las suyas con el mismo formato |
+| `app/datos/documentos.py` | SQL de los documentos de stock, una función por operación y por documento: `crear_transferencia()`, `agregar_renglon_transferencia()`, `terminar_transferencia()`, `procesar_transferencia()` y `obtener_transferencia()`, y las mismas cinco de ingresos (`crear_ingreso()`, …) |
 | `app/routers/transferencias.py` | Alta, consulta, renglones, terminar y procesar de `/transferencias` |
+| `app/routers/ingresos.py` | Lo mismo para `/ingresos` |
 | `app/main.py` | `crear_app()`: ciclo de vida del pool, middleware del prefijo `/api`, manejadores de error, OpenAPI y `/salud` |
 | `tests/` | Pruebas con pytest, más `ejecutar.sh` (ver "Pruebas") |
 
@@ -161,7 +165,7 @@ Sólo se acepta exactamente `/api`. Swagger incrusta el prefijo en su HTML sin e
 ```
 app/
   datos/      una función por consulta, SQL parametrizado y visible (vinos.py, clientes.py, documentos.py)
-  routers/    un router por recurso: valida, llama a datos/, responde (vinos.py, clientes.py, transferencias.py)
+  routers/    un router por recurso: valida, llama a datos/, responde (vinos.py, clientes.py, transferencias.py, ingresos.py)
 ```
 
 - **SQL sólo en `app/datos/`.** Siempre parámetros (`%s` o `%(nombre)s`), nunca f-strings ni concatenación con datos del usuario. Columnas explícitas, nunca `SELECT *`.

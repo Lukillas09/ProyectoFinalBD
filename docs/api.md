@@ -1,6 +1,6 @@
 # Contrato de la API REST (Etapa 6) — borrador
 
-Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26), el CRUD de clientes de los tres tipos (`/clientes`, issue #27), la venta y consulta de comprobantes (`/comprobantes`, issue #28) y el circuito de transferencias (`/transferencias`, issue #29). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
+Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26), el CRUD de clientes de los tres tipos (`/clientes`, issue #27), la venta y consulta de comprobantes (`/comprobantes`, issue #28) y los circuitos de transferencias (`/transferencias`, issue #29) e ingresos (`/ingresos`, issue #30). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
 
 Principios que fija la consigna y `AGENTS.md`:
 
@@ -346,10 +346,11 @@ Nota: con un `cod_vino` inexistente la base responde `23502: null value in colum
 | `POST /transferencias/{nro}/renglones` | `{cod_vino, cantidad}` | 201, `TransferenciaDetalle` con el renglón nuevo, y `Location` | 404; 409 (P0001, la transferencia ya no está en confección, RN-12); 409 (23505, `pk_renglon_transferencia`, vino repetido); 422 (23514, cantidad no positiva); 422 (23503, vino inexistente) |
 | `POST /transferencias/{nro}/terminar` | — | 200, `TransferenciaDetalle` en `terminado` (`CALL sp_terminar_transferencia`) | 404 (P0002); 409 (P0001, transición inválida o sin renglones, RN-11) |
 | `POST /transferencias/{nro}/procesar` | — | 200, `TransferenciaDetalle` en `procesado` (`CALL sp_procesar_transferencia`) | 404 (P0002); 409 (P0001: no está terminada, ya fue procesada o falta stock en el depósito; no deja cambios) |
-| `POST /ingresos` | `{cod_transportista, cuit_bodega}` | 201: `{cod_ingreso, estado: "en_confeccion"}` | 422 (23503) |
-| `POST /ingresos/{cod}/renglones` | `{cod_vino, cantidad}` | 201 | igual que en transferencias (RN-10, RN-12) |
-| `POST /ingresos/{cod}/terminar` | — | 200 (`CALL sp_terminar_ingreso`) | **No figura en la consigna**: ver la sección 6 |
-| `POST /ingresos/{cod}/procesar` | — | 200 (`CALL sp_procesar_ingreso`) | 404; 409 (P0001, transición inválida, RN-10) |
+| `POST /ingresos` | `{cod_transportista, cuit_bodega}` | 201, `IngresoDetalle` en `en_confeccion`, sin renglones, y `Location: /ingresos/{cod}` | 422 (23503, `fk_ingreso_transportista` o `fk_ingreso_bodega`); 422 (`validacion`) |
+| `GET /ingresos/{cod}` | — | 200, `IngresoDetalle`: `{cod_ingreso, fecha, estado, cod_transportista, cuit_bodega, renglones: [{cod_vino, nombre_vino, cantidad}]}` | 404 (`no_encontrado`) |
+| `POST /ingresos/{cod}/renglones` | `{cod_vino, cantidad}` | 201, `IngresoDetalle` con el renglón nuevo, y `Location` | 404; 409 (P0001: ya no está en confección, RN-12, o vino de otra bodega, RN-16); 409 (23505, `pk_renglon_ingreso`); 422 (23514, 23503) |
+| `POST /ingresos/{cod}/terminar` | — | 200, `IngresoDetalle` en `terminado` (`CALL sp_terminar_ingreso`). **No figura en la consigna**: ver la sección 6 | 404 (P0002); 409 (P0001, transición inválida o sin renglones, RN-10) |
+| `POST /ingresos/{cod}/procesar` | — | 200, `IngresoDetalle` en `procesado` (`CALL sp_procesar_ingreso`) | 404 (P0002); 409 (P0001: no está terminado o ya fue procesado, RN-10; no suma de nuevo) |
 
 #### Circuito de transferencias implementado (issue #29)
 
@@ -427,6 +428,59 @@ POST /transferencias/999999999/procesar
 
 POST /transferencias  {"id_sala": 99999}
 422  {"detail": "El dato relacionado no existe.", "codigo": "23503", "restriccion": "fk_transferencia_sala_venta"}
+```
+
+#### Circuito de ingresos implementado (issue #30)
+
+Código: las funciones `*_ingreso` de `api/app/datos/documentos.py`, `api/app/routers/ingresos.py` y `IngresoEntrada` / `IngresoDetalle` en `api/app/esquemas.py`. Los modelos de renglón (`RenglonDocumentoEntrada`, `RenglonDocumento`) son comunes a los dos documentos. Pruebas: `api/tests/test_ingresos.py` y, en la base, `db/tests/008_ingreso_bodega.sql`.
+
+Es el mismo circuito que las transferencias, con las mismas decisiones: cada operación es una sola sentencia, el renglón se inserta con `INSERT … SELECT` desde la cabecera (sin fila, 404), todas las respuestas devuelven el ingreso completo y terminar uno ya terminado responde 200 sin cambios. Las diferencias:
+
+- **Procesar suma al depósito y no puede fallar por stock.** `sp_procesar_ingreso` bloquea la cabecera `FOR UPDATE`, suma cada renglón a `stock_deposito` en orden de `cod_vino` (crea la fila si no existe) y pasa a `procesado`. Procesar dos veces responde 409 y no suma de nuevo: impacto único (RN-10).
+- **La fecha es un instante** (`TIMESTAMPTZ`, `DEFAULT CURRENT_TIMESTAMP`), no un día como en las transferencias. `bodegas_api` sólo puede insertar `cod_transportista` y `cuit_bodega`: estado y fecha enviados se ignoran.
+- **`terminar` se implementa aunque la consigna no lo lista.** RN-10 exige pasar por `terminado` y la base no termina sola, así que sin este endpoint un ingreso creado por la API nunca podría procesarse. Queda abierta la pregunta a la cátedra (sección 6): si la respuesta fuera "procesar en un paso", alcanzaría con llamar a los dos procedimientos dentro de una transacción en `/procesar`.
+
+**RN-16: un ingreso sólo admite vinos de su bodega de origen (migración `009`).** El issue pedía definir qué pasa con un renglón de un vino de otra bodega.
+
+- **Antes**, la base lo aceptaba. La coherencia sólo la verificaba el control R3 de la carga masiva (`db/seed/controles.sql`), sobre los datos generados.
+- **Decisión:** rechazarlo en PostgreSQL, para todos los accesos (API, `psql`, consultas). La consigna registra la "bodega de origen" de cada ingreso y cada vino pertenece a una bodega. Es una regla del proyecto, no del PDF, y por eso lleva el número siguiente: RN-16.
+- **Mecanismo:** `trg_renglon_ingreso_bodega`, BEFORE INSERT o UPDATE de `cod_ingreso` / `cod_vino`. Responde P0001, 409 en la API. Se descartó una FK compuesta: obligaría a copiar `cuit_bodega` en cada renglón.
+- **Orden:** se dispara después de `trg_renglon_ingreso_bloqueo` (orden alfabético), así un ingreso terminado responde RN-12 primero.
+- **Se descartó validarlo sólo en la API:** un acceso directo a la base la saltearía.
+- **Sin efecto sobre la carga:** los datos generados ya la cumplen (R3 en 0). Verificado desde un volumen vacío con `ESCALA=1`: la carga, `controles.sql`, `post_carga.sql` e I6 pasan, y las huellas de `hashes.sql` no cambian.
+
+Respuestas reales por `/api/...` (proyecto aislado con la carga `ESCALA=0.1`; el vino 5 es de la bodega 30505499219):
+
+```json
+POST /ingresos  {"cod_transportista": 1, "cuit_bodega": "30505499219", "estado": "procesado"}
+201  Location: /api/ingresos/4029
+{"cod_ingreso": 4029, "fecha": "2026-11-09T02:36:20.690784Z", "estado": "en_confeccion",
+ "cod_transportista": 1, "cuit_bodega": "30505499219", "renglones": []}
+
+POST /ingresos/4030/renglones  {"cod_vino": 5, "cantidad": 120}
+201  {... "estado": "en_confeccion", "renglones": [{"cod_vino": 5, "nombre_vino": "Merlot Selección", "cantidad": 120}]}
+
+POST /ingresos/4030/renglones  {"cod_vino": 1, "cantidad": 12}
+409  {"detail": "RN-16: el vino 1 es de la bodega 30555408710; el ingreso 4030 es de la bodega 30505499219.", "codigo": "P0001"}
+
+POST /ingresos/4030/procesar          (en confección)
+409  {"detail": "RN-10: el ingreso 4030 está en_confeccion; sólo un ingreso terminado impacta en el depósito.", "codigo": "P0001"}
+
+POST /ingresos/4030/terminar
+200  {... "estado": "terminado" ...}
+
+POST /ingresos/4030/procesar
+200  {... "estado": "procesado" ...}     (depósito del vino 5: 338 -> 458)
+
+POST /ingresos/4030/procesar
+409  {"detail": "RN-10: el ingreso 4030 está procesado; sólo un ingreso terminado impacta en el depósito.", "codigo": "P0001"}
+     (el depósito sigue en 458)
+
+POST /ingresos  {"cod_transportista": 1, "cuit_bodega": "99999999999"}
+422  {"detail": "El dato relacionado no existe.", "codigo": "23503", "restriccion": "fk_ingreso_bodega"}
+
+POST /ingresos/999999999/terminar
+404  {"detail": "El ingreso 999999999 no existe.", "codigo": "P0002"}
 ```
 
 ### Reportes (consultas de la sección 8, sólo lectura)
@@ -537,5 +591,5 @@ Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cad
 ## 6. Preguntas abiertas para la cátedra
 
 1. **`/reportes/trazabilidad/{cod}`.** El modelo no vincula un vino con lotes de uva concretos. `lote_uva` registra a qué bodega se entregó cada cosecha, y `vino` tiene bodega, añada y corte (cepas). La interpretación posible, que se probó como SQL salvo por el permiso, es esta: lotes de las cepas del corte, cosechados en la añada del vino y entregados a su bodega, con finca, parcela y análisis de calidad. Es una aproximación, no una trazabilidad exacta. ¿Alcanza, o se espera otro alcance (por ejemplo, sólo el corte y la bodega)?
-2. **`POST /ingresos/{cod}/terminar`.** La consigna lista sólo `procesar` para ingresos, "mismo circuito que las transferencias". Pero RN-10 exige pasar por `terminado`, y `sp_terminar_ingreso` existe. ¿Se agrega el endpoint, o `procesar` debe terminar y procesar en un paso?
+2. **`POST /ingresos/{cod}/terminar`.** La consigna lista sólo `procesar` para ingresos, "mismo circuito que las transferencias". Pero RN-10 exige pasar por `terminado`, y `sp_terminar_ingreso` existe. ¿Se agrega el endpoint, o `procesar` debe terminar y procesar en un paso? **Mientras tanto (issue #30)** se implementó el endpoint, porque sin él un ingreso creado por la API no podría procesarse.
 3. **S12 B.** ¿"Clientes que nunca compraron tintos" incluye a los que no compraron nada? Hoy sí: son 4.715 de 7.170.

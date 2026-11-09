@@ -27,11 +27,11 @@ Incluye:
 - lógica de negocio en la base (Etapa 2):
   - 7 funciones (4 de cálculo pedidas por la consigna y `fn_registrar_venta`, único camino de venta de la API);
   - 4 procedimientos de ingresos y transferencias;
-  - 20 triggers (10 BEFORE, 2 AFTER, 8 constraint triggers diferidos);
+  - 21 triggers (11 BEFORE, 2 AFTER, 8 constraint triggers diferidos), uno de ellos agregado en la Etapa 6 por `009_ingreso_bodega.sql` (RN-16);
   - 4 vistas;
   - privilegios mínimos para la API (`bodegas_rw`) y para reportes (`bodegas_ro`);
 - runner de migraciones con transacción, registro y SHA-256, ejecutado por el servicio de única ejecución `migrate`;
-- pruebas SQL de estructura, reglas RN-01 a RN-15, privilegios y roles;
+- pruebas SQL de estructura, reglas RN-01 a RN-16, privilegios y roles;
 - carga masiva reproducible (Etapa 3): 6 años de historia, más de 150.000 ventas y 530.000 renglones, con catálogos reales, consultas de control y volcado; ver [Carga masiva](#carga-masiva-etapa-3);
 - índices y rendimiento (Etapa 4): 6 índices en `008_indices.sql` (48 en total en el esquema, contando los de PK y `UNIQUE`), medidos antes y después con `EXPLAIN (ANALYZE, BUFFERS)`; ver [Medir el rendimiento](#medir-el-rendimiento-etapa-4).
 
@@ -159,6 +159,7 @@ El script termina con código distinto de cero si alguna prueba falla. Desde Git
 | `005_roles.sql` | propietario con `SET ROLE` | Operaciones reales de la API y de reportes: lo permitido funciona y lo prohibido da 42501. |
 | `006_conexion_reportes.sql` | reportes | La cuenta de reportes sólo lee. |
 | `007_comprobante_emitido.sql` | propietario | Un comprobante confirmado no admite renglones nuevos, aun como propietario; U1 sigue funcionando. Usa varias transacciones y limpia sus datos. |
+| `008_ingreso_bodega.sql` | propietario | RN-16 (`009`): un ingreso sólo admite vinos de su bodega de origen. |
 
 Las pruebas de propietario terminan en `ROLLBACK`, salvo `007`, que necesita una venta confirmada y la borra al terminar. La correspondencia de cada regla con su caso está en [docs/trazabilidad.md](docs/trazabilidad.md).
 

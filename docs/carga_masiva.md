@@ -129,7 +129,7 @@ Ningún trigger las valida; `controles.sql` las verifica.
 |---|---|
 | R1. Comprobante con fecha ≥ alta del cliente | Cada venta elige entre los clientes ya dados de alta ese día. |
 | R2. Ningún movimiento de un vino antes del 1/1 del año siguiente a su añada | Ingresos y transferencias ignoran el vino antes de esa fecha; las ventas sólo usan stock ya transferido. |
-| R3. Renglones de un ingreso sólo con vinos de su bodega | Cada ingreso se arma con los vinos de una bodega. |
+| R3. Renglones de un ingreso sólo con vinos de su bodega | Cada ingreso se arma con los vinos de una bodega. Desde `009` también la exige la base (RN-16, `trg_renglon_ingreso_bodega`), que queda activo durante la carga: los datos generados ya la cumplen. |
 | R4. Análisis con fecha ≥ cosecha | Entre 0 y 20 días después de la cosecha. |
 | R5. Ninguna fecha posterior a `FECHA_REFERENCIA` | Incluye altas, ingreso de empleados, emisión de permisos, auditoría, ventas, documentos, cosechas y análisis. |
 | R6. Añadas coherentes | Entre `FECHA_REFERENCIA` − 10 y − 1 años; ninguna futura. |

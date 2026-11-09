@@ -9,6 +9,7 @@
 5. `005_roles.sql` (propietario con `SET LOCAL ROLE` a cada grupo): operaciones reales de la API y de reportes; lo prohibido debe dar 42501. También verifica las funciones `SECURITY DEFINER`.
 6. `006_conexion_reportes.sql` (cuenta de reportes): sólo lectura efectiva.
 7. `007_comprobante_emitido.sql` (propietario): un comprobante confirmado en una transacción anterior no admite renglones nuevos, ni siquiera para el propietario, y U1 (`fn_recalcular_comprobante`) sigue funcionando. Usa varias transacciones: borra restos de una ejecución interrumpida al empezar y sus datos al terminar.
+8. `008_ingreso_bodega.sql` (propietario): RN-16, agregada por `009`. Un ingreso acepta vinos de su bodega y rechaza los de otra, también al cambiar el vino de un renglón y en la forma de I6 (cabecera y renglón en una sola sentencia con un CTE). Ingreso o vino inexistente siguen respondiendo la FK, y un ingreso terminado responde RN-12 antes que RN-16.
 
 `ayudantes.sql` define `esperar_error` y `afirmar` en `pg_temp`; las pruebas lo incluyen con `\ir`. `esperar_error` exige el SQLSTATE y, si se indican, la constraint y un patrón del mensaje. Falla si la sentencia es aceptada.
 
