@@ -1,6 +1,6 @@
 # Contrato de la API REST (Etapa 6) — borrador
 
-Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26), y el CRUD de clientes de los tres tipos (`/clientes`, issue #27). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
+Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26), el CRUD de clientes de los tres tipos (`/clientes`, issue #27), la venta y consulta de comprobantes (`/comprobantes`, issue #28) y el circuito de transferencias (`/transferencias`, issue #29). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
 
 Principios que fija la consigna y `AGENTS.md`:
 
@@ -341,14 +341,93 @@ Nota: con un `cod_vino` inexistente la base responde `23502: null value in colum
 
 | Método y ruta | Cuerpo | Respuesta | Errores esperados |
 |---|---|---|---|
-| `POST /transferencias` | `{id_sala}` | 201: `{nro_transferencia, estado: "en_confeccion"}` | 422 (23503) |
-| `POST /transferencias/{nro}/renglones` | `{cod_vino, cantidad}` | 201 | 404; 409 (P0001, la transferencia ya no está en confección, RN-12); 409 (23505, vino repetido); 422 (23514) |
-| `POST /transferencias/{nro}/terminar` | — | 200, `estado: "terminado"` (`CALL sp_terminar_transferencia`) | 404; 409 (P0001, transición inválida o sin renglones, RN-11) |
-| `POST /transferencias/{nro}/procesar` | — | 200, `estado: "procesado"` (`CALL sp_procesar_transferencia`) | 404; 409 (P0001, sin stock en el depósito: no deja cambios) |
+| `POST /transferencias` | `{id_sala}` | 201, `TransferenciaDetalle` en `en_confeccion`, sin renglones, y `Location: /transferencias/{nro}` | 422 (23503, `fk_transferencia_sala_venta`); 422 (`validacion`) |
+| `GET /transferencias/{nro}` | — | 200, `TransferenciaDetalle`: `{nro_transferencia, id_sala, fecha_confeccion, estado, renglones: [{cod_vino, nombre_vino, cantidad}]}` | 404 (`no_encontrado`) |
+| `POST /transferencias/{nro}/renglones` | `{cod_vino, cantidad}` | 201, `TransferenciaDetalle` con el renglón nuevo, y `Location` | 404; 409 (P0001, la transferencia ya no está en confección, RN-12); 409 (23505, `pk_renglon_transferencia`, vino repetido); 422 (23514, cantidad no positiva); 422 (23503, vino inexistente) |
+| `POST /transferencias/{nro}/terminar` | — | 200, `TransferenciaDetalle` en `terminado` (`CALL sp_terminar_transferencia`) | 404 (P0002); 409 (P0001, transición inválida o sin renglones, RN-11) |
+| `POST /transferencias/{nro}/procesar` | — | 200, `TransferenciaDetalle` en `procesado` (`CALL sp_procesar_transferencia`) | 404 (P0002); 409 (P0001: no está terminada, ya fue procesada o falta stock en el depósito; no deja cambios) |
 | `POST /ingresos` | `{cod_transportista, cuit_bodega}` | 201: `{cod_ingreso, estado: "en_confeccion"}` | 422 (23503) |
 | `POST /ingresos/{cod}/renglones` | `{cod_vino, cantidad}` | 201 | igual que en transferencias (RN-10, RN-12) |
 | `POST /ingresos/{cod}/terminar` | — | 200 (`CALL sp_terminar_ingreso`) | **No figura en la consigna**: ver la sección 6 |
 | `POST /ingresos/{cod}/procesar` | — | 200 (`CALL sp_procesar_ingreso`) | 404; 409 (P0001, transición inválida, RN-10) |
+
+#### Circuito de transferencias implementado (issue #29)
+
+Código: `api/app/datos/documentos.py` (SQL), `api/app/routers/transferencias.py` (rutas) y los modelos de transferencias en `api/app/esquemas.py`. Pruebas: `api/tests/test_transferencias.py`.
+
+**`documentos.py`, compartido con ingresos (#30).** Cada documento tiene sus constantes SQL y una función por operación, con el nombre del documento en el nombre (`crear_transferencia`, `procesar_transferencia`, …). Ingresos agrega las suyas al lado con el mismo formato. Se descartó un módulo genérico que arme el SQL con nombres de tabla variables (`psycopg.sql.Identifier`): ahorra repetición, pero el SQL deja de leerse completo en el código.
+
+**Qué hace la API y qué hace la base.** La API crea la cabecera, agrega renglones e invoca los dos procedimientos. Cada operación es **una sola sentencia**, atómica en autocommit, y la transferencia se lee después de confirmarla. Todo lo demás lo decide PostgreSQL:
+
+| Regla | Mecanismo en la base | Respuesta |
+|---|---|---|
+| RN-11: nace en confección con la fecha actual | `DEFAULT 'en_confeccion'`, `trg_transferencia_fecha` (fuerza `CURRENT_DATE`) y el `INSERT` sólo sobre `id_sala` | `estado` y `fecha_confeccion` enviados en el cuerpo se ignoran |
+| RN-11: `en_confeccion → terminado → procesado`, sin saltos ni retrocesos; terminar exige renglones | `trg_transferencia_estado` (`fn_validar_transicion_estado`); `procesado` sólo desde `sp_procesar_transferencia` | 409 (P0001) |
+| RN-12: los renglones se editan sólo en confección | `trg_renglon_transferencia_bloqueo` (bloquea la cabecera `FOR SHARE`) | 409 (P0001) |
+| Cantidad positiva, un renglón por vino, vino existente | `ck_renglon_transferencia_cantidad_positiva`, `pk_renglon_transferencia`, `fk_renglon_transferencia_vino` | 422 (23514), 409 (23505), 422 (23503) |
+| RN-11: procesar mueve el stock, todo o nada | `sp_procesar_transferencia` (`SECURITY DEFINER`); la API no tiene `UPDATE` sobre stock ni estados | 409 (P0001) si falta stock, sin cambios |
+
+- **Las respuestas devuelven la transferencia completa**, incluidos el alta y el renglón nuevo. El front de la Etapa 7 redibuja la pantalla con una sola respuesta y habilita los botones según `estado`.
+- **404 de un renglón sin consulta previa.** El renglón se inserta con `INSERT … SELECT … FROM transferencia WHERE nro_transferencia = %(nro)s RETURNING …`. Si la transferencia no existe, no se inserta nada y `RETURNING` no devuelve fila: 404, como el `UPDATE … RETURNING` de `PUT /vinos`. Sin esto, el trigger RN-12 dejaría pasar el renglón (no encuentra cabecera y supone un borrado en cascada) y la FK respondería 23503, que es 422. No hay ventana entre "existe" y "agrego": la API no puede borrar transferencias. Un `SELECT … FOR SHARE` previo tampoco serviría, porque exige `UPDATE` sobre la tabla.
+- **Terminar una transferencia ya terminada responde 200 sin cambios.** `fn_validar_transicion_estado` acepta un estado igual al anterior: no es una transición. Una procesada no vuelve a terminado (409).
+- **404 con dos `codigo`.** `GET` y renglones responden `no_encontrado` (lo decide el endpoint); terminar y procesar, `P0002` (lo decide el procedimiento). El `detail` es el mismo: "La transferencia N no existe.".
+- **Sin stock, el `detail` no lista los vinos faltantes.** El procedimiento los informa en el DETAIL ("vino 600: pide 164, hay 163"), y `errores.py` nunca envía el DETAIL de PostgreSQL (sección 3).
+- **La fecha es la del servidor de base, que está en UTC.** Una transferencia creada después de las 21 h de Argentina queda con la fecha del día siguiente. Pasa lo mismo con todas las fechas de la base (`fecha_alta` de clientes, `fecha` de comprobantes); corregirlo es fijar la zona horaria de la base, una decisión pendiente que no es de este issue.
+
+**Concurrencia: `FOR UPDATE` y orden de bloqueo.** `sp_procesar_transferencia`:
+
+1. bloquea la cabecera con `SELECT … FOR UPDATE` y exige `terminado`. Dos procesos de la misma transferencia se serializan: el segundo espera, ve `procesado` y responde 409, sin mover stock otra vez;
+2. bloquea las filas de `stock_deposito` de sus vinos **en orden de `cod_vino`**. Dos transferencias con vinos en común piden los bloqueos en el mismo orden y no se bloquean en cruz (deadlock);
+3. verifica el stock de cada renglón, incluidos los vinos sin fila en el depósito, y recién entonces descuenta, suma a la sala y cambia el estado.
+
+`test_procesar_concurrente_espera_y_no_mueve_dos_veces` lo prueba por la API: otra sesión procesa la transferencia sin confirmar; el `POST /procesar` queda esperando el bloqueo (visible en `pg_stat_activity` con `wait_event_type = 'Lock'`); al confirmar, la API responde 409 y las botellas se movieron una sola vez. La demostración con dos sesiones de `psql` está en `docs/concurrencia.md`.
+
+Respuestas reales por `/api/...` (proyecto aislado con la carga `ESCALA=0.1`):
+
+```json
+POST /transferencias  {"id_sala": 1, "estado": "procesado", "fecha_confeccion": "2000-01-01"}
+201  Location: /api/transferencias/4484
+{"nro_transferencia": 4484, "id_sala": 1, "fecha_confeccion": "2026-11-09", "estado": "en_confeccion", "renglones": []}
+
+POST /transferencias/4485/terminar          (sin renglones)
+409  {"detail": "RN-11: no se puede terminar la transferencia 4485 sin renglones.", "codigo": "P0001"}
+
+POST /transferencias/4485/renglones  {"cod_vino": 1, "cantidad": 12}
+201  Location: /api/transferencias/4485
+{"nro_transferencia": 4485, "id_sala": 1, "fecha_confeccion": "2026-11-09", "estado": "en_confeccion",
+ "renglones": [{"cod_vino": 1, "nombre_vino": "Malbec Clásico", "cantidad": 12}]}
+
+POST /transferencias/4485/renglones  {"cod_vino": 1, "cantidad": 1}
+409  {"detail": "Ya existe un registro con esos datos.", "codigo": "23505", "restriccion": "pk_renglon_transferencia"}
+
+POST /transferencias/4485/renglones  {"cod_vino": 1, "cantidad": 0}
+422  {"detail": "Un valor no cumple una regla de validación.", "codigo": "23514", "restriccion": "ck_renglon_transferencia_cantidad_positiva"}
+
+POST /transferencias/4485/procesar          (en confección)
+409  {"detail": "RN-11: la transferencia 4485 está en_confeccion; sólo una transferencia terminada impacta en el stock.", "codigo": "P0001"}
+
+POST /transferencias/4485/terminar
+200  {... "estado": "terminado" ...}
+
+POST /transferencias/4485/renglones  {"cod_vino": 1, "cantidad": 1}
+409  {"detail": "RN-12: la transferencia 4485 está terminado; no admite cambios en sus renglones.", "codigo": "P0001"}
+
+POST /transferencias/4485/procesar
+200  {... "estado": "procesado" ...}     (depósito −12 y sala 1 +12 del vino 1)
+
+POST /transferencias/4485/procesar
+409  {"detail": "RN-11: la transferencia 4485 está procesado; sólo una transferencia terminada impacta en el stock.", "codigo": "P0001"}
+
+POST /transferencias/4487/procesar          (pide 164 botellas del vino 600; el depósito tiene 163)
+409  {"detail": "RN-11: el depósito no tiene stock suficiente para la transferencia 4487.", "codigo": "P0001"}
+     (después: el depósito sigue con 163 y la transferencia sigue terminada)
+
+POST /transferencias/999999999/procesar
+404  {"detail": "La transferencia 999999999 no existe.", "codigo": "P0002"}
+
+POST /transferencias  {"id_sala": 99999}
+422  {"detail": "El dato relacionado no existe.", "codigo": "23503", "restriccion": "fk_transferencia_sala_venta"}
+```
 
 ### Reportes (consultas de la sección 8, sólo lectura)
 
