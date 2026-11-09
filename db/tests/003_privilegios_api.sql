@@ -2,7 +2,7 @@
 
 -- Ejecutar con la cuenta de la API después de las migraciones. Comprueba los
 -- privilegios que la cuenta tiene efectivamente (heredados de bodegas_rw)
--- contra la matriz esperada de 007_roles.sql: si sobra o falta alguno, falla
+-- contra la matriz esperada de 007_roles.sql y 010: si sobra o falta alguno, falla
 -- y lo nombra. Cada aserción falsa ejecuta RAISE EXCEPTION para que psql, con
 -- ON_ERROR_STOP, termine con código distinto de cero.
 SET search_path TO bodegas, pg_catalog;
@@ -40,17 +40,22 @@ SELECT (
 DO $$
 DECLARE
   v_esperado TEXT[] := ARRAY[
+    'analisis_calidad:SELECT',
     'auditoria_precio:SELECT',
     'bodega:SELECT',
     'cepa:SELECT',
     'cliente:DELETE', 'cliente:INSERT', 'cliente:SELECT', 'cliente:UPDATE',
     'composicion_vino:DELETE', 'composicion_vino:INSERT', 'composicion_vino:SELECT', 'composicion_vino:UPDATE',
     'comprobante:SELECT',
+    'departamento:SELECT',
     'distribuidor:DELETE', 'distribuidor:INSERT', 'distribuidor:SELECT', 'distribuidor:UPDATE',
     'exportador:DELETE', 'exportador:INSERT', 'exportador:SELECT', 'exportador:UPDATE',
+    'finca:SELECT',
     'ingreso:SELECT',
     'localidad:SELECT',
+    'lote_uva:SELECT',
     'maridaje:SELECT',
+    'parcela:SELECT',
     'permiso_exportacion:DELETE', 'permiso_exportacion:INSERT', 'permiso_exportacion:SELECT', 'permiso_exportacion:UPDATE',
     'renglon_comprobante:SELECT',
     'renglon_ingreso:DELETE', 'renglon_ingreso:INSERT', 'renglon_ingreso:SELECT',

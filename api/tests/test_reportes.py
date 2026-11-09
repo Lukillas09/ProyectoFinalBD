@@ -232,3 +232,78 @@ def test_periodo_invertido_422(cliente, params) -> None:
     assert respuesta.status_code == 422, respuesta.text
     assert respuesta.json()["codigo"] == "dato_invalido"
     assert respuesta.json()["detail"].startswith("El período es inválido: desde (")
+
+
+# --- Trazabilidad (issue #32) ----------------------------------------------------
+
+# Los lotes compatibles con un vino según el supuesto de docs/requisitos.md,
+# escritos aparte del SQL de la API: misma bodega, campaña = añada y cepa
+# de la parcela en el corte.
+LOTES_COMPATIBLES = """
+SELECT l.nro_lote
+FROM lote_uva AS l
+JOIN parcela AS p ON p.id_finca = l.id_finca AND p.nro_parcela = l.nro_parcela
+JOIN vino AS v ON v.cuit_bodega = l.cuit_bodega AND v.anada = l.campania
+WHERE v.cod_vino = %s
+  AND p.id_cepa IN (SELECT id_cepa FROM composicion_vino WHERE cod_vino = v.cod_vino)
+ORDER BY l.fecha_cosecha, l.nro_lote
+"""
+
+VINO_CON_LOTES = """
+SELECT min(v.cod_vino) FROM vino AS v
+WHERE {} EXISTS (
+  SELECT 1 FROM lote_uva AS l
+  JOIN parcela AS p ON p.id_finca = l.id_finca AND p.nro_parcela = l.nro_parcela
+  JOIN composicion_vino AS cv ON cv.cod_vino = v.cod_vino AND cv.id_cepa = p.id_cepa
+  WHERE l.cuit_bodega = v.cuit_bodega AND l.campania = v.anada)
+"""
+
+
+def test_trazabilidad_de_un_vino_con_lotes(cliente, consultar, consultar_filas) -> None:
+    cod_vino = consultar(VINO_CON_LOTES.format(""))
+    assert cod_vino is not None, "la carga no tiene vinos con lotes compatibles"
+
+    respuesta = cliente.get(f"/reportes/trazabilidad/{cod_vino}")
+
+    assert respuesta.status_code == 200, respuesta.text
+    datos = respuesta.json()
+    esperados = [fila[0] for fila in consultar_filas(LOTES_COMPATIBLES, (cod_vino,))]
+    assert [lote["nro_lote"] for lote in datos["lotes"]] == esperados
+
+    bodega, anada = consultar_filas("SELECT cuit_bodega, anada FROM vino WHERE cod_vino = %s", (cod_vino,))[0]
+    assert (datos["cuit_bodega"], datos["anada"]) == (bodega, anada)
+    cepas_del_corte = {cepa["id_cepa"] for cepa in datos["corte"]}
+    for lote in datos["lotes"]:
+        assert lote["campania"] == anada
+        assert lote["id_cepa"] in cepas_del_corte
+        assert len(lote["analisis"]) == consultar(
+            "SELECT count(*) FROM analisis_calidad WHERE nro_lote = %s", (lote["nro_lote"],))
+    # Los NUMERIC del JSON armado en PostgreSQL llegan exactos, como string.
+    primero = datos["lotes"][0]
+    assert primero["kilos"] == str(consultar("SELECT kilos FROM lote_uva WHERE nro_lote = %s",
+                                             (primero["nro_lote"],)))
+
+
+def test_trazabilidad_de_un_vino_sin_lotes(cliente, consultar) -> None:
+    cod_vino = consultar(VINO_CON_LOTES.format("NOT"))
+    assert cod_vino is not None, "la carga no tiene vinos sin lotes compatibles"
+
+    respuesta = cliente.get(f"/reportes/trazabilidad/{cod_vino}")
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert respuesta.json()["lotes"] == []
+    assert respuesta.json()["corte"], "todo vino tiene corte (RN-05)"
+
+
+def test_trazabilidad_de_un_vino_inexistente_404(cliente) -> None:
+    respuesta = cliente.get("/reportes/trazabilidad/999999999")
+
+    assert respuesta.status_code == 404, respuesta.text
+    assert respuesta.json() == {"detail": "El vino 999999999 no existe.", "codigo": "no_encontrado"}
+
+
+def test_trazabilidad_codigo_invalido_422(cliente) -> None:
+    respuesta = cliente.get("/reportes/trazabilidad/0")
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["codigo"] == "validacion"

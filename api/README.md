@@ -23,6 +23,7 @@
 | `POST /ingresos/{cod}/renglones` (sólo en confección, RN-12, y sólo vinos de la bodega de origen, RN-16) | #30 |
 | `POST /ingresos/{cod}/terminar` y `/procesar` (`CALL sp_*_ingreso`; la base suma al depósito) | #30 |
 | `GET /reportes/top-vinos`, `/ventas-por-sala`, `/vinos-sin-stock` y `/transportista-activo` (S1, S8, S6 y S7) | #31 |
+| `GET /reportes/trazabilidad/{cod_vino}` (lotes compatibles con el vino; supuesto a la espera de la cátedra) | #32 |
 
 Todo se apoya en la **base común de la Etapa 6** (issue #24):
 
@@ -32,7 +33,7 @@ Todo se apoya en la **base común de la Etapa 6** (issue #24):
 - Swagger detrás de nginx;
 - pruebas aisladas.
 
-El reporte de trazabilidad queda pendiente de la respuesta de la cátedra (issue #32), según el contrato de [docs/api.md](../docs/api.md).
+Están todos los endpoints del contrato de [docs/api.md](../docs/api.md). El alcance de la trazabilidad es un supuesto hasta que responda la cátedra.
 
 ## Qué hay
 
@@ -49,8 +50,8 @@ El reporte de trazabilidad queda pendiente de la respuesta de la cátedra (issue
 | `app/datos/documentos.py` | SQL de los documentos de stock, una función por operación y por documento: `crear_transferencia()`, `agregar_renglon_transferencia()`, `terminar_transferencia()`, `procesar_transferencia()` y `obtener_transferencia()`, y las mismas cinco de ingresos (`crear_ingreso()`, …) |
 | `app/routers/transferencias.py` | Alta, consulta, renglones, terminar y procesar de `/transferencias` |
 | `app/routers/ingresos.py` | Lo mismo para `/ingresos` |
-| `app/datos/reportes.py` | SQL de S1, S8, S6 y S7 de la Etapa 5, parametrizado: `top_vinos()`, `periodo_ventas()`, `ventas_por_sala()`, `sala_existe()`, `vinos_sin_stock()` y `transportista_activo()` |
-| `app/routers/reportes.py` | Los cuatro `GET /reportes/...` |
+| `app/datos/reportes.py` | SQL de S1, S8, S6 y S7 de la Etapa 5, parametrizado: `top_vinos()`, `periodo_ventas()`, `ventas_por_sala()`, `sala_existe()`, `vinos_sin_stock()`, `transportista_activo()` y `trazabilidad()` |
+| `app/routers/reportes.py` | Los cinco `GET /reportes/...` |
 | `app/main.py` | `crear_app()`: ciclo de vida del pool, middleware del prefijo `/api`, manejadores de error, OpenAPI y `/salud` |
 | `tests/` | Pruebas con pytest, más `ejecutar.sh` (ver "Pruebas") |
 

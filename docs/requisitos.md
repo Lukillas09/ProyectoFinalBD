@@ -251,7 +251,7 @@ Traducción sugerida del PDF: `23505 -> 409`; `23503 -> 409 o 422`; `23514` y `2
 
 Contrato borrador, traducción completa de SQLSTATE y privilegios verificados: `docs/api.md`. Preguntas abiertas para la cátedra, sin eliminar nada del PDF:
 
-- el alcance de `/reportes/trazabilidad/{cod}`, que el modelo no resuelve directamente;
+- el alcance de `/reportes/trazabilidad/{cod}`, que el modelo no resuelve directamente. **Sin respuesta al implementarlo (issue #32), se aplica este supuesto explícito:** los lotes que pudieron originar un vino son los que **su bodega** recibió en **la campaña de su añada**, de parcelas plantadas con **alguna cepa de su corte**. Se muestran con finca, departamento, parcela y análisis de calidad. Es una aproximación: el modelo no registra qué lotes se usaron en cada elaboración, y no se inventa esa relación (supuesto 13). Si la cátedra pide otro alcance, cambian la consulta `TRAZABILIDAD` de `api/app/datos/reportes.py` y, si deja de leer la producción de uva, los privilegios de `010`;
 - `POST /ingresos/{cod}/terminar`, que el PDF no lista aunque RN-10 exige el estado `terminado`. Mientras no haya respuesta, se implementó (issue #30): sin él, un ingreso creado por la API no podría procesarse.
 
 ### 3.9 Front, nube, documentación y evaluación
@@ -340,9 +340,9 @@ Las ambigüedades se resolvieron de forma conservadora para poder avanzar. No se
 10. **Permiso:** código global natural como supuesto revisable.
 11. **Depósito:** singleton implícito mediante una fila por vino, sin tabla sin atributos.
 12. **Tiempo:** eventos operativos/auditoría con `TIMESTAMPTZ`; conceptos por día con `DATE`.
-13. **Trazabilidad:** no se inventa una relación lote-vino; necesitaría una extensión explícita de elaboración.
+13. **Trazabilidad:** no se inventa una relación lote-vino; necesitaría una extensión explícita de elaboración. El reporte de la Etapa 6 muestra los lotes **compatibles** con el vino (bodega, campaña = añada, cepas del corte), como supuesto (sección 3.8).
 14. **Borrados históricos:** D1/D5 eliminan cabecera y renglones; no revierten stock porque son depuración histórica, no anulación operativa.
-15. **Permisos API:** desde la Etapa 2, `bodegas_rw` recibe lo que necesitan los endpoints de la Etapa 6, verificado endpoint por endpoint como `bodegas_api` el 2026-11-05 (`docs/api.md`, sección 4). La excepción es `/reportes/trazabilidad/{cod}`: le falta `SELECT` sobre `parcela`, `lote_uva`, `finca` y `analisis_calidad`, que se otorgaría en una `009` cuando la cátedra confirme el alcance del reporte. No tiene DML sobre stock, auditoría, importes ni estados: esos cambios ocurren sólo por triggers y procedimientos `SECURITY DEFINER` (`007_roles.sql`).
+15. **Permisos API:** desde la Etapa 2, `bodegas_rw` recibe lo que necesitan los endpoints de la Etapa 6, verificado endpoint por endpoint como `bodegas_api` el 2026-11-05 (`docs/api.md`, sección 4). La excepción era `/reportes/trazabilidad/{cod}`: `010_privilegios_trazabilidad.sql` (issue #32) otorga `SELECT` sobre `departamento`, `finca`, `parcela`, `lote_uva` y `analisis_calidad`, sin ningún privilegio de escritura. La numeración prevista era `009`, pero esa la tomó RN-16. No tiene DML sobre stock, auditoría, importes ni estados: esos cambios ocurren sólo por triggers y procedimientos `SECURITY DEFINER` (`007_roles.sql`).
 16. **Temas no vistos:** las transacciones se implementan aunque sean opcionales (sección 4). Sigue pendiente confirmar con la cátedra si concurrencia también queda exceptuada; mientras tanto se trata como obligatoria.
 17. **Ubicación de pruebas:** se adopta `db/tests/`.
 18. **Anexo C ausente:** sigue pendiente solicitar las preguntas de defensa mencionadas pero no incluidas en el PDF.

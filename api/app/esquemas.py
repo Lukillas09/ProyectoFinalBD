@@ -505,3 +505,48 @@ class ReporteTransportistaActivo(BaseModel):
     dias: int
     items: list[TransportistaActivo] = Field(
         description="Los transportistas con más ingresos: más de uno si empatan; vacío si no hubo ingresos.")
+
+
+# --- Trazabilidad (issue #32) -------------------------------------------------
+
+class AnalisisDeLote(BaseModel):
+    """Un análisis de calidad de un lote."""
+
+    fecha_analisis: date
+    grado_brix: Decimal = Field(examples=["24.50"])
+    ph: Decimal = Field(examples=["3.50"])
+    acidez_total: Decimal = Field(examples=["5.80"])
+
+
+class LoteDeOrigen(BaseModel):
+    """Un lote de uva que pudo originar el vino, con su finca y parcela."""
+
+    nro_lote: int
+    campania: int
+    fecha_cosecha: date
+    kilos: Decimal = Field(examples=["12500.00"])
+    id_cepa: int
+    cepa: str
+    id_finca: int
+    finca: str
+    departamento: str
+    provincia: str
+    nro_parcela: int
+    analisis: list[AnalisisDeLote] = Field(description="Ordenados por fecha; puede ser [].")
+
+
+class ReporteTrazabilidad(BaseModel):
+    """Trazabilidad aproximada de un vino (supuesto de docs/requisitos.md).
+
+    El modelo no registra con qué lotes se elaboró cada vino. ``lotes`` son
+    los que su bodega recibió en la campaña de su añada, de parcelas de las
+    cepas de su corte.
+    """
+
+    cod_vino: int
+    nombre: str
+    anada: int
+    cuit_bodega: str
+    bodega: str
+    corte: list[CepaEnVino] = Field(description="Ordenado por porcentaje, de mayor a menor.")
+    lotes: list[LoteDeOrigen] = Field(description="Ordenados por fecha de cosecha; puede ser [].")

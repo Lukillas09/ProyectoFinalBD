@@ -1,6 +1,6 @@
 # Contrato de la API REST (Etapa 6) — borrador
 
-Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26), el CRUD de clientes de los tres tipos (`/clientes`, issue #27), la venta y consulta de comprobantes (`/comprobantes`, issue #28) y los circuitos de transferencias (`/transferencias`, issue #29) e ingresos (`/ingresos`, issue #30), y los cuatro reportes de sólo lectura (`/reportes/...`, issue #31; falta trazabilidad). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
+Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26), el CRUD de clientes de los tres tipos (`/clientes`, issue #27), la venta y consulta de comprobantes (`/comprobantes`, issue #28) y los circuitos de transferencias (`/transferencias`, issue #29) e ingresos (`/ingresos`, issue #30), y los reportes de sólo lectura (`/reportes/...`, issue #31; trazabilidad, issue #32, como supuesto). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
 
 Principios que fija la consigna y `AGENTS.md`:
 
@@ -491,7 +491,7 @@ POST /ingresos/999999999/terminar
 | `GET /reportes/ventas-por-sala` | `desde`, `hasta` (fechas; por omisión, el último trimestre) | 200, `{desde, hasta, items: [{id_sala, calle, numero, localidad, num_comprobantes, importe_bruto, total_descuento, total_ventas}]}` | 422 (`validacion`, fecha inválida); 422 (`dato_invalido`, `desde` posterior a `hasta`) | S8 |
 | `GET /reportes/vinos-sin-stock` | `id_sala` (obligatoria) | 200, `{id_sala, items: [{cod_vino, nombre, tipo, graduacion, precio, stock_sala, stock_deposito}]}` | 404 (`no_encontrado`); 422 (`validacion`) | S6 |
 | `GET /reportes/transportista-activo` | `dias` (30; 1 a 3650) | 200, `{dias, items: [{cod_transportista, razon_social, cuit, email, telefono, domicilio, ingresos}]}`, con todos los empatados | 422 (`validacion`) | S7 |
-| `GET /reportes/trazabilidad/{cod}` | — | — | — | **Pregunta a la cátedra** (sección 6) |
+| `GET /reportes/trazabilidad/{cod_vino}` | — | 200, `{cod_vino, nombre, anada, cuit_bodega, bodega, corte: [{id_cepa, cepa, tipo_cepa, porcentaje}], lotes: [{nro_lote, campania, fecha_cosecha, kilos, id_cepa, cepa, id_finca, finca, departamento, provincia, nro_parcela, analisis: [{fecha_analisis, grado_brix, ph, acidez_total}]}]}` | 404 (`no_encontrado`); 422 (`validacion`) | **Supuesto** mientras responde la cátedra (sección 6) |
 
 #### Reportes implementados (issue #31)
 
@@ -522,6 +522,35 @@ Código: `api/app/datos/reportes.py` (el SQL de S1, S8, S6 y S7 de `consultas/se
 - **`ventas-por-sala` usa el índice, pero no con Index Only Scan.** En la Etapa 4 (`docs/rendimiento.md`, C1), S8 sumaba sólo `total`, que está en el `INCLUDE`. Este reporte también suma `subtotal` y `descuento`, que no están, así que lee la tabla: 95 páginas, 3,3 ms. Agregarlas al `INCLUDE` agrandaría el índice para ahorrar menos de 3 ms; no se justifica.
 - **`top-vinos` recorre toda la historia en cada llamada.** Es el caso C7 de la Etapa 4: un ranking sin filtro agrega la tabla entera y ningún índice lo evita (78 ms medidos entonces). Si el front lo pidiera seguido, la alternativa sería una vista materializada refrescada periódicamente, con su costo de desactualización. No se agrega sin una necesidad medida.
 - **Ningún índice nuevo.** Ninguna de estas mediciones lo justifica (criterio de `docs/rendimiento.md`).
+
+#### Trazabilidad implementada como supuesto (issue #32)
+
+Código: `TRAZABILIDAD` en `api/app/datos/reportes.py`, el endpoint en `api/app/routers/reportes.py` y `ReporteTrazabilidad` en `api/app/esquemas.py`. Privilegios: `db/migrations/010_privilegios_trazabilidad.sql`. Pruebas: `api/tests/test_reportes.py` (`test_trazabilidad_*`), y en la base `db/tests/003_privilegios_api.sql` y `005_roles.sql`.
+
+**El alcance es un supuesto, no una respuesta de la cátedra.** La pregunta 1 de la sección 6 sigue abierta. Mientras tanto (`docs/requisitos.md`, sección 3.8), los lotes de un vino son los que:
+
+- su **bodega** recibió (`lote_uva.cuit_bodega = vino.cuit_bodega`);
+- en la **campaña de su añada** (`campania = anada`; `ck_lote_uva_fecha_campania` garantiza que la campaña es el año de cosecha);
+- de parcelas plantadas con **alguna cepa de su corte** (`parcela.id_cepa` en `composicion_vino`).
+
+Es una aproximación: el modelo no registra qué lotes se usaron en cada elaboración, y no se inventa esa relación. La descripción del endpoint en Swagger lo dice. Un vino sin lotes compatibles responde 200 con `lotes: []`. En la carga `ESCALA=0.1`, 210 de los 600 vinos tienen alguno, con un máximo de 12.
+
+- **Una sola sentencia**, con `json_agg` anidado: lotes y, dentro de cada uno, sus análisis. Como en la ficha de vinos, es una sola foto de los datos, y los `NUMERIC` del JSON se leen con `parse_float=Decimal` (`"kilos": "140656.85"`).
+- **Privilegios (`010`).** `bodegas_rw` recibe `SELECT` sobre `departamento`, `finca`, `parcela`, `lote_uva` y `analisis_calidad`, y nada más. `003` verifica la matriz exacta; `005`, que la API los lee y que `INSERT`/`UPDATE`/`DELETE` siguen dando 42501. Hasta `010`, el escenario de prueba del 42501 de la API leía `parcela`; ahora lee `empleado`, que sigue cerrado.
+- **Rendimiento.** Mediana de 2,9 ms sobre la carga `ESCALA=1` (vino 311, el de más lotes), como `bodegas_api`. `lote_uva` se busca por `uq_lote_uva_parcela_campania (id_finca, nro_parcela, campania)` desde cada parcela de las cepas del corte. `analisis_calidad` se recorre entera una vez por lote (6.073 filas, 12 lotes, unos 2 ms), porque su FK `nro_lote` no tiene índice. Un índice sobre `analisis_calidad (nro_lote)` es el candidato si el reporte se volviera lento. Hoy no se justifica: la producción de uva no crece con `ESCALA` (3.081 lotes en las dos escalas).
+
+```json
+GET /reportes/trazabilidad/6          (carga ESCALA=0.1; se muestra el primero de 5 lotes)
+200  {"cod_vino": 6, "nombre": "Tempranillo Icono", "anada": 2022, "cuit_bodega": "33500555837", "bodega": "Bodega Quiroga S.R.L.",
+      "corte": [{"id_cepa": 6, "cepa": "Tempranillo", "tipo_cepa": "tinta", "porcentaje": "100.00"}],
+      "lotes": [{"nro_lote": 202200313, "campania": 2022, "fecha_cosecha": "2022-02-02", "kilos": "140656.85",
+                 "id_cepa": 6, "cepa": "Tempranillo", "id_finca": 15, "finca": "Finca Ledesma",
+                 "departamento": "Tupungato", "provincia": "Mendoza", "nro_parcela": 18,
+                 "analisis": [{"fecha_analisis": "2022-02-11", "grado_brix": "24.94", "ph": "3.71", "acidez_total": "6.06"}]}, ...]}
+
+GET /reportes/trazabilidad/999999999
+404  {"detail": "El vino 999999999 no existe.", "codigo": "no_encontrado"}
+```
 
 Respuestas reales por `/api/...` (proyecto aislado con la carga `ESCALA=0.1`; se muestran las primeras filas):
 
@@ -634,10 +663,10 @@ Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cad
 | Terminar o procesar un documento inexistente | P0002 "La transferencia 99999999 no existe." |
 | Transferencias e ingresos: alta, renglones, terminar, procesar | OK; los dos documentos llegan a `procesado` |
 | Reportes top-vinos, ventas-por-sala, vinos-sin-stock, transportista-activo | OK |
-| **Reporte trazabilidad** | **42501**: `permission denied for table parcela` |
+| Reporte trazabilidad | Antes de `010`: 42501 (`permission denied for table parcela`). Con `010` (issue #32): OK |
 | Escrituras prohibidas: `UPDATE`/`INSERT`/`DELETE` en `comprobante`, `UPDATE stock_sala`, `UPDATE ingreso.estado`, `INSERT auditoria_precio`, `fn_recalcular_comprobante` | 42501 en todos, como corresponde |
 
-**Faltante para una futura `009`** (no se modificó nada): `SELECT` sobre `parcela`, `lote_uva`, `finca` y `analisis_calidad` para `bodegas_rw`, y `departamento` si el reporte muestra el departamento de la finca. Todas son de sólo lectura. Se otorgan recién cuando la cátedra confirme qué significa la trazabilidad (sección 6). Hoy `bodegas_rw` tampoco lee `empleado`, que ningún endpoint usa.
+**Faltante resuelto por `010_privilegios_trazabilidad.sql`** (issue #32): `SELECT` sobre `departamento`, `finca`, `parcela`, `lote_uva` y `analisis_calidad` para `bodegas_rw`, todas de sólo lectura. Se otorgaron con el supuesto de alcance de la sección 6, sin esperar la respuesta de la cátedra. `bodegas_rw` sigue sin leer `empleado`, que ningún endpoint usa.
 
 ## 5. Detalles de infraestructura para la Etapa 6
 
@@ -653,6 +682,6 @@ Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cad
 
 ## 6. Preguntas abiertas para la cátedra
 
-1. **`/reportes/trazabilidad/{cod}`.** El modelo no vincula un vino con lotes de uva concretos. `lote_uva` registra a qué bodega se entregó cada cosecha, y `vino` tiene bodega, añada y corte (cepas). La interpretación posible, que se probó como SQL salvo por el permiso, es esta: lotes de las cepas del corte, cosechados en la añada del vino y entregados a su bodega, con finca, parcela y análisis de calidad. Es una aproximación, no una trazabilidad exacta. ¿Alcanza, o se espera otro alcance (por ejemplo, sólo el corte y la bodega)?
+1. **`/reportes/trazabilidad/{cod}`.** El modelo no vincula un vino con lotes de uva concretos. `lote_uva` registra a qué bodega se entregó cada cosecha, y `vino` tiene bodega, añada y corte (cepas). La interpretación posible, que se probó como SQL salvo por el permiso, es esta: lotes de las cepas del corte, cosechados en la añada del vino y entregados a su bodega, con finca, parcela y análisis de calidad. Es una aproximación, no una trazabilidad exacta. ¿Alcanza, o se espera otro alcance (por ejemplo, sólo el corte y la bodega)? **Mientras tanto (issue #32)** se implementó esa interpretación como supuesto explícito ("Trazabilidad implementada como supuesto", en la sección 1).
 2. **`POST /ingresos/{cod}/terminar`.** La consigna lista sólo `procesar` para ingresos, "mismo circuito que las transferencias". Pero RN-10 exige pasar por `terminado`, y `sp_terminar_ingreso` existe. ¿Se agrega el endpoint, o `procesar` debe terminar y procesar en un paso? **Mientras tanto (issue #30)** se implementó el endpoint, porque sin él un ingreso creado por la API no podría procesarse.
 3. **S12 B.** ¿"Clientes que nunca compraron tintos" incluye a los que no compraron nada? Hoy sí: son 4.715 de 7.170.
