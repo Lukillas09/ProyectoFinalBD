@@ -233,7 +233,7 @@ Corrección de la Etapa 5: en la versión integrada los archivos no corrían con
 
 **Decisión sobre U1:** "aplicar el descuento del tipo de cliente" se resuelve recalculando las cabeceras con el descuento congelado en cada renglón al vender. Reaplicar el descuento actual a ventas emitidas contradiría RN-12.
 
-### 3.8 API REST completa
+### 3.8 API REST completa — **Implementada y verificada (Etapa 6)**
 
 La etapa final de API exige driver nativo, SQL parametrizado, una capa de acceso con una función por consulta, pool, paginación y filtros del catálogo por tipo, cepa, bodega y añada. Las operaciones de varias sentencias usan transacciones explícitas según la aclaración de la sección 4. OpenAPI/Swagger o Postman debe coincidir con las rutas reales.
 
@@ -243,13 +243,28 @@ La etapa final de API exige driver nativo, SQL parametrizado, una capa de acceso
 | Clientes | CRUD `GET`, `POST`, `PUT`, `DELETE` sobre `/clientes`, contemplando tres subtipos. |
 | Comprobantes | `POST /comprobantes`, `GET /comprobantes/{nro}`; venta completa sin datos parciales. |
 | Transferencias | `POST /transferencias`, `POST /transferencias/{nro}/renglones`, `/terminar` y `/procesar`. |
-| Ingresos | `POST /ingresos`, `POST /ingresos/{cod}/renglones` y `/procesar`. |
+| Ingresos | `POST /ingresos`, `POST /ingresos/{cod}/renglones`, `/terminar` y `/procesar`. |
 | Reportes | `GET /reportes/top-vinos`, `/ventas-por-sala`, `/vinos-sin-stock`, `/transportista-activo`, `/trazabilidad/{cod}`. |
 | Salud | `GET /salud`, con comprobación real de acceso a PostgreSQL. |
 
-Traducción sugerida del PDF: `23505 -> 409`; `23503 -> 409 o 422`; `23514` y `23502 -> 422`; `P0001 -> 409` con mensaje de regla; `22P02 -> 400`; `40001` y `40P01 -> 503` sugiriendo reintento. Deben existir al menos ocho pruebas automáticas, tres que violen reglas. También se documenta un intento de inyección tratado como texto por la parametrización. Vender sin stock debe devolver 409 claro y no dejar cambios parciales.
+**Estado de implementación (verificado 2026-11-09):**
 
-Contrato borrador, traducción completa de SQLSTATE y privilegios verificados: `docs/api.md`. Preguntas abiertas para la cátedra, sin eliminar nada del PDF:
+- ✅ Todos los endpoints de la tabla implementados (25 rutas).
+- ✅ Contrato OpenAPI generado por FastAPI coincide con `docs/api.md` y la implementación real.
+- ✅ SQL parametrizado en `api/app/datos/*.py` (Psycopg 3, protocolo extendido).
+- ✅ Capa de acceso a datos: una función por consulta en `api/app/datos/`.
+- ✅ Pool Psycopg 3 configurado en `api/app/database.py`.
+- ✅ Transacciones explícitas con `with conn.transaction():` en operaciones multi-sentencia.
+- ✅ Paginación (`limite`/`desplazamiento`) y filtros en `GET /vinos` y `GET /clientes`.
+- ✅ Manejo de errores por SQLSTATE en `api/app/errores.py` (tabla completa en `docs/api.md` §3).
+- ✅ 252 pruebas automatizadas (`api/tests/ejecutar.sh`), entorno aislado, rol `bodegas_api`.
+- ✅ 3 pruebas `consigna` (RN-09 stock, RN-11 estado, CHECK precio) — todas pasan.
+- ✅ 14 pruebas prevención SQL Injection — todas pasan, integridad verificada.
+- ✅ Privilegios `bodegas_api` verificados endpoint por endpoint (`db/tests/003_privilegios_api.sql`, `005_roles.sql`).
+
+Traducción SQLSTATE implementada: `23505 -> 409`; `23503 -> 409 o 422`; `23514` y `23502 -> 422`; `P0001 -> 409` con mensaje de regla; `22P02 -> 400`; `40001` y `40P01 -> 503` con `Retry-After`; `42501 -> 500` (interno, se loguea); validación FastAPI -> `422` (`validacion`). Vender sin stock devuelve 409 claro y no deja cambios parciales (verificado en pruebas).
+
+Contrato definitivo, traducción completa de SQLSTATE y privilegios verificados: `docs/api.md`. Informe de cierre con checklist de 5 criterios oficiales y tabla PRs/revisiones: `docs/cierre_etapa6.md`. Preguntas abiertas para la cátedra, sin eliminar nada del PDF:
 
 - el alcance de `/reportes/trazabilidad/{cod}`, que el modelo no resuelve directamente. **Sin respuesta al implementarlo (issue #32), se aplica este supuesto explícito:** los lotes que pudieron originar un vino son los que **su bodega** recibió en **la campaña de su añada**, de parcelas plantadas con **alguna cepa de su corte**. Se muestran con finca, departamento, parcela y análisis de calidad. Es una aproximación: el modelo no registra qué lotes se usaron en cada elaboración, y no se inventa esa relación (supuesto 13). Si la cátedra pide otro alcance, cambian la consulta `TRAZABILIDAD` de `api/app/datos/reportes.py` y, si deja de leer la producción de uva, los privilegios de `010`;
 - `POST /ingresos/{cod}/terminar`, que el PDF no lista aunque RN-10 exige el estado `terminado`. Mientras no haya respuesta, se implementó (issue #30): sin él, un ingreso creado por la API no podría procesarse.

@@ -33,11 +33,11 @@ Incluye:
 - runner de migraciones con transacción, registro y SHA-256, ejecutado por el servicio de única ejecución `migrate`;
 - pruebas SQL de estructura, reglas RN-01 a RN-16, privilegios y roles;
 - carga masiva reproducible (Etapa 3): 6 años de historia, más de 150.000 ventas y 530.000 renglones, con catálogos reales, consultas de control y volcado; ver [Carga masiva](#carga-masiva-etapa-3);
-- índices y rendimiento (Etapa 4): 6 índices en `008_indices.sql` (48 en total en el esquema, contando los de PK y `UNIQUE`), medidos antes y después con `EXPLAIN (ANALYZE, BUFFERS)`; ver [Medir el rendimiento](#medir-el-rendimiento-etapa-4).
+- índices y rendimiento (Etapa 4): 6 índices en `008_indices.sql` (48 en total en el esquema, contando los de PK y `UNIQUE`), medidos antes y después con `EXPLAIN (ANALYZE, BUFFERS)`; ver [Medir el rendimiento](#medir-el-rendimiento-etapa-4);
+- consultas SQL requeridas (Etapa 5): S1-S12, U1-U6, I1-I6 y D1-D6 en `consultas/`, ejecutables con `consultas/ejecutar.sh`, verificadas en `docs/consultas.md` y planes en `docs/consultas/planes/`;
+- **API REST completa (Etapa 6):** catálogo y ABM de vinos, CRUD de clientes (3 subtipos), venta y consulta de comprobantes, circuitos de transferencias e ingresos, reportes de solo lectura (S1, S8, S6, S7) y trazabilidad como supuesto; 252 pruebas automatizadas en entorno aislado; ver [API REST — Etapa 6](#api-rest--etapa-6).
 
 Todos los conteos se tomaron del catálogo (`pg_constraint`, `pg_attrdef`, `pg_proc`, `pg_trigger`, `pg_views`, `pg_indexes`).
-
-No incluye todavía CRUD en la API, pantallas nuevas ni despliegue.
 
 Documentos académicos:
 
@@ -51,6 +51,8 @@ Documentos académicos:
 - [Carga masiva: informe de la Etapa 3](docs/carga_masiva.md)
 - [Índices y rendimiento: informe de la Etapa 4](docs/rendimiento.md)
 - [Consultas SQL: informe de la Etapa 5](docs/consultas.md)
+- [Contrato de la API REST (Etapa 6)](docs/api.md)
+- [Informe de cierre de la Etapa 6](docs/cierre_etapa6.md)
 
 La consigna y los apuntes de la cátedra se guardan en `material/`, pero esa carpeta está ignorada por Git: es material docente y no se publica. Cada integrante debe copiar los PDF localmente.
 
@@ -259,7 +261,261 @@ api/tests/ejecutar.sh
 
 Levanta un proyecto de Compose aislado (`bodegas_pruebas`) desde un volumen vacío, lo carga con `ESCALA=0.1`, corre pytest como `bodegas_api` y lo baja con `down -v`. Tarda alrededor de 60 s y no toca el entorno habitual. Opciones y reglas para escribir pruebas: [api/README.md](api/README.md#pruebas).
 
+## API REST — Etapa 6
+
+### Objetivo y alcance
+
+La Etapa 6 implementa la API REST completa según la consigna del TPI (páginas 16-17 del PDF). La API expone los recursos del dominio vinícola delegando todas las reglas de negocio, cálculos de importes, descuentos, stock y cambios de estado a PostgreSQL mediante funciones, procedimientos y triggers. La API se limita a validar la forma de los datos (Pydantic), invocar los objetos de la base y traducir los errores por SQLSTATE.
+
+**Principios de diseño:**
+
+- **Driver nativo y SQL parametrizado:** FastAPI + Psycopg 3 con pool de conexiones. Sin ORM ni query builders.
+- **Capa de acceso a datos:** Una función por consulta en `api/app/datos/` (`vinos.py`, `clientes.py`, `comprobantes.py`, `reportes.py`, `documentos.py`).
+- **Transacciones explícitas:** Operaciones de varias sentencias usan `with conn.transaction():` en los endpoints.
+- **Reglas en la base:** Totales, descuentos, stock, estados y auditoría los resuelve PostgreSQL (`fn_registrar_venta`, `sp_terminar_*`, `sp_procesar_*`, triggers).
+- **Privilegios mínimos:** La API conecta como `bodegas_api` (grupo `bodegas_rw`), sin permisos de DDL ni escritura directa sobre columnas de stock, importes, auditoría o estados.
+- **Traducción de errores:** `api/app/errores.py` mapea SQLSTATE a códigos HTTP (23505→409, 23503→409/422, 23514→422, P0001→409, P0002→404, 40001/40P01→503 con Retry-After, 42501→500, validación→422).
+
+### Arquitectura
+
+```
+Navegador → Nginx (front, puerto 8080) → /api/* → FastAPI (api, puerto 8000) → Psycopg 3 pool → PostgreSQL 16 (db)
+                                                         ↑
+                                                  rol bodegas_api (bodegas_rw)
+```
+
+- El navegador usa únicamente rutas públicas (`/api/salud`, `/api/vinos`, etc.).
+- Nginx reenvía `/api/*` a `api:8000` dentro de la red Docker `datos`.
+- FastAPI abre el pool al arrancar y lo cierra al terminar (`lifespan` en `api/app/main.py`).
+- Healthchecks: `db` con `pg_isready`, `api` llamando `GET /salud`, `front` comprobando Nginx.
+
+### Organización de `api/app/`
+
+```
+api/app/
+├── config.py          # Lectura y validación de variables de entorno
+├── database.py        # Pool Psycopg 3, dependencia `conexion`, healthcheck `SELECT 1`
+├── errores.py         # Traducción SQLSTATE → HTTP + ErrorRespuesta
+├── esquemas.py        # Modelos Pydantic (entrada/salida, paginación, filtros)
+├── main.py            # FastAPI app, lifespan, middleware prefix /api, routers
+├── datos/             # Capa de acceso a datos (SQL parametrizado)
+│   ├── vinos.py       # Catálogo + ABM vinos (composición, maridajes)
+│   ├── clientes.py    # CRUD clientes (socio, distribuidor, exportador)
+│   ├── comprobantes.py# Venta (fn_registrar_venta) y consulta
+│   ├── reportes.py    # Reportes S1, S8, S6, S7 + trazabilidad
+│   └── documentos.py  # Transferencias e ingresos (cabecera, renglones, terminar, procesar)
+└── routers/           # Endpoints HTTP
+    ├── vinos.py
+    ├── clientes.py
+    ├── comprobantes.py
+    ├── transferencias.py
+    ├── ingresos.py
+    └── reportes.py
+```
+
+### Levantar el proyecto
+
+```bash
+# 1. Configurar
+cp .env.example .env
+# Editar .env con 4 contraseñas DISTINTAS y robustas
+
+# 2. Validar
+docker compose config
+
+# 3. Levantar (primera vez: bootstrap + migraciones + carga)
+docker compose up --build -d
+docker compose ps
+
+# 4. Cargar datos (base sin datos de negocio)
+docker compose --profile seed run --rm seed
+
+# 5. Verificar
+curl http://localhost:8000/salud
+curl http://localhost:8080/api/salud
+```
+
+El orden de arranque: `db` (bootstrap) → `migrate` (001-010 como propietario) → `api` → `front`. `migrate` sale con `Exited (0)`.
+
+### Migraciones y carga inicial
+
+- **Migraciones** (`db/migrations/001_esquema.sql` a `010_privilegios_trazabilidad.sql`): las aplica el servicio `migrate` como `DB_OWNER_USER` al hacer `docker compose up`. Para ejecutar manualmente:
+  ```bash
+  docker compose exec db /opt/bodegas/db/migrate.sh
+  ```
+- **Carga masiva** (`db/seed/`, perfil `seed`): solo con base vacía, credenciales de propietario.
+  ```bash
+  docker compose --profile seed run --rm -e ESCALA=0.1 seed
+  ```
+  Parámetros: `SEMILLA` (dft 20260427), `FECHA_REFERENCIA` (dft 2026-10-27), `ESCALA` (dft 1). Misma semilla/fecha/escala → mismos datos (ver `db/seed/hashes.sql`).
+
+### Swagger y OpenAPI
+
+- **Directo (desarrollo):** <http://localhost:8000/docs>
+- **Por proxy Nginx (producción):** <http://localhost:8080/api/docs> ("Try it out" llama a `/api/...`)
+- **OpenAPI JSON:** <http://localhost:8000/openapi.json> o <http://localhost:8080/api/openapi.json>
+- Middleware `PrefijoDelProxy` en `main.py` detecta `X-Forwarded-Prefix: /api` y ajusta `root_path` para que Swagger genere URLs correctas.
+
+### Resumen de endpoints
+
+| Recurso | Endpoints | Detalle |
+|---------|-----------|---------|
+| **Salud** | `GET /salud` | `SELECT 1` → 200/503 |
+| **Vinos** | `GET /vinos`, `GET /vinos/{cod}`, `POST /vinos`, `PUT /vinos/{cod}`, `DELETE /vinos/{cod}` | Catálogo con filtros (tipo, cepa, bodega, añada) y paginación; ficha con composición, maridajes, stock; ABM en transacción |
+| **Clientes** | `GET /clientes`, `GET /clientes/{id}`, `POST /clientes`, `PUT /clientes/{id}`, `DELETE /clientes/{id}` | 3 subtipos (socio, distribuidor, exportador); descuento calculado por `fn_descuento_cliente`; permisos exportador |
+| **Comprobantes** | `POST /comprobantes`, `GET /comprobantes/{nro}` | Venta completa vía `fn_registrar_venta`; importes y stock en la base |
+| **Transferencias** | `POST /transferencias`, `GET /transferencias/{nro}`, `POST /transferencias/{nro}/renglones`, `POST /transferencias/{nro}/terminar`, `POST /transferencias/{nro}/procesar` | Circuito `en_confeccion → terminado → procesado`; stock movido por `sp_procesar_transferencia` |
+| **Ingresos** | `POST /ingresos`, `GET /ingresos/{cod}`, `POST /ingresos/{cod}/renglones`, `POST /ingresos/{cod}/terminar`, `POST /ingresos/{cod}/procesar` | Mismo circuito; RN-16: solo vinos de la bodega de origen; stock sumado por `sp_procesar_ingreso` |
+| **Reportes** | `GET /reportes/top-vinos`, `/ventas-por-sala`, `/vinos-sin-stock`, `/transportista-activo`, `/trazabilidad/{cod}` | S1, S8, S6, S7 parametrizados; trazabilidad como supuesto documentado |
+
+### Gestión de vinos y clientes
+
+**Vinos (`/vinos`):**
+- **Catálogo:** `GET /vinos?tipo=tinto&anada=2023&limite=10&desplazamiento=0` → `Pagina[VinoResumen]`
+- **Ficha:** `GET /vinos/{cod}` → `VinoDetalle` (composición, maridajes, stock total `v_stock_total_vino`)
+- **Alta:** `POST /vinos` con `VinoEntrada` (nombre, tipo, añada, volumen, graduación, precio, CUIT bodega, composición `[{id_cepa, porcentaje}]`, maridajes `[id]`) → 201 + `Location` + ficha
+- **Modificación:** `PUT /vinos/{cod}` reemplaza todo (incluye composición y maridajes) en transacción; auditoría de precio automática (RN-13)
+- **Baja:** `DELETE /vinos/{cod}` → 204; 409 si tiene historia (ventas, ingresos, transferencias, auditoría de precio)
+
+**Clientes (`/clientes`):**
+- **Listado:** `GET /clientes?tipo=exportador&id_localidad=5` → `Pagina[ClienteResumen]`
+- **Ficha:** `GET /clientes/{id}` → `ClienteDetalle` (datos comunes, subtipo, permisos, descuento de `fn_descuento_cliente`)
+- **Alta:** `POST /clientes` con `ClienteEntrada` (discriminador `tipo`); transacción única (cliente + subtipo + permisos)
+- **Modificación:** `PUT /clientes/{id}` reemplaza datos comunes y subtipo; `tipo` inmutable (FK compuesta lo impide)
+- **Baja:** `DELETE /clientes/{id}` → 204; 409 si tiene comprobantes
+
+### Registro y consulta de comprobantes
+
+- **Venta:** `POST /comprobantes` con `{id_cliente, id_sala, renglones: [{cod_vino, cantidad}]}`
+  - Llama a `fn_registrar_venta(id_cliente, id_sala, vinos[], cantidades[])` en una transacción
+  - Valida vinos inexistentes antes (422 con códigos); stock, vino repetido, cantidad ≤ 0, sin renglones → 409 (P0001)
+  - Cliente/sala inexistente → 422 (23503)
+  - Devuelve 201 con comprobante completo (cabecera con importes guardados + renglones con precio/descuento congelados)
+- **Consulta:** `GET /comprobantes/{nro}` → cabecera + renglones tal como quedaron en la base
+
+### Funciones y reglas de negocio delegadas a PostgreSQL
+
+| Regla | Mecanismo en BD | Invocación API |
+|-------|-----------------|----------------|
+| RN-05: composición suma 100% | Constraint trigger diferido | Verificado en COMMIT de alta/modificación vino |
+| RN-06: descuento por tipo/cliente | `fn_descuento_cliente` + `trg_cliente_excepcion` | Leído en ficha cliente; copiado a renglón al vender |
+| RN-08: totales derivados | `fn_total_comprobante` + triggers | `fn_registrar_venta` crea cabecera y renglones atómicos |
+| RN-09: stock no negativo | Trigger BEFORE + AFTER `renglon_comprobante` | Validado en `fn_registrar_venta` con `FOR UPDATE` |
+| RN-10: ingreso estados + impacto único | ENUM + `sp_terminar_ingreso`/`sp_procesar_ingreso` | API llama procedimientos; no toca `estado` ni `stock` |
+| RN-11: transferencia estados + fecha inmutable | ENUM + triggers + `sp_procesar_transferencia` | API llama procedimientos; no toca `estado` ni `stock` |
+| RN-12: documentos solo editables en confección | Triggers `renglon_*` + `xact_alta` en comprobante | API solo inserta renglones; base rechaza si no es confección |
+| RN-13: auditoría de precio | `trg_vino_auditoria_precio` AFTER UPDATE | Automática al cambiar precio en PUT vino |
+| RN-14: no borrar con historia | FK `ON DELETE RESTRICT` | DELETE vino/cliente → 409 si hay dependientes |
+| RN-16: ingreso solo vinos de su bodega | `trg_renglon_ingreso_bodega` (009) | API inserta renglón; base valida `cuit_bodega` |
+
+La API **nunca** calcula importes, descuentos ni stock; no hace `UPDATE` directo sobre `stock_sala`, `stock_deposito`, `comprobante`, `auditoria_precio`, `ingreso.estado`, `transferencia.estado`.
+
+### Manejo de errores HTTP
+
+Todos los errores responden con `ErrorRespuesta`:
+```json
+{"detail": "RN-09: stock insuficiente del vino 1 en la sala 1.", "codigo": "P0001"}
+{"detail": "Datos de entrada inválidos.", "codigo": "validacion", "errores": [{"campo": "query.limite", "mensaje": "Input should be less than or equal to 100"}]}
+```
+
+| SQLSTATE / Origen | HTTP | `codigo` | Cuándo |
+|-------------------|------|----------|--------|
+| 23505 (UNIQUE/PK) | 409 | `23505` | Vino/cliente/permiso repetido |
+| 23503 (FK dato faltante) | 422 | `23503` | Cliente/sala/bodega/cepa inexistente |
+| 23503 (FK con dependientes) | 409 | `23503` | Borrar vino/cliente con historia |
+| 23514 (CHECK) | 422 | `23514` | Precio ≤ 0, graduación fuera de rango, % inválido |
+| 23502 (NOT NULL) | 422 | `23502` | Campo obligatorio faltante (`columna`) |
+| P0001 (RAISE EXCEPTION RN) | 409 | `P0001` | Reglas de negocio (stock, estados, composición, etc.) |
+| P0002 (procedimiento no halla fila) | 404 | `P0002` | Terminar/procesar documento inexistente |
+| 40001, 40P01 (serialización/deadlock) | 503 | `40001`/`40P01` | Concurrencia → `Retry-After: 1` |
+| 42501 (permission denied) | 500 | `interno` | Bug de privilegios; se loguea sin detalles |
+| 08xxx, PoolTimeout | 503 | `no_disponible` | Base no responde |
+| Validación FastAPI/Pydantic | 422 | `validacion` | Parámetros/cuerpo inválidos (`errores[]`) |
+
+### Autenticación y permisos
+
+- **Autenticación:** No implementada (extra opcional según PDF). Todas las escrituras son públicas.
+- **Permisos a nivel BD:** La API conecta como `bodegas_api` (hereda `bodegas_rw`). Ver matriz en `db/migrations/007_roles.sql` y prueba `db/tests/003_privilegios_api.sql`.
+- **Lo que la API PUEDE:** SELECT catálogos, CRUD vinos/clientes, `fn_registrar_venta`, INSERT cabecera/renglones ingresos/transferencias, CALL procedimientos, SELECT vistas/reportes.
+- **Lo que la API NO PUEDE:** INSERT/UPDATE/DELETE directo sobre `comprobante`, `renglon_comprobante`, `stock_*`, `auditoria_precio`, `ingreso.estado`, `transferencia.estado`, secuencias, `empleado`.
+
+### Consultas SQL parametrizadas
+
+Todas las consultas en `api/app/datos/` usan placeholders y parámetros separados:
+```python
+# Ejemplo en vinos.py
+LISTAR = """
+SELECT ... FROM vino v JOIN bodega b ON ...
+WHERE (%(tipo)s::varchar IS NULL OR v.tipo = %(tipo)s)
+  AND (%(cuit_bodega)s::varchar IS NULL OR v.cuit_bodega = %(cuit_bodega)s)
+...
+"""
+parametros = {"tipo": filtros.tipo, "cuit_bodega": filtros.cuit_bodega, ...}
+filas = cur.execute(LISTAR, parametros).fetchall()
+```
+
+- Psycopg 3 envía SQL y parámetros por separado (protocolo extendido).
+- Sin f-strings, concatenación ni interpolación de valores de usuario.
+- Identificadores dinámicos no se usan; SQL es estático y legible en el código.
+
+### Prevención de SQL Injection
+
+- **Capa 1 (Pydantic):** Filtros tipados (`Literal["tinto","blanco","rosado","espumante"]`, rangos, regex CUIT). Entrada maliciosa → 422 `validacion` antes de llegar a BD.
+- **Capa 2 (Psycopg 3):** Valores viajan como parámetros; PostgreSQL los trata como datos literales.
+- **Pruebas automatizadas:** `api/tests/test_sql_injection.py` (14 casos):
+  - Consulta legítima (`tipo=tinto`) → 200
+  - Payloads `OR '1'='1`, `DROP TABLE`, `UNION SELECT`, comentarios SQL → 422 `validacion`
+  - Valores válidos inexistentes → 200 lista vacía (sin inyección)
+  - Verificación `count(*)` antes/después → idéntico (tabla intacta)
+- Ejecutar: `api/tests/ejecutar.sh -k "test_sql_injection"`
+
+### Ejecución de pruebas automatizadas
+
+```bash
+# Suite completa (entorno aislado, volumen vacío, ESCALA=0.1)
+api/tests/ejecutar.sh
+
+# Solo las 3 pruebas que nombra la consigna (stock, estado, CHECK)
+api/tests/ejecutar.sh -m consigna
+
+# Solo prevención de inyección SQL
+api/tests/ejecutar.sh -k "test_sql_injection"
+```
+
+- **252 pruebas** (148 funciones, 238 casos con parametrización).
+- **49 pruebas** provocan errores reales de PostgreSQL y verifican "sin datos a medias".
+- **3 pruebas `consigna`** obligatorias: RN-09 stock (409), RN-11 estado (409), CHECK precio (422).
+- **14 pruebas SQL Injection** (todas pasadas).
+- Pruebas de base: `docker compose exec db /opt/bodegas/db/tests/run_all.sh` (8/8 pasadas).
+
+### Enlaces de referencia
+
+- **Contrato completo:** [docs/api.md](docs/api.md) — Endpoints, esquemas, códigos HTTP, traducción SQLSTATE, ejemplos reales, preguntas abiertas.
+- **Informe de cierre:** [docs/cierre_etapa6.md](docs/cierre_etapa6.md) — Verificación integral, checklist 5 criterios, tabla PRs/revisiones, evidencias.
+- **Requisitos y trazabilidad:** [docs/requisitos.md](docs/requisitos.md) — Sección 3.8 (API REST), 5 criterios oficiales, diferencias PDF/aclaración.
+- **Reglas de Git:** [AGENTS.md](AGENTS.md) — Rama por etapa, commits pequeños, PR con revisión cruzada, sin secretos.
+
 ## Verificación aislada desde cero
+
+Para no tocar el volumen habitual se puede usar un nombre de proyecto diferente:
+
+```bash
+docker compose --env-file .env.example -p bda_etapa1_prueba up -d --build --wait
+docker compose --env-file .env.example -p bda_etapa1_prueba ps -a
+docker compose --env-file .env.example -p bda_etapa1_prueba exec db /opt/bodegas/db/tests/run_all.sh
+```
+
+`--wait` termina con error si algún servicio no queda saludable o si `migrate` falla. Los valores de `.env.example` sirven sólo para este entorno local descartable, no para uso real. Si los puertos 8000/8080 están ocupados, definir antes `API_PORT` y `FRONT_PORT` en la shell; esas variables tienen prioridad sobre `--env-file`.
+
+Antes de eliminarlo, verificar que el nombre sea exactamente el aislado:
+
+```bash
+docker compose --env-file .env.example -p bda_etapa1_prueba ps
+docker volume ls --filter label=com.docker.compose.project=bda_etapa1_prueba
+docker compose --env-file .env.example -p bda_etapa1_prueba down -v
+```
+
+El último comando borra únicamente el volumen del proyecto de prueba indicado.
 
 Para no tocar el volumen habitual se puede usar un nombre de proyecto diferente:
 
@@ -371,7 +627,21 @@ Detalle de parámetros: [consultas/README.md](consultas/README.md). El informe, 
 
 ## Pendientes para las próximas etapas
 
-- U1: se resolvió recalculando las cabeceras con `fn_recalcular_comprobante`, con el descuento congelado en cada renglón (RN-12: una venta emitida no cambia). Si la cátedra espera que se reaplique el descuento actual del cliente a ventas históricas, habría que revisarlo, porque contradice RN-12.
-- Participaciones mínimas no exigidas por una RN: al menos un maridaje por vino, un análisis por lote y un empleado por sala.
+### Pendientes reales (Etapa 7 - Front)
+- Pantallas mínimas: catálogo paginado con filtros, alta/edición de vino, venta con error de stock, transferencias con botones según estado, tablero (top 10, gráfico ventas trimestrales, vinos sin stock).
+- Centralizar llamadas a la API, URL base configurable, mostrar mensajes reales de reglas, no calcular importes ni stock en el front.
 
-La diferencia entre las obligaciones del PDF y la aclaración docente sobre temas no vistos —transacciones como ejemplo opcional— permanece registrada en [docs/requisitos.md](docs/requisitos.md); no se eliminó ningún requisito silenciosamente.
+### Pendientes reales (Etapa 8 - Nube)
+- Comparar dos proveedores, justificar uno, crear cuentas propietario/API/reportes, aplicar migraciones, HTTPS, PostgreSQL cifrado, puerto restringido, secretos externos, CORS limitado, rechazo comprobado de conexión no autorizada, backup/restauración con conteos.
+- Demo de 10-15 minutos en nube: venta, rechazo por stock, procesar transferencia, consulta con plan de ejecución.
+
+### Decisiones de diseño documentadas (no obligatorias, pero registradas)
+- **U1 (recalcular comprobantes):** se resolvió con `fn_recalcular_comprobante` y descuento congelado en cada renglón (RN-12). Reaplicar descuento actual a ventas históricas contradiría RN-12. Ver `consultas/update.sql` y `docs/consultas.md`.
+- **Trazabilidad (`/reportes/trazabilidad/{cod}`):** el modelo no vincula vino-lotes; se implementó como supuesto (lotes de la bodega, campaña=añada, cepas del corte). Pendiente respuesta de cátedra. Ver `docs/api.md` sección 6 y `docs/requisitos.md` 3.8.
+- **`POST /ingresos/{cod}/terminar`:** no listado en PDF pero RN-10 exige estado `terminado`; implementado para que ingresos creados por API puedan procesarse. Pendiente confirmación. Ver `docs/api.md` sección 6.
+- **Zona horaria:** fechas en UTC (`CURRENT_DATE`/`CURRENT_TIMESTAMP` del servidor BD). Corregir exige fijar `timezone` de la base; decisión pendiente para Etapa 8.
+
+### Aclaraciones académicas
+- La diferencia entre obligaciones del PDF y aclaración docente sobre temas no vistos (transacciones como ejemplo opcional) permanece registrada en [docs/requisitos.md](docs/requisitos.md) §4; no se eliminó ningún requisito silenciosamente.
+- Participaciones mínimas no exigidas por una RN: al menos un maridaje por vino, un análisis por lote, un empleado por sala.
+- Anexo C de preguntas de defensa mencionado en PDF pero no disponible en el material entregado.
