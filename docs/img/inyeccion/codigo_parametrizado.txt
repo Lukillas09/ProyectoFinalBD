@@ -1,0 +1,84 @@
+# Evidencia de consulta parametrizada en api/app/datos/vinos.py
+
+## Fragmento: Consulta LISTAR con placeholders
+
+```python
+LISTAR = """
+SELECT v.cod_vino, v.nombre, v.tipo, v.anada, v.volumen_ml, v.graduacion, v.precio,
+       v.cuit_bodega, b.razon_social AS bodega,
+       count(*) OVER () AS total
+FROM vino AS v
+JOIN bodega AS b ON b.cuit = v.cuit_bodega
+WHERE (%(tipo)s::varchar IS NULL OR v.tipo = %(tipo)s)
+  AND (%(cuit_bodega)s::varchar IS NULL OR v.cuit_bodega = %(cuit_bodega)s)
+  AND (%(anada)s::smallint IS NULL OR v.anada = %(anada)s)
+  AND (%(id_cepa)s::integer IS NULL OR EXISTS (
+        SELECT 1 FROM composicion_vino AS c
+        WHERE c.cod_vino = v.cod_vino AND c.id_cepa = %(id_cepa)s))
+ORDER BY v.cod_vino
+LIMIT %(limite)s OFFSET %(desplazamiento)s
+"""
+```
+
+## Fragmento: Ejecución con parámetros separados
+
+```python
+def listar(conn: Connection, filtros: FiltrosVino, pagina: Paginacion) -> tuple[list[dict], int]:
+    parametros = {
+        "tipo": filtros.tipo,
+        "cuit_bodega": filtros.cuit_bodega,
+        "anada": filtros.anada,
+        "id_cepa": filtros.id_cepa,
+        "limite": pagina.limite,
+        "desplazamiento": pagina.desplazamiento,
+    }
+    with conn.cursor(row_factory=dict_row) as cur:
+        filas = cur.execute(LISTAR, parametros).fetchall()
+        ...
+```
+
+## Puntos clave de la parametrización
+
+1. **Placeholders nombrados**: `%(tipo)s`, `%(cuit_bodega)s`, `%(anada)s`, `%(id_cepa)s`, `%(limite)s`, `%(desplazamiento)s`
+2. **Cast explícito**: `::varchar`, `::smallint`, `::integer` — le dice a PostgreSQL el tipo aunque el parámetro sea NULL
+3. **Patrón seguro**: `(%(x)s::tipo IS NULL OR columna = %(x)s)` — el filtro solo aplica si el parámetro no es NULL
+4. **Parámetros como diccionario**: `cur.execute(LISTAR, parametros)` — Psycopg 3 envía SQL y parámetros POR SEPARADO a PostgreSQL (protocolo extendido)
+5. **NO hay f-strings**: El código NO usa `f"SELECT ... {variable} ..."` ni concatenación de cadenas
+6. **NO hay interpolación**: Los valores del usuario NUNCA se convierten en parte del texto SQL
+
+## Cómo protege contra inyección
+
+Cuando un atacante envía `tipo = "tinto' OR '1'='1"`:
+
+1. Pydantic lo rechaza (Literal enum) → HTTP 422
+2. Si pasara la validación, Psycopg enviaría:
+   - SQL: `WHERE v.tipo = $1` (parámetro posicional $1)
+   - Parámetro: `"tinto' OR '1'='1"` (como valor de texto literal)
+3. PostgreSQL busca vinos cuyo tipo sea LITERALMENTE `tinto' OR '1'='1`
+4. Resultado: lista vacía (no existe ese tipo), NO todos los vinos
+
+## Verificación automatizada (test_codigo_acceso_datos_usa_placeholders)
+
+```python
+def test_codigo_acceso_datos_usa_placeholders(self) -> None:
+    archivo = pathlib.Path("/app/app/datos/vinos.py")
+    contenido = archivo.read_text(encoding="utf-8")
+
+    # NO hay f-strings con SQL
+    assert 'f"SELECT' not in contenido
+    assert "f'UPDATE" not in contenido
+    assert "f'INSERT" not in contenido
+    assert "f'DELETE" not in contenido
+
+    # SÍ hay placeholders de Psycopg
+    assert "%(tipo)s" in contenido
+    assert "%(cuit_bodega)s" in contenido
+    assert "%(anada)s" in contenido
+    assert "%(id_cepa)s" in contenido
+
+    # Patrón de filtro seguro
+    assert "IS NULL OR v.tipo = %(" in contenido
+    assert "IS NULL OR v.cuit_bodega = %(" in contenido
+    assert "IS NULL OR v.anada = %(" in contenido
+    assert "IS NULL OR EXISTS (" in contenido
+```
