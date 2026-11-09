@@ -5,6 +5,8 @@ bodegas_api. Sala y vinos se buscan en el dataset; cada prueba crea sus
 propias transferencias por la API, así no depende del estado de otras.
 """
 
+import threading
+import time
 from typing import Any, Callable
 
 import pytest
@@ -217,6 +219,56 @@ def test_transiciones_despues_de_procesar(cliente, consultar, consultar_filas) -
     assert terminar.json()["detail"] == (
         f"RN-11: transición de estado inválida para la transferencia {nro}: procesado -> terminado.")
     assert _estado(consultar, nro) == "procesado"
+
+
+# --- Concurrencia: FOR UPDATE en sp_procesar_transferencia --------------------
+
+def _esperando_bloqueo(consultar: Callable[..., Any], segundos: float = 10) -> bool:
+    """True cuando alguna sesión espera un bloqueo dentro de sp_procesar_transferencia."""
+
+    limite = time.monotonic() + segundos
+    while time.monotonic() < limite:
+        if consultar(
+            "SELECT count(*) FROM pg_stat_activity "
+            "WHERE datname = current_database() AND wait_event_type = 'Lock' "
+            "AND left(query, 30) = 'CALL sp_procesar_transferencia'"
+        ):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_procesar_concurrente_espera_y_no_mueve_dos_veces(
+    cliente, consultar, consultar_filas, conexion_aparte
+) -> None:
+    """Dos procesos de la misma transferencia a la vez: el segundo espera el
+    FOR UPDATE de la cabecera, encuentra 'procesado' y no mueve stock."""
+
+    id_sala = _sala(consultar)
+    cod_vino, _ = _vino_con_stock(consultar_filas)
+    nro = _terminada(cliente, id_sala, cod_vino, 1)
+    deposito, sala = _stock(consultar, id_sala, cod_vino)
+    resultado: dict[str, Any] = {}
+
+    def procesar_por_la_api() -> None:
+        resultado["respuesta"] = cliente.post(f"/transferencias/{nro}/procesar")
+
+    hilo = threading.Thread(target=procesar_por_la_api)
+    # Otra sesión procesa primero y no confirma: retiene el bloqueo de la cabecera.
+    with conexion_aparte.transaction():
+        conexion_aparte.execute("CALL sp_procesar_transferencia(%s::bigint)", (nro,))
+        hilo.start()
+        assert _esperando_bloqueo(consultar), "el pedido de la API no quedó esperando el bloqueo"
+        # Sin confirmar, las demás sesiones todavía ven el stock anterior.
+        assert _stock(consultar, id_sala, cod_vino) == (deposito, sala)
+    # COMMIT: la API recién ahora lee la cabecera, y la encuentra procesada.
+    hilo.join(timeout=30)
+
+    respuesta = resultado["respuesta"]
+    assert respuesta.status_code == 409, respuesta.text
+    assert respuesta.json()["detail"].startswith(f"RN-11: la transferencia {nro} está procesado;")
+    # Las botellas se movieron una sola vez.
+    assert _stock(consultar, id_sala, cod_vino) == (deposito - 1, sala + 1)
 
 
 # --- Renglones: reglas de fila -------------------------------------------------

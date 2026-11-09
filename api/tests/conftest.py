@@ -69,6 +69,17 @@ def consultar_filas() -> Iterator[Callable[..., list[tuple]]]:
 
 
 @pytest.fixture
+def conexion_aparte() -> Iterator[Connection]:
+    """Otra sesión de bodegas_api, independiente de la API, para pruebas de
+    concurrencia: puede abrir una transacción y retener sus bloqueos mientras
+    la API atiende un pedido."""
+
+    conn = _conectar()
+    yield conn
+    conn.close()
+
+
+@pytest.fixture
 def marca() -> str:
     """Valor único por prueba, para no chocar con el dataset ni con otras pruebas."""
 
