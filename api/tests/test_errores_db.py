@@ -71,11 +71,14 @@ def test_datos_invalidos(cliente, marca, caso, status, codigo) -> None:
     assert "abc" not in respuesta.json()["detail"]
 
 
-def test_regla_de_negocio_devuelve_el_mensaje_de_la_base(cliente, marca) -> None:
+def test_regla_de_negocio_devuelve_el_mensaje_de_la_base(cliente, consultar, marca) -> None:
+    antes = consultar("SELECT count(*) FROM comprobante")
+
     respuesta = cliente.post("/_prueba/error/regla", params={"marca": marca})
 
     assert respuesta.status_code == 409
     assert respuesta.json() == {"detail": "RN-08: una venta debe tener al menos un renglón.", "codigo": "P0001"}
+    assert consultar("SELECT count(*) FROM comprobante") == antes
 
 
 def test_no_existe_404(cliente, marca) -> None:

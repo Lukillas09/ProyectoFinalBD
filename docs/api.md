@@ -677,7 +677,7 @@ Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cad
   - Descartados:
     - `FastAPI(root_path="/api")` fijo: rompe el acceso directo, que pasaría a pedir `/api/openapi.json` al puerto de la API;
     - una `location` extra en nginx para `/openapi.json`: "Try it out" llamaría a `/salud` del front.
-- **Pruebas.** La consigna pide al menos 8 pruebas automáticas, 3 de ellas sobre reglas de la base. Candidatas: venta sin stock (409), transición de estado inválida (409), precio negativo (422). Se corren con `api/tests/ejecutar.sh`, en un proyecto de Compose aislado y cargado (`api/README.md`, "Pruebas").
+- **Pruebas.** La consigna pide al menos 8 pruebas automáticas, 3 de ellas sobre reglas de la base. La suite y su tabla prueba → endpoint → regla están en la sección 7.
 - **Inyección SQL.** La demostración de inyección fallida se hace sobre un filtro de `GET /vinos`: el valor viaja como parámetro y se compara como texto. Para el issue #34 hay una segunda en una escritura: `test_texto_con_caracteres_especiales_se_guarda_tal_cual` da de alta un vino llamado `Malbec '; DROP TABLE vino; -- …`. El nombre se guarda tal cual y la tabla sigue existiendo.
 
 ## 6. Preguntas abiertas para la cátedra
@@ -685,3 +685,84 @@ Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cad
 1. **`/reportes/trazabilidad/{cod}`.** El modelo no vincula un vino con lotes de uva concretos. `lote_uva` registra a qué bodega se entregó cada cosecha, y `vino` tiene bodega, añada y corte (cepas). La interpretación posible, que se probó como SQL salvo por el permiso, es esta: lotes de las cepas del corte, cosechados en la añada del vino y entregados a su bodega, con finca, parcela y análisis de calidad. Es una aproximación, no una trazabilidad exacta. ¿Alcanza, o se espera otro alcance (por ejemplo, sólo el corte y la bodega)? **Mientras tanto (issue #32)** se implementó esa interpretación como supuesto explícito ("Trazabilidad implementada como supuesto", en la sección 1).
 2. **`POST /ingresos/{cod}/terminar`.** La consigna lista sólo `procesar` para ingresos, "mismo circuito que las transferencias". Pero RN-10 exige pasar por `terminado`, y `sp_terminar_ingreso` existe. ¿Se agrega el endpoint, o `procesar` debe terminar y procesar en un paso? **Mientras tanto (issue #30)** se implementó el endpoint, porque sin él un ingreso creado por la API no podría procesarse.
 3. **S12 B.** ¿"Clientes que nunca compraron tintos" incluye a los que no compraron nada? Hoy sí: son 4.715 de 7.170.
+
+## 7. Pruebas automáticas (issue #33)
+
+**Cómo se corren:** `api/tests/ejecutar.sh`, un solo comando. Crea un proyecto de Compose aislado desde un volumen vacío, lo carga con `ESCALA=0.1`, corre `docker compose --profile test run --rm api-test` y lo baja (`api/README.md`, "Pruebas"). Para correr sólo las tres que nombra la consigna: `api/tests/ejecutar.sh -m consigna`.
+
+**Lo que pide la consigna, contado:**
+
+- **Al menos 8 pruebas:** hay 148 funciones de prueba, que con la parametrización son 238 casos.
+- **Al menos 3 sobre reglas de la base:** las 49 funciones de la tabla de abajo provocan, por la API, un error real de PostgreSQL (una regla, una restricción o un SQLSTATE) y verifican el código HTTP.
+- **Las tres que nombra la consigna** llevan la marca `consigna`:
+
+| Prueba (marca `consigna`) | Endpoint | Regla | Además verifica |
+|---|---|---|---|
+| `test_comprobantes.py::test_venta_sin_stock_409_sin_cambios` | `POST /comprobantes` | RN-09, P0001 → **409** "RN-09: stock insuficiente del vino N en la sala M." | Ningún comprobante nuevo, y el stock de **los dos** vinos igual: el renglón con stock se procesó antes del que falló y su descuento también se revirtió |
+| `test_transferencias.py::test_procesar_sin_terminar_409` | `POST /transferencias/{nro}/procesar` | RN-11, P0001 → **409** "RN-11: la transferencia N está en_confeccion; …" | Sigue en `en_confeccion` y el stock no se movió |
+| `test_vinos_abm.py::test_check_de_la_base_422[precio--100.00-…]` | `POST /vinos` | `ck_vino_precio_positivo`, 23514 → **422** | No quedó ningún vino con ese nombre. La misma prueba cubre precio 0, graduación 25 y volumen 0 |
+
+**Sin datos a medias.** Cada prueba de error que escribe verifica después, con una lectura aparte como `bodegas_api`, que la base quedó como estaba. Según el caso, verifica que:
+
+- no exista la fila con el valor único de la prueba;
+- la cantidad de filas (comprobantes, transferencias, ingresos) no haya cambiado;
+- el stock y el estado sean los de antes.
+
+Las de lectura (404, 422 de parámetros) no escriben. La revisión del issue #33 completó lo que faltaba:
+
+- `test_comprobantes.py` se reescribió con las convenciones de la suite:
+  - usa las fixtures de `conftest.py` (antes las redefinía);
+  - busca los datos en la carga, sin ids fijos ni `skip`;
+  - cada rechazo verifica que no quedó comprobante ni cambió el stock;
+- se agregó la misma verificación en el PUT que choca con otro vino, el PUT de un cliente inexistente (no lo crea), el alta de transferencia sin sala y la regla RN-08 de la ruta de prueba.
+
+**Base sin carga.** Las pruebas buscan sus datos en el dataset. Si `api-test` se corre contra una base migrada pero vacía, `conftest.py` corta la sesión con "La base no tiene la carga masiva. Correr las pruebas con api/tests/ejecutar.sh…" (código 2), en lugar de decenas de fallas ajenas a la API.
+
+**Tabla prueba → endpoint → regla o SQLSTATE.** Las pruebas de la API que provocan un error de la base. "Sin cambios" indica qué se verifica después del rechazo:
+
+| Prueba | Endpoint | Regla o SQLSTATE → HTTP | Sin cambios |
+|---|---|---|---|
+| `test_comprobantes::test_venta_sin_stock_409_sin_cambios` | `POST /comprobantes` | RN-09 (P0001) → 409 | Comprobantes y stock de la sala |
+| `test_comprobantes::test_regla_de_la_venta_409_sin_cambios` (3 casos) | `POST /comprobantes` | RN-08 vino repetido, RN-15 cantidad 0, RN-08 sin renglones (P0001) → 409 | Comprobantes y stock |
+| `test_comprobantes::test_cliente_o_sala_inexistente_422_sin_cambios` (2) | `POST /comprobantes` | 23503 `fk_comprobante_cliente`, `fk_comprobante_sala_venta` → 422 | Comprobantes y stock |
+| `test_vinos_abm::test_check_de_la_base_422` (4) | `POST /vinos` | 23514 `ck_vino_precio_positivo`, `ck_vino_graduacion`, `ck_vino_volumen_positivo` → 422 | Ningún vino con ese nombre |
+| `test_vinos_abm::test_porcentaje_fuera_de_rango_422` | `POST /vinos` | 23514 `ck_composicion_vino_porcentaje` → 422 | Ningún vino |
+| `test_vinos_abm::test_composicion_que_suma_90_no_deja_el_vino` | `POST /vinos` | RN-05 (P0001, constraint trigger diferido, falla en el COMMIT) → 409 | Ni el vino ni sus maridajes |
+| `test_vinos_abm::test_bodega_inexistente_422`, `test_cepa_o_maridaje_inexistente_422` | `POST /vinos` | 23503 `fk_vino_bodega`, `fk_composicion_vino_cepa`, `fk_vino_maridaje_maridaje` → 422 | Ningún vino |
+| `test_vinos_abm::test_vino_repetido_409` | `POST /vinos` | 23505 `uq_vino_identidad_comercial` → 409 | Un solo vino |
+| `test_vinos_abm::test_put_con_composicion_que_suma_80_no_cambia_nada` | `PUT /vinos/{cod}` | RN-05 (P0001) → 409 | Composición, maridajes, precio y auditoría |
+| `test_vinos_abm::test_put_que_choca_con_otro_vino_409` | `PUT /vinos/{cod}` | 23505 `uq_vino_identidad_comercial` → 409 | El vino conserva su nombre |
+| `test_vinos_abm::test_put_con_bodega_inexistente_422` | `PUT /vinos/{cod}` | 23503 `fk_vino_bodega` → 422 | La bodega del vino |
+| `test_vinos_abm::test_delete_de_vino_con_ventas_409` | `DELETE /vinos/{cod}` | RN-14, 23503 `fk_renglon_comprobante_vino` → 409 | El vino sigue |
+| `test_vinos_abm::test_delete_de_vino_con_cambio_de_precio_409` | `DELETE /vinos/{cod}` | RN-14, 23503 `fk_auditoria_precio_vino` → 409 | El vino sigue |
+| `test_clientes::test_documento_repetido_409` | `POST /clientes` | 23505 `uq_cliente_documento` → 409 | Un solo cliente |
+| `test_clientes::test_alta_fallida_no_deja_el_cliente_sin_subtipo` (4) | `POST /clientes` | 23505 `uq_distribuidor_habilitacion`, `pk_permiso_exportacion`; 23514 `ck_permiso_exportacion_fechas`; 23503 `fk_cliente_localidad` | Ningún cliente con ese documento |
+| `test_clientes::test_put_que_cambia_el_tipo_409` | `PUT /clientes/{id}` | 23503 FK compuesta del subtipo → 409 | Tipo y subtipo |
+| `test_clientes::test_put_que_deja_la_excepcion_sin_respaldo_409` | `PUT /clientes/{id}` | RN-06 (P0001, diferido) → 409 | Los permisos |
+| `test_clientes::test_delete_de_cliente_con_compras_409` | `DELETE /clientes/{id}` | 23503 `fk_comprobante_cliente` → 409 | El cliente sigue |
+| `test_transferencias::test_alta_con_sala_inexistente_422` | `POST /transferencias` | 23503 `fk_transferencia_sala_venta` → 422 | Cantidad de transferencias |
+| `test_transferencias::test_renglon_en_transferencia_terminada_409` | `POST /transferencias/{nro}/renglones` | RN-12 (P0001) → 409 | Cantidad de renglones |
+| `test_transferencias::test_renglon_repetido_409` | `POST /transferencias/{nro}/renglones` | 23505 `pk_renglon_transferencia` → 409 | La cantidad del renglón |
+| `test_transferencias::test_renglon_cantidad_no_positiva_422` (2) | `POST /transferencias/{nro}/renglones` | 23514 `ck_renglon_transferencia_cantidad_positiva` → 422 | Ningún renglón |
+| `test_transferencias::test_renglon_con_vino_inexistente_422` | `POST /transferencias/{nro}/renglones` | 23503 `fk_renglon_transferencia_vino` → 422 | — |
+| `test_transferencias::test_terminar_sin_renglones_409` | `POST /transferencias/{nro}/terminar` | RN-11 (P0001) → 409 | Sigue en confección |
+| `test_transferencias::test_procesar_sin_terminar_409` | `POST /transferencias/{nro}/procesar` | RN-11 (P0001) → 409 | Estado y stock |
+| `test_transferencias::test_procesar_sin_stock_409_sin_cambios` | `POST /transferencias/{nro}/procesar` | RN-11 sin stock (P0001) → 409 | Depósito, sala y estado |
+| `test_transferencias::test_transiciones_despues_de_procesar` | `…/procesar`, `…/terminar` | RN-11 procesar dos veces y retroceso (P0001) → 409 | Stock y estado |
+| `test_transferencias::test_procesar_concurrente_espera_y_no_mueve_dos_veces` | `POST /transferencias/{nro}/procesar` | RN-11 con `FOR UPDATE` concurrente (P0001) → 409 | El stock se movió una sola vez |
+| `test_ingresos::test_alta_con_dato_relacionado_inexistente_422` (2) | `POST /ingresos` | 23503 `fk_ingreso_transportista`, `fk_ingreso_bodega` → 422 | Cantidad de ingresos |
+| `test_ingresos::test_renglon_con_vino_de_otra_bodega_409` | `POST /ingresos/{cod}/renglones` | RN-16 (P0001, `009`) → 409 | Ningún renglón |
+| `test_ingresos::test_renglon_en_ingreso_terminado_409` | `POST /ingresos/{cod}/renglones` | RN-12 (P0001) → 409 | Cantidad de renglones |
+| `test_ingresos::test_renglon_repetido_409` | `POST /ingresos/{cod}/renglones` | 23505 `pk_renglon_ingreso` → 409 | La cantidad del renglón |
+| `test_ingresos::test_renglon_cantidad_no_positiva_422` (2) | `POST /ingresos/{cod}/renglones` | 23514 `ck_renglon_ingreso_cantidad_positiva` → 422 | Ningún renglón |
+| `test_ingresos::test_renglon_con_vino_inexistente_422` | `POST /ingresos/{cod}/renglones` | 23503 `fk_renglon_ingreso_vino` → 422 | — |
+| `test_ingresos::test_terminar_sin_renglones_409`, `test_terminar_un_ingreso_procesado_409` | `POST /ingresos/{cod}/terminar` | RN-10 (P0001) → 409 | Estado |
+| `test_ingresos::test_procesar_sin_terminar_409`, `test_procesar_dos_veces_409_sin_sumar_de_nuevo` | `POST /ingresos/{cod}/procesar` | RN-10 (P0001) → 409 | Estado y depósito (impacto único) |
+| `test_transferencias::test_transferencia_inexistente_404`, `test_ingresos::test_ingreso_inexistente_404` (terminar, procesar) | `…/terminar`, `…/procesar` | P0002 del procedimiento → 404 | — |
+| `test_errores_db::test_restricciones` (4) | ruta de prueba | 23505, 23503 (falta el dato y con dependientes), 23514 → 409 / 422 / 409 / 422 | Ningún vino con la marca |
+| `test_errores_db::test_constraint_trigger_diferido_falla_en_el_commit` | ruta de prueba | Totalidad de clientes (P0001 en el COMMIT) → 409 | Ningún cliente con la marca |
+| `test_errores_db::test_regla_de_negocio_devuelve_el_mensaje_de_la_base` | ruta de prueba | RN-08 (P0001) → 409 | Cantidad de comprobantes |
+| `test_errores_db::test_no_nulo_informa_la_columna`, `test_datos_invalidos` (3) | ruta de prueba | 23502 → 422 con `columna`; 22001, 22003 → 422; 22P02 → 400 | — |
+| `test_errores_db::test_no_existe_404`, `test_serializacion_503_con_retry_after`, `test_permiso_denegado_500_sin_detalles_y_al_log` | ruta de prueba | P0002 → 404; 40001 → 503 con `Retry-After`; 42501 → 500 sin detalles | — |
+
+Las "rutas de prueba" (`/_prueba/error/...`) existen sólo en la aplicación que arma `conftest.py`: provocan errores reales de PostgreSQL que ningún endpoint produce a propósito (serialización, permiso, tipos inválidos). Las pruebas de la base (`db/tests/`, `run_all.sh`) cubren cada regla RN-01 a RN-16 sin pasar por la API (`docs/trazabilidad.md`).

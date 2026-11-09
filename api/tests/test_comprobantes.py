@@ -1,359 +1,169 @@
-"""Pruebas de integración para POST /comprobantes y GET /comprobantes/{nro} (issue #28).
+"""Ventas: POST /comprobantes y GET /comprobantes/{nro} (issue #28; revisadas en #33).
 
-Convenio: corren dentro de Docker (servicio api-test), en la red interna donde
-está db y con las mismas variables de entorno que la API. Never se conectan
-como propietario. Cada prueba usa un volumen descartable y aislado.
+Corren con api/tests/ejecutar.sh, contra un proyecto aislado y cargado, como
+bodegas_api. Sala, vinos con stock y cliente se buscan en el dataset.
 
-Sigue las convenciones de: test_vinos_abm.py, test_clientes.py.
+Toda venta pasa por fn_registrar_venta, que es todo o nada. Por eso cada
+prueba de error verifica que no quedó ningún comprobante nuevo y que el
+stock de la sala no cambió, ni siquiera el de los renglones que se
+procesaron antes del que falló.
 """
 
-from fastapi.testclient import TestClient
+from typing import Any, Callable
+
 import pytest
 
 
-# ---------------------------------------------------------------------------
-# Fixtures (mismo patrón que conftest.py)
-# ---------------------------------------------------------------------------
-
-def _conectar():
-    import os
-    import psycopg
-    return psycopg.connect(
-        host=os.environ["DB_HOST"],
-        port=int(os.environ.get("DB_PORT", "5432")),
-        dbname=os.environ["DB_NAME"],
-        user=os.environ["DB_USER"],
-        password=os.environ["DB_PASSWORD"],
-        autocommit=True,
-        options="-c search_path=bodegas,pg_catalog",
-    )
-
-
-@pytest.fixture(scope="session")
-def consultar() -> callable:
-    """Ejecuta una consulta de lectura y devuelve el primer valor."""
-    conn = _conectar()
-    def ejecutar(sql, params=()):
-        fila = conn.execute(sql, params).fetchone()
-        return None if fila is None else fila[0]
-    yield ejecutar
-    conn.close()
-
-
-@pytest.fixture(scope="session")
-def consultar_filas() -> callable:
-    """Como consultar, pero devuelve todas las filas."""
-    conn = _conectar()
-    def ejecutar(sql, params=()):
-        return conn.execute(sql, params).fetchall()
-    yield ejecutar
-    conn.close()
-
-
-@pytest.fixture(scope="session")
-def marca() -> str:
-    """Valor único por prueba."""
-    import uuid
-    return "prueba-" + uuid.uuid4().hex[:10]
-
-
-# ---------------------------------------------------------------------------
-# Helper: datos de la carga base
-# ---------------------------------------------------------------------------
-
-def _primer_vino(consultar):
-    return consultar("SELECT cod_vino FROM vino LIMIT 1")
-
-
-def _primer_cliente(consultar):
-    return consultar("SELECT id_cliente FROM cliente LIMIT 1")
-
-
-def _primer_sala(consultar):
-    return consultar("SELECT id_sala FROM sala_venta LIMIT 1")
-
-
-# ---------------------------------------------------------------------------
-# Prueba 1: Venta correcta → 201, estructura de respuesta completa
-# ---------------------------------------------------------------------------
-
-def test_venta_correcta_estructura(cliente, consultar, consultar_filas, marca) -> None:
-    """Verificar que POST /comprobantes devuelve 201 con estructura completa."""
-
-    cod_vino = _primer_vino(consultar)
-    id_cliente = _primer_cliente(consultar)
-    id_sala = _primer_sala(consultar)
-
-    if cod_vino is None or id_cliente is None or id_sala is None:
-        pytest.skip("No hay datos de prueba en la base")
-
-    respuesta = cliente.post(
-        "/comprobantes",
-        json={
-            "id_cliente": id_cliente,
-            "id_sala": id_sala,
-            "renglones": [{"cod_vino": cod_vino, "cantidad": 1}],
-        },
-    )
-
-    # 1. HTTP 201
-    assert respuesta.status_code == 201, (
-        f"Expected 201, got {respuesta.status_code}: {respuesta.text}"
-    )
-
-    # 2. Estructura completa de respuesta
-    data = respuesta.json()
-    campos_obligatorios = [
-        "nro_comprobante", "fecha", "subtotal", "descuento", "total", "renglones"
-    ]
-    for campo in campos_obligatorios:
-        assert campo in data, f"Falta '{campo}' en respuesta: {list(data.keys())}"
-
-    # 3. Renglones con datos esperados
-    assert len(data["renglones"]) > 0, "La lista de renglones está vacía"
-    rg = data["renglones"][0]
-    assert rg["cod_vino"] == cod_vino, f"cod_vino mismatch: {rg['cod_vino']} != {cod_vino}"
-    assert "nombre_vino" in rg and rg["nombre_vino"] is not None, \
-        f"nombre_vino esperado, got: {rg['nombre_vino']!r}"
-    assert rg["cantidad"] == 1, f"cantidad esperada 1, got {rg['cantidad']}"
-
-    # 4. Total coincide con PostgreSQL (comparación string para NUMERIC)
-    nro = data["nro_comprobante"]
-    filas = consultar_filas("SELECT total FROM comprobante WHERE nro_comprobante = %s", (nro,))
-    assert len(filas) == 1, f"Expected 1 fila, got {len(filas)}"
-    total_db = str(filas[0][0])
-    assert str(data["total"]) == total_db, (
-        f"Total mismatch: API={data['total']!r}, DB={total_db!r}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Prueba 2: Stock insuficiente (RN-09) → 409
-# ---------------------------------------------------------------------------
-
-def test_venta_sin_stock_rn09(cliente, consultar, marca) -> None:
-    """Vender más de lo disponible → 409 con RN-09."""
-
-    # Usar un enfoque simpler: intentar vender una cantidad muy grande
-    id_cliente = _primer_cliente(consultar)
-    id_sala = _primer_sala(consultar)
-
-    if id_cliente is None or id_sala is None:
-        pytest.skip("No hay datos de cliente/sala")
-
-    # Primera venta para tener un comprobante base
-    alta = cliente.post(
-        "/comprobantes",
-        json={
-            "id_cliente": id_cliente,
-            "id_sala": id_sala,
-            "renglones": [{"cod_vino": 1, "cantidad": 1}],
-        },
-    )
-    if alta.status_code != 201:
-        pytest.skip(f"No se pudo dar de alta inicialmente: {alta.text}")
-
-    # Ahora intentar vender una cantidad excesiva
-    respuesta = cliente.post(
-        "/comprobantes",
-        json={
-            "id_cliente": id_cliente,
-            "id_sala": id_sala,
-            "renglones": [{"cod_vino": 1, "cantidad": 999999}],
-        },
-    )
-
-    # 1. HTTP 409
-    assert respuesta.status_code == 409, (
-        f"Expected 409, got {respuesta.status_code}: {respuesta.text}"
-    )
-
-    # 2. Mensaje incluye RN-09
-    data = respuesta.json()
-    detalle = data.get("detail", "")
-    assert "RN-09" in detalle, f"Expected 'RN-09' in detail, got: {detalle}"
-
-
-# ---------------------------------------------------------------------------
-# Prueba 3: Vino repetido → 409
-# ---------------------------------------------------------------------------
-
-def test_venta_vino_repetido_409(cliente, consultar, marca) -> None:
-    """Vino repetido en renglones → 409."""
-
-    id_cliente = _primer_cliente(consultar)
-    id_sala = _primer_sala(consultar)
-
-    if id_cliente is None or id_sala is None:
-        pytest.skip("No hay datos de cliente/sala")
-
-    # Venta inicial
-    cliente.post(
-        "/comprobantes",
-        json={
-            "id_cliente": id_cliente,
-            "id_sala": id_sala,
-            "renglones": [{"cod_vino": 1, "cantidad": 1}],
-        },
-    )
-
-    # Venta con vino repetido
-    respuesta = cliente.post(
-        "/comprobantes",
-        json={
-            "id_cliente": id_cliente,
-            "id_sala": id_sala,
-            "renglones": [
-                {"cod_vino": 1, "cantidad": 1},
-                {"cod_vino": 1, "cantidad": 1},
-            ],
-        },
-    )
-
-    assert respuesta.status_code == 409, (
-        f"Expected 409, got {respuesta.status_code}: {respuesta.text}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Prueba 4: Cantidad cero → 409
-# ---------------------------------------------------------------------------
-
-def test_venta_cantidad_cero_409(cliente, consultar, marca) -> None:
-    """Cantidad cero → 409 RN-15."""
-
-    id_cliente = _primer_cliente(consultar)
-    id_sala = _primer_sala(consultar)
-
-    if id_cliente is None or id_sala is None:
-        pytest.skip("No hay datos de cliente/sala")
-
-    respuesta = cliente.post(
-        "/comprobantes",
-        json={
-            "id_cliente": id_cliente,
-            "id_sala": id_sala,
-            "renglones": [{"cod_vino": 1, "cantidad": 0}],
-        },
-    )
-
-    assert respuesta.status_code == 409, (
-        f"Expected 409, got {respuesta.status_code}: {respuesta.text}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Prueba 5: Cliente inexistente → 422
-# ---------------------------------------------------------------------------
-
-def test_venta_cliente_inexistente_422(cliente, consultar, marca) -> None:
-    """Cliente inexistente → 422."""
-
-    id_cliente_inexistente = 999999999
-    id_sala = _primer_sala(consultar)
-
-    if id_sala is None:
-        pytest.skip("No hay datos de sala")
-
-    respuesta = cliente.post(
-        "/comprobantes",
-        json={
-            "id_cliente": id_cliente_inexistente,
-            "id_sala": id_sala,
-            "renglones": [{"cod_vino": 1, "cantidad": 1}],
-        },
-    )
-
-    assert respuesta.status_code == 422, (
-        f"Expected 422, got {respuesta.status_code}: {respuesta.text}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Prueba 6: Vino inexistente → 422 mensaje claro
-# ---------------------------------------------------------------------------
-
-def test_venta_vino_inexistente_422(cliente, consultar, marca) -> None:
-    """Vino inexistente → 422 con mensaje claro (no precio_unitario)."""
-
-    id_cliente = _primer_cliente(consultar)
-    id_sala = _primer_sala(consultar)
-
-    if id_cliente is None or id_sala is None:
-        pytest.skip("No hay datos de cliente/sala")
-
-    respuesta = cliente.post(
-        "/comprobantes",
-        json={
-            "id_cliente": id_cliente,
-            "id_sala": id_sala,
-            "renglones": [{"cod_vino": 999999, "cantidad": 1}],
-        },
-    )
-
-    assert respuesta.status_code == 422, (
-        f"Expected 422, got {respuesta.status_code}: {respuesta.text}"
-    )
-    data = respuesta.json()
-    detalle = data.get("detail", "")
-    # Debe contener el número 999999 y no ser el error interno de PostgreSQL
-    assert respuesta.json()["codigo"] == "dato_invalido", respuesta.json()
-    assert "999999" in detalle, f"Expected '999999' in detail, got: {detalle}"
-
-
-# ---------------------------------------------------------------------------
-# Prueba 7: GET /comprobantes/{nro} existente → 200
-# ---------------------------------------------------------------------------
-
-def test_obtener_comprobante_existente_200(cliente, consultar, consultar_filas, marca) -> None:
-    """GET /comprobantes/{nro} → 200 con datos reales."""
-
-    # Registrar una venta
-    id_cliente = _primer_cliente(consultar)
-    id_sala = _primer_sala(consultar)
-
-    if id_cliente is None or id_sala is None:
-        pytest.skip("No hay datos de cliente/sala")
-
-    alta = cliente.post(
-        "/comprobantes",
-        json={
-            "id_cliente": id_cliente,
-            "id_sala": id_sala,
-            "renglones": [{"cod_vino": 1, "cantidad": 1}],
-        },
-    )
-    assert alta.status_code == 201, f"Falló el alta: {alta.text}"
-    nro = alta.json()["nro_comprobante"]
-
-    # Consultarlo
-    respuesta = cliente.get(f"/comprobantes/{nro}")
-
-    assert respuesta.status_code == 200, (
-        f"Expected 200, got {respuesta.status_code}: {respuesta.text}"
-    )
-
-    data = respuesta.json()
-    assert data["nro_comprobante"] == nro, "nro_comprobante mismatch"
-    assert len(data["renglones"]) > 0, "renglones vacíos"
-    assert "total" in data, "Falta total"
-
-
-# ---------------------------------------------------------------------------
-# Prueba 8: GET /comprobantes/{nro} inexistente → 404
-# ---------------------------------------------------------------------------
-
-def test_obtener_comprobante_inexistente_404(cliente, marca) -> None:
-    """GET /comprobantes/999999 → 404."""
-
-    respuesta = cliente.get("/comprobantes/999999")
-
-    assert respuesta.status_code == 404, (
-        f"Expected 404, got {respuesta.status_code}: {respuesta.text}"
-    )
-    data = respuesta.json()
-    # El 404 tiene que venir del endpoint y no del de "ruta inexistente": si la
-    # ruta no se registra, ese otro 404 también diría "no_encontrado" pero con
-    # el texto genérico, sin el número pedido.
-    assert data["codigo"] == "no_encontrado", data
-    assert "999999" in data["detail"], f"Se esperaba el número en el mensaje: {data}"
+def _datos_de_venta(consultar: Callable[..., Any], consultar_filas: Callable[..., list[tuple]]):
+    """(id_cliente, id_sala, [vino_a, vino_b]): dos vinos con al menos 3 botellas en la sala."""
+
+    filas = consultar_filas(
+        "SELECT id_sala, array_agg(cod_vino ORDER BY cod_vino) FROM stock_sala "
+        "WHERE cantidad >= 3 GROUP BY id_sala HAVING count(*) >= 2 ORDER BY id_sala LIMIT 1")
+    assert filas, "la carga no dejó una sala con dos vinos en stock"
+    id_sala, vinos = filas[0]
+    return consultar("SELECT min(id_cliente) FROM cliente"), id_sala, vinos[:2]
+
+
+def _stock(consultar: Callable[..., Any], id_sala: int, cod_vino: int) -> int:
+    return consultar("SELECT COALESCE((SELECT cantidad FROM stock_sala WHERE id_sala = %s AND cod_vino = %s), 0)",
+                     (id_sala, cod_vino))
+
+
+def _estado(consultar: Callable[..., Any], id_sala: int, vinos: list[int]) -> tuple:
+    """Lo que una venta rechazada no puede cambiar: cuántos comprobantes hay y el stock de la sala."""
+
+    return (consultar("SELECT count(*) FROM comprobante"),
+            tuple(_stock(consultar, id_sala, v) for v in vinos))
+
+
+def _vender(cliente, id_cliente: int, id_sala: int, renglones: list[tuple[int, int]]):
+    return cliente.post("/comprobantes", json={
+        "id_cliente": id_cliente, "id_sala": id_sala,
+        "renglones": [{"cod_vino": v, "cantidad": c} for v, c in renglones]})
+
+
+# --- Venta correcta ---------------------------------------------------------------
+
+def test_venta_correcta_con_los_importes_de_la_base(cliente, consultar, consultar_filas) -> None:
+    id_cliente, id_sala, (vino_a, vino_b) = _datos_de_venta(consultar, consultar_filas)
+    stock_antes = (_stock(consultar, id_sala, vino_a), _stock(consultar, id_sala, vino_b))
+
+    respuesta = _vender(cliente, id_cliente, id_sala, [(vino_b, 1), (vino_a, 2)])
+
+    assert respuesta.status_code == 201, respuesta.text
+    venta = respuesta.json()
+    nro = venta["nro_comprobante"]
+    assert respuesta.headers["Location"] == f"/comprobantes/{nro}"
+    assert (venta["id_cliente"], venta["id_sala"]) == (id_cliente, id_sala)
+    # Precio y descuento los congela la base (RN-06, RN-08); la API no calcula.
+    descuento = str(consultar("SELECT fn_descuento_cliente(%s)", (id_cliente,)))
+    assert [(r["cod_vino"], r["cantidad"]) for r in venta["renglones"]] == [(vino_a, 2), (vino_b, 1)]
+    for renglon in venta["renglones"]:
+        assert renglon["precio_unitario"] == str(consultar("SELECT precio FROM vino WHERE cod_vino = %s",
+                                                           (renglon["cod_vino"],)))
+        assert renglon["descuento_porcentaje"] == descuento
+    guardado = consultar_filas("SELECT subtotal, descuento, total FROM comprobante WHERE nro_comprobante = %s",
+                               (nro,))[0]
+    assert (venta["subtotal"], venta["descuento"], venta["total"]) == tuple(str(x) for x in guardado)
+    # El stock lo descuenta la base (RN-09).
+    assert (_stock(consultar, id_sala, vino_a), _stock(consultar, id_sala, vino_b)) == (
+        stock_antes[0] - 2, stock_antes[1] - 1)
+
+    consulta = cliente.get(f"/comprobantes/{nro}")
+    assert consulta.status_code == 200
+    assert consulta.json() == venta
+
+
+# --- Rechazos: ninguno deja datos a medias ------------------------------------------
+
+@pytest.mark.consigna
+def test_venta_sin_stock_409_sin_cambios(cliente, consultar, consultar_filas) -> None:
+    """Prueba de la consigna: stock insuficiente -> 409, sin cambios parciales (RN-09)."""
+
+    id_cliente, id_sala, (vino_a, vino_b) = _datos_de_venta(consultar, consultar_filas)
+    antes = _estado(consultar, id_sala, [vino_a, vino_b])
+    pedido_b = _stock(consultar, id_sala, vino_b) + 1
+
+    # El renglón de vino_a (con stock) se procesa primero, porque la función
+    # inserta por código de vino; el de vino_b falla después.
+    respuesta = _vender(cliente, id_cliente, id_sala, [(vino_a, 1), (vino_b, pedido_b)])
+
+    assert respuesta.status_code == 409, respuesta.text
+    assert respuesta.json() == {
+        "detail": f"RN-09: stock insuficiente del vino {vino_b} en la sala {id_sala}.", "codigo": "P0001"}
+    # Ni la cabecera, ni el renglón de vino_a, ni su descuento de stock.
+    assert _estado(consultar, id_sala, [vino_a, vino_b]) == antes
+
+
+@pytest.mark.parametrize(("renglones", "detalle"), [
+    pytest.param("repetido", "RN-08: un vino no puede repetirse en la misma venta.", id="vino-repetido"),
+    pytest.param("cero", "RN-15: las cantidades vendidas deben ser positivas.", id="cantidad-cero"),
+    pytest.param("vacio", "RN-08: una venta debe tener al menos un renglón.", id="sin-renglones"),
+])
+def test_regla_de_la_venta_409_sin_cambios(cliente, consultar, consultar_filas, renglones, detalle) -> None:
+    id_cliente, id_sala, (vino_a, vino_b) = _datos_de_venta(consultar, consultar_filas)
+    pedido = {"repetido": [(vino_a, 1), (vino_a, 1)],
+              "cero": [(vino_a, 1), (vino_b, 0)],
+              "vacio": []}[renglones]
+    antes = _estado(consultar, id_sala, [vino_a, vino_b])
+
+    respuesta = _vender(cliente, id_cliente, id_sala, pedido)
+
+    assert respuesta.status_code == 409, respuesta.text
+    assert respuesta.json() == {"detail": detalle, "codigo": "P0001"}
+    assert _estado(consultar, id_sala, [vino_a, vino_b]) == antes
+
+
+@pytest.mark.parametrize(("campo", "restriccion"), [
+    ("id_cliente", "fk_comprobante_cliente"),
+    ("id_sala", "fk_comprobante_sala_venta"),
+])
+def test_cliente_o_sala_inexistente_422_sin_cambios(cliente, consultar, consultar_filas, campo, restriccion) -> None:
+    id_cliente, id_sala, (vino_a, vino_b) = _datos_de_venta(consultar, consultar_filas)
+    antes = _estado(consultar, id_sala, [vino_a, vino_b])
+    datos = {"id_cliente": id_cliente, "id_sala": id_sala, campo: 2_147_483_647}
+
+    respuesta = _vender(cliente, datos["id_cliente"], datos["id_sala"], [(vino_a, 1)])
+
+    assert respuesta.status_code == 422, respuesta.text
+    assert respuesta.json() == {"detail": "El dato relacionado no existe.", "codigo": "23503",
+                                "restriccion": restriccion}
+    assert _estado(consultar, id_sala, [vino_a, vino_b]) == antes
+
+
+def test_vino_inexistente_422_con_su_codigo(cliente, consultar, consultar_filas) -> None:
+    id_cliente, id_sala, (vino_a, vino_b) = _datos_de_venta(consultar, consultar_filas)
+    antes = _estado(consultar, id_sala, [vino_a, vino_b])
+
+    respuesta = _vender(cliente, id_cliente, id_sala, [(vino_a, 1), (999_999_999, 1)])
+
+    assert respuesta.status_code == 422, respuesta.text
+    # La API lo detecta antes de vender (la base respondería 23502 sobre precio_unitario).
+    assert respuesta.json() == {"detail": "No existen los vinos: 999999999.", "codigo": "dato_invalido"}
+    assert _estado(consultar, id_sala, [vino_a, vino_b]) == antes
+
+
+@pytest.mark.parametrize("cuerpo", [
+    {"id_cliente": 1, "id_sala": 1},
+    {"id_cliente": "uno", "id_sala": 1, "renglones": []},
+    {"id_cliente": 1, "id_sala": 1, "renglones": [{"cod_vino": 1}]},
+])
+def test_forma_invalida_422(cliente, consultar, cuerpo) -> None:
+    antes = consultar("SELECT count(*) FROM comprobante")
+
+    respuesta = cliente.post("/comprobantes", json=cuerpo)
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["codigo"] == "validacion"
+    assert consultar("SELECT count(*) FROM comprobante") == antes
+
+
+# --- Consulta ------------------------------------------------------------------------
+
+def test_comprobante_inexistente_404(cliente) -> None:
+    respuesta = cliente.get("/comprobantes/999999999")
+
+    assert respuesta.status_code == 404
+    # El 404 del endpoint, no el de una ruta inexistente: trae el número.
+    assert respuesta.json() == {"detail": "El comprobante 999999999 no existe.", "codigo": "no_encontrado"}

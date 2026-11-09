@@ -366,11 +366,15 @@ def test_put_que_deja_la_excepcion_sin_respaldo_409(cliente, consultar, consulta
     assert respuesta.json()["descuento"] == "35.00"
 
 
-def test_put_de_cliente_inexistente_404(cliente, cuerpo) -> None:
-    respuesta = cliente.put("/clientes/999999999", json=cuerpo("socio"))
+def test_put_de_cliente_inexistente_404(cliente, consultar, cuerpo) -> None:
+    datos = cuerpo("socio")
+
+    respuesta = cliente.put("/clientes/999999999", json=datos)
 
     assert respuesta.status_code == 404
     assert respuesta.json() == {"detail": "El cliente 999999999 no existe.", "codigo": "no_encontrado"}
+    # El PUT no crea el cliente que no encontró.
+    assert consultar("SELECT count(*) FROM cliente WHERE nro_documento = %s", (datos["nro_documento"],)) == 0
 
 
 # --- Baja -------------------------------------------------------------------
