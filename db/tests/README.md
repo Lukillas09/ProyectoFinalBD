@@ -6,7 +6,7 @@
 2. `002_esquema_y_restricciones.sql` (propietario): PK/FK, UNIQUE, NOT NULL, CHECK, DOMAIN y exclusividad de subtipos.
 3. `003_privilegios_api.sql` (cuenta de la API): matriz exacta de privilegios de tablas, columnas, rutinas y secuencias.
 4. `004_reglas_negocio.sql` (propietario): un caso que funciona y uno que falla por cada RN-01 a RN-15, U6, totalidad de clientes y funciones.
-5. `005_roles.sql` (propietario con `SET LOCAL ROLE` a cada grupo): operaciones reales de la API y de reportes; lo prohibido debe dar 42501. También verifica las funciones `SECURITY DEFINER`.
+5. `005_roles.sql` (propietario con `SET LOCAL ROLE` a cada grupo): operaciones reales de la API y de reportes; lo prohibido debe dar 42501. También verifica las funciones `SECURITY DEFINER` y, desde `010`, que la API lee la producción de uva sin poder modificarla.
 6. `006_conexion_reportes.sql` (cuenta de reportes): sólo lectura efectiva.
 7. `007_comprobante_emitido.sql` (propietario): un comprobante confirmado en una transacción anterior no admite renglones nuevos, ni siquiera para el propietario, y U1 (`fn_recalcular_comprobante`) sigue funcionando. Usa varias transacciones: borra restos de una ejecución interrumpida al empezar y sus datos al terminar.
 8. `008_ingreso_bodega.sql` (propietario): RN-16, agregada por `009`. Un ingreso acepta vinos de su bodega y rechaza los de otra, también al cambiar el vino de un renglón y en la forma de I6 (cabecera y renglón en una sola sentencia con un CTE). Ingreso o vino inexistente siguen respondiendo la FK, y un ingreso terminado responde RN-12 antes que RN-16.
