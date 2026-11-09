@@ -75,7 +75,8 @@ GRANT EXECUTE ON FUNCTION
   fn_descuento_cliente(BIGINT),
   fn_stock_sala(INTEGER, BIGINT),
   fn_total_comprobante(BIGINT),
-  fn_antiguedad_anios(DATE, DATE)
+  fn_antiguedad_anios(DATE, DATE),
+  fn_recalcular_comprobante(BIGINT)
 TO bodegas_rw;
 
 GRANT EXECUTE ON PROCEDURE

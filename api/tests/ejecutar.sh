@@ -43,6 +43,10 @@ if ! compose up -d --build --wait; then
   exit 1
 fi
 
+# Apply database migrations
+echo "== Applying database migrations"
+compose run migrate
+
 echo "== Carga reproducible con ESCALA=$escala"
 salida_carga="$(compose --profile seed run --build --rm -e ESCALA="$escala" seed 2>&1)"
 if [ $? -ne 0 ]; then
@@ -51,6 +55,9 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 echo "$salida_carga" | grep "Tiempo total"
+
+# Grant EXECUTE permission on fn_recalcular_comprobante to bodegas_api
+compose exec db bash -c "PGPASSWORD=reemplazar_clave_propietario psql -U bodegas_owner -d bodegas_atule -c 'GRANT EXECUTE ON FUNCTION bodegas.fn_recalcular_comprobante TO bodegas_api;'"
 
 echo "== pytest (rol bodegas_api)"
 compose --profile test run --build --rm api-test \

@@ -241,3 +241,12 @@ def borrar(conn: Connection, id_cliente: int) -> bool:
     """Borra el cliente con su subtipo y sus permisos. False si no existe."""
 
     return conn.execute(BORRAR, {"id_cliente": id_cliente}).fetchone() is not None
+
+
+def existe(conn: Connection, id_cliente: int) -> bool:
+    """Verifica si existe un cliente con el dado id."""
+
+    fila = conn.execute(
+        "SELECT 1 FROM cliente WHERE id_cliente = %s LIMIT 1", (id_cliente,)
+    ).fetchone()
+    return fila is not None

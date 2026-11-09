@@ -151,11 +151,15 @@ COMMENT ON FUNCTION fn_antiguedad_anios(DATE, DATE) IS
 --   La marca protege contra errores de quien tiene UPDATE (el propietario);
 --   el límite de seguridad para la API es no tener UPDATE sobre comprobante.
 -- Errores: P0002 si el comprobante no existe.
+-- Seguridad: SECURITY DEFINER para que se ejecute con los privilegios del
+--   propietario (bodegas_owner), sin necesidad de otorgar a la API
+--   privilegiosdirectos sobre la tabla comprobante.
 CREATE FUNCTION fn_recalcular_comprobante(p_nro_comprobante BIGINT)
 RETURNS VOID
 LANGUAGE plpgsql
 VOLATILE
 SET search_path = bodegas, pg_temp
+SECURITY DEFINER
 AS $$
 DECLARE
   v_bruto NUMERIC(14,2);

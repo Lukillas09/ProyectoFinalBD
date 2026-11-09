@@ -322,3 +322,42 @@ ClienteDetalle = Annotated[
 ClienteEntrada = Annotated[
     SocioEntrada | DistribuidorEntrada | ExportadorEntrada, Field(discriminator="tipo")
 ]
+
+
+# --- Comprobantes (issue #28) ------------------------------------------------
+
+class ComprobanteRenglonRespuesta(BaseModel):
+    """Un renglón de comprobante en la respuesta (devuelto por PostgreSQL)."""
+
+    cod_vino: int
+    nombre_vino: str
+    cantidad: int
+    total_parcial: str = Field(
+        description="Subtotal del renglón (precio Unitario x Cantidad), string "
+                    "con escala NUMERIC."
+    )
+
+
+class ComprobanteRenglonEntrada(BaseModel):
+    """Renglón de la solicitud POST /comprobantes."""
+    cod_vino: int
+    cantidad: int
+
+
+class ComprobanteEntrada(BaseModel):
+    """Cuerpo de POST /comprobantes."""
+
+    id_cliente: int
+    id_sala: int
+    renglones: list[ComprobanteRenglonEntrada]
+
+
+class ComprobanteSalida(BaseModel):
+    """Respuesta de GET /comprobantes/{nro} y de POST /comprobantes."""
+
+    nro_comprobante: int
+    fecha: str
+    subtotal: str = Field(description="Subtotal del comprobante, string con escala NUMERIC.")
+    descuento: str = Field(description="Descuento aplicado, string con escala NUMERIC.")
+    total: str = Field(description="Total neto del comprobante, string con escala NUMERIC.")
+    renglones: list[ComprobanteRenglonRespuesta]
