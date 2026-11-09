@@ -40,14 +40,12 @@ def conexion(request: Request) -> Iterator[Connection]:
     de los constraint triggers diferidos que aparecen en él, ocurren antes de
     armar la respuesta (ver api/README.md).
 
-    Se fija el search_path a ``bodegas`` para que las consultas a tablas del
-    esquema bodegas (comprobante, cliente, vino, etc.) sean resueltas sin
-    necesidad de calificar el nombre de la tabla.
+    Si el pool no entrega una conexión a tiempo, PoolTimeout llega al
+    manejador de app/errores.py y la respuesta es 503.
     """
 
     pool: ConnectionPool = request.app.state.db_pool
     with pool.connection(timeout=request.app.state.db_pool_timeout_seconds) as conn:
-        conn.execute("SET search_path TO bodegas, pg_catalog")
         yield conn
 
 

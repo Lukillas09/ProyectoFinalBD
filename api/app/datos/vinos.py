@@ -231,21 +231,3 @@ def borrar(conn: Connection, cod_vino: int) -> bool:
     """Borra el vino. False si no existe."""
 
     return conn.execute(BORRAR, {"cod_vino": cod_vino}).fetchone() is not None
-
-
-def vino_existe(conn: Connection, cod_vino: int) -> bool:
-    """Verifica si existe un vino con el dado cod_vino."""
-
-    fila = conn.execute(
-        "SELECT 1 FROM vino WHERE cod_vino = %s LIMIT 1", (cod_vino,)
-    ).fetchone()
-    return fila is not None
-
-
-def sala_existe(conn: Connection, id_sala: int) -> bool:
-    """Verifica si existe una sala de venta con el dado id."""
-
-    fila = conn.execute(
-        "SELECT 1 FROM sala_venta WHERE id_sala = %s LIMIT 1", (id_sala,)
-    ).fetchone()
-    return fila is not None
