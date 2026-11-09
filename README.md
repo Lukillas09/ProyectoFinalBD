@@ -159,6 +159,7 @@ El script termina con código distinto de cero si alguna prueba falla. Desde Git
 | `005_roles.sql` | propietario con `SET ROLE` | Operaciones reales de la API y de reportes: lo permitido funciona y lo prohibido da 42501. |
 | `006_conexion_reportes.sql` | reportes | La cuenta de reportes sólo lee. |
 | `007_comprobante_emitido.sql` | propietario | Un comprobante confirmado no admite renglones nuevos, aun como propietario; U1 sigue funcionando. Usa varias transacciones y limpia sus datos. |
+| `008_ingreso_bodega.sql` | propietario | RN-16 (`009`): un ingreso sólo admite vinos de su bodega de origen. |
 
 Las pruebas de propietario terminan en `ROLLBACK`, salvo `007`, que necesita una venta confirmada y la borra al terminar. La correspondencia de cada regla con su caso está en [docs/trazabilidad.md](docs/trazabilidad.md).
 
