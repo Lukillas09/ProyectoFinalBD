@@ -7,7 +7,7 @@ Entregable de la Etapa 2. Cada regla de negocio de la consigna (RN-01 a RN-15), 
 
 La consigna nombra el archivo de pruebas `tests/db_tests.sql`. Este proyecto lo divide por propósito en `db/tests/` (supuesto 17 de `docs/requisitos.md`). `db/tests/run_all.sh` los ejecuta en orden, cada uno con su rol, y termina con código distinto de cero si alguno falla. Cada caso negativo indica en un comentario el error esperado y la prueba verifica el SQLSTATE, la constraint y el mensaje.
 
-Abreviaturas de archivos: `001`…`007` = `db/migrations/00N_*.sql`; `T001`…`T007` = `db/tests/00N_*.sql`.
+Abreviaturas de archivos: `001`…`009` = `db/migrations/00N_*.sql`; `T001`…`T008` = `db/tests/00N_*.sql`.
 
 ## 1. Tabla de trazabilidad
 
@@ -29,6 +29,7 @@ Abreviaturas de archivos: `001`…`007` = `db/migrations/00N_*.sql`; `T001`…`T
 | **RN-13** Auditoría de precio | `005`: `trg_vino_auditoria_precio` (AFTER UPDATE OF precio, WHEN distinto, SECURITY DEFINER, registra `session_user`). `001`: `auditoria_precio`. `002`: `ck_auditoria_precio_valores`. | `T004` RN-13: cambio auditado con precios y usuario ✔; otros cambios o mismo precio no auditan ✔; renglón conserva precio histórico ✔; auditoría con precios iguales → 23514 ✘. `T005`: el cambio hecho por la API queda auditado aunque la API no tenga INSERT sobre la auditoría ✔. |
 | **RN-14** No borrar transportista, bodega ni vino con movimientos | `001`: FK `ON DELETE RESTRICT` desde lotes, vinos, movimientos, stock y auditoría (`docs/modelo_relacional.md` §5). | `T004` RN-14: borrar bodega → 23503 ✘; vino vendido → 23503 ✘; transportista con ingresos → 23503 `fk_ingreso_transportista` ✘; vino sin movimientos se borra ✔. |
 | **RN-15** Cantidades, superficies, kilos y precios positivos; graduación 5..20 | `002`: `ck_*_positiv*`, `ck_vino_graduacion` y demás `CHECK`. | `T004` RN-15: cantidad 0 en ingreso y venta, superficie 0, kilos 0, graduación 20,5 → 23514 ✘; graduación 20 ✔. `T002` cubre más casos de dominio. |
+| **RN-16** (regla del proyecto, Etapa 6) Un ingreso sólo admite vinos de su bodega de origen | `009`: `trg_renglon_ingreso_bodega` (BEFORE INSERT/UPDATE OF `cod_ingreso`, `cod_vino`), función `fn_trg_renglon_ingreso_bodega`. Antes sólo lo verificaba el control R3 de la carga. | `T008`: vinos de la bodega ✔; vino de otra bodega → P0001 "RN-16: el vino … es de la bodega …" ✘; cambiar el vino por uno ajeno → P0001 ✘; cambiar sólo la cantidad ✔; cabecera y renglón en una sentencia con CTE (forma de I6), ajeno → P0001 ✘ y propio ✔; ingreso o vino inexistente → 23503 de la FK ✘; ingreso terminado → RN-12 antes que RN-16 ✘. API: `test_renglon_con_vino_de_otra_bodega_409`. |
 | **Totalidad** de la jerarquía de clientes | `005`: `ctrg_cliente_subtipo` (cliente) y `ctrg_socio_club_total`, `ctrg_distribuidor_total`, `ctrg_exportador_total` (diferidos). La exclusividad ya estaba: FK compuestas de `001` + `ck_*_tipo` de `002`. | `T004` totalidad: cliente sin subtipo → P0001 al cerrar ✘; quitar el subtipo → P0001 ✘; cambiar de tipo en una transacción ✔. `T002`: exclusividad. |
 | **Privilegios** de la API y reportes | `db/bootstrap/001_roles_y_esquema.sh` (cuentas y grupos), `007` (GRANT/REVOKE). Rutinas SECURITY DEFINER en `004` y `005`. | `T001`, `T003`: atributos, membresías y matriz exacta de privilegios. `T005`: operaciones reales permitidas y denegadas (42501). `T006`: cuenta de reportes. |
 

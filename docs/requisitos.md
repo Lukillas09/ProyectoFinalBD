@@ -133,6 +133,8 @@ Las quince reglas del PDF deben conservar trazabilidad hacia un mecanismo Postgr
 | RN-14 | No borrar vino, bodega o transportista con movimientos. | FK `ON DELETE RESTRICT`. |
 | RN-15 | Cantidades, superficies, kilos y precios positivos; graduación 5 a 20. | `CHECK`. |
 
+**Regla agregada por el proyecto (Etapa 6, issue #30):** RN-16, un ingreso sólo admite vinos de su bodega de origen. El PDF registra la bodega de origen de cada ingreso pero no prohíbe explícitamente un vino de otra bodega. Se decidió rechazarlo en la base (trigger de `009_ingreso_bodega.sql`) y no sólo en la carga masiva (control R3). No reemplaza ninguna regla del PDF.
+
 ### 3.4 Mínimos cuantitativos de integridad y lógica
 
 - PK en todas las tablas y FK en todas las relaciones, con acciones referenciales justificadas.
@@ -250,7 +252,7 @@ Traducción sugerida del PDF: `23505 -> 409`; `23503 -> 409 o 422`; `23514` y `2
 Contrato borrador, traducción completa de SQLSTATE y privilegios verificados: `docs/api.md`. Preguntas abiertas para la cátedra, sin eliminar nada del PDF:
 
 - el alcance de `/reportes/trazabilidad/{cod}`, que el modelo no resuelve directamente;
-- `POST /ingresos/{cod}/terminar`, que el PDF no lista aunque RN-10 exige el estado `terminado`.
+- `POST /ingresos/{cod}/terminar`, que el PDF no lista aunque RN-10 exige el estado `terminado`. Mientras no haya respuesta, se implementó (issue #30): sin él, un ingreso creado por la API no podría procesarse.
 
 ### 3.9 Front, nube, documentación y evaluación
 
@@ -392,9 +394,10 @@ La columna "Etapa 1" registra lo que ya protegía el esquema; "Etapa 2" agrega l
 | RN-13 | Tabla de auditoría con valores válidos | Trigger `AFTER UPDATE OF precio` con `session_user` | — |
 | RN-14 | `RESTRICT` desde movimientos, stock y auditoría | — | — |
 | RN-15 | `CHECK` de cantidades, superficies, kilos, precios y graduación | — | — |
+| RN-16 (proyecto, `009`) | — | Trigger BEFORE en `renglon_ingreso`: el vino es de la bodega del ingreso | — |
 | Jerarquía de clientes | Exclusividad por FK compuesta y `ck_*_tipo` | Totalidad por constraint triggers diferidos | — |
 
-Todas las reglas RN-01 a RN-15 tienen mecanismo y caso de prueba. Quedan como participaciones mínimas no exigidas por una RN: al menos un maridaje por vino, un análisis por lote y un empleado por sala.
+Todas las reglas RN-01 a RN-15 tienen mecanismo y caso de prueba, y también RN-16, agregada en la Etapa 6. Quedan como participaciones mínimas no exigidas por una RN: al menos un maridaje por vino, un análisis por lote y un empleado por sala.
 
 ## 9. Estado de la Etapa 2: integridad y lógica
 
@@ -411,9 +414,9 @@ Valores obtenidos con consultas a `pg_proc`, `pg_trigger`, `pg_views`, `pg_roles
 
 | Elemento | Mínimo | Real |
 |---|---:|---|
-| Funciones | 4 | 7: `fn_descuento_cliente`, `fn_stock_sala`, `fn_total_comprobante`, `fn_antiguedad_anios`, `fn_recalcular_comprobante`, `fn_registrar_venta`, `fn_validar_transicion_estado`; además 16 funciones de trigger |
+| Funciones | 4 | 7: `fn_descuento_cliente`, `fn_stock_sala`, `fn_total_comprobante`, `fn_antiguedad_anios`, `fn_recalcular_comprobante`, `fn_registrar_venta`, `fn_validar_transicion_estado`; además 17 funciones de trigger (una de `009`) |
 | Procedimientos | 2 | 4: `sp_terminar_ingreso`, `sp_procesar_ingreso`, `sp_terminar_transferencia`, `sp_procesar_transferencia` |
-| Triggers | 6, con BEFORE, AFTER y constraint diferido | 20: 10 BEFORE, 2 AFTER, 8 `CONSTRAINT … DEFERRABLE INITIALLY DEFERRED` |
+| Triggers | 6, con BEFORE, AFTER y constraint diferido | 21: 11 BEFORE (uno de `009`), 2 AFTER, 8 `CONSTRAINT … DEFERRABLE INITIALLY DEFERRED` |
 | Vistas | 3 | 4: `v_stock_total_vino`, `v_ventas_mensuales_sala`, `v_documentos_pendientes`, `v_ficha_vino` (ninguna materializada; ver `006_vistas.sql`) |
 | Roles | 3 | Propietario, `bodegas_rw` (API) y `bodegas_ro` (reportes), con sus cuentas `DB_APP_USER` y `DB_REPORT_USER` |
 | ENUM / DOMAIN | 1 / 1 | 2 / 1 |

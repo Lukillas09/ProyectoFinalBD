@@ -27,11 +27,11 @@ Incluye:
 - lógica de negocio en la base (Etapa 2):
   - 7 funciones (4 de cálculo pedidas por la consigna y `fn_registrar_venta`, único camino de venta de la API);
   - 4 procedimientos de ingresos y transferencias;
-  - 20 triggers (10 BEFORE, 2 AFTER, 8 constraint triggers diferidos);
+  - 21 triggers (11 BEFORE, 2 AFTER, 8 constraint triggers diferidos), uno de ellos agregado en la Etapa 6 por `009_ingreso_bodega.sql` (RN-16);
   - 4 vistas;
   - privilegios mínimos para la API (`bodegas_rw`) y para reportes (`bodegas_ro`);
 - runner de migraciones con transacción, registro y SHA-256, ejecutado por el servicio de única ejecución `migrate`;
-- pruebas SQL de estructura, reglas RN-01 a RN-15, privilegios y roles;
+- pruebas SQL de estructura, reglas RN-01 a RN-16, privilegios y roles;
 - carga masiva reproducible (Etapa 3): 6 años de historia, más de 150.000 ventas y 530.000 renglones, con catálogos reales, consultas de control y volcado; ver [Carga masiva](#carga-masiva-etapa-3);
 - índices y rendimiento (Etapa 4): 6 índices en `008_indices.sql` (48 en total en el esquema, contando los de PK y `UNIQUE`), medidos antes y después con `EXPLAIN (ANALYZE, BUFFERS)`; ver [Medir el rendimiento](#medir-el-rendimiento-etapa-4).
 

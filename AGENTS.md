@@ -94,7 +94,7 @@ Ya existen:
 - los índices de rendimiento (Etapa 4: `008_indices.sql`, medición en `db/perf/`, informe en `docs/rendimiento.md`);
 - las consultas de la Etapa 5, cerrada: S1-S12, U1-U6, I1-I6 y D1-D6 en `consultas/`, informe en `docs/consultas.md` y planes en `docs/consultas/planes/`.
 
-Una vez integradas en `main`, las migraciones no se modifican: cualquier corrección va en una migración nueva. La próxima migración es `009`; sólo se crea con una necesidad justificada y aprobada. El faltante conocido son los `SELECT` para la trazabilidad (`docs/api.md`, sección 4), pendiente de la respuesta de la cátedra.
+Una vez integradas en `main`, las migraciones no se modifican: cualquier corrección va en una migración nueva. `009_ingreso_bodega.sql` (RN-16, issue #30) es la primera de la Etapa 6. La próxima migración es `010`; sólo se crea con una necesidad justificada y aprobada. El faltante conocido son los `SELECT` para la trazabilidad (`docs/api.md`, sección 4), pendiente de la respuesta de la cátedra.
 
 **La próxima es la Etapa 6: API REST.** El contrato borrador está en `docs/api.md` y la organización prevista del código en `api/README.md`. Cada endpoint entra con su función de acceso a datos y su prueba en `api/tests/`. No se crean archivos vacíos por adelantado. Las pantallas del front son de la Etapa 7.
 
