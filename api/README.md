@@ -185,10 +185,13 @@ app/
 ## Pruebas
 
 ```bash
-api/tests/ejecutar.sh                  # todas (unos 60 s)
+api/tests/ejecutar.sh                  # todas (unos 60 s): 238 casos
+api/tests/ejecutar.sh -m consigna      # sólo las 3 reglas que nombra la consigna
 api/tests/ejecutar.sh -k paginacion    # los argumentos van a pytest
 MANTENER=1 api/tests/ejecutar.sh       # deja el proyecto arriba para depurar
 ```
+
+Es **un solo comando desde un volumen vacío**: crea el proyecto, lo carga y corre `docker compose --profile test run --rm api-test` adentro. La tabla prueba → endpoint → regla, y las tres pruebas que exige la consigna (stock insuficiente, cambio de estado inválido y precio negativo, marcadas `consigna`), están en `docs/api.md`, sección 7.
 
 El script hace esto:
 
@@ -200,7 +203,7 @@ El script hace esto:
 
 **Nunca usa el proyecto por defecto**: las pruebas que escriben (ventas, transferencias) no tocan los datos de trabajo. Variables: `PROYECTO`, `ESCALA`, `API_PORT` / `FRONT_PORT` (18800 / 18880 en el host) y `ENV_FILE`.
 
-Reglas para las pruebas de los issues siguientes:
+Reglas que sigue toda la suite (revisadas en el issue #33):
 
 - **Rol `bodegas_api`**, el mismo de la API. El propietario no se usa para preparar datos.
 - **Datos que hacen falta.**
@@ -210,6 +213,6 @@ Reglas para las pruebas de los issues siguientes:
 - **Errores reales sin rutas falsas en la app.** `conftest.py` arma la aplicación con `crear_app()` y le agrega rutas `/_prueba/...` sólo para las pruebas. `app.main.app` no las tiene.
 - **Swagger se prueba por HTTP real.** `api-test` está en las redes `datos` y `web`, y llama a `http://api:8000` y a `http://front/api/...`.
 
-`docker compose --profile test run --rm api-test` sigue funcionando contra un entorno ya levantado y cargado, pero las pruebas que escriben quedarían en esa base. Por eso el camino documentado es `ejecutar.sh`.
+`docker compose --profile test run --rm api-test` también funciona solo contra un entorno ya levantado y **cargado**, y puede repetirse sobre la misma base. Pero las pruebas que escriben (ventas, documentos, altas) dejarían sus datos en esa base, así que el camino documentado es `ejecutar.sh`. Contra una base migrada pero sin carga, `conftest.py` corta la sesión con un mensaje que indica usar `ejecutar.sh` (código 2).
 
 Starlette emite un aviso de deprecación sobre `httpx` en su `TestClient`; se mantiene `httpx` porque es lo que usa hoy el `TestClient` de FastAPI.
