@@ -1,0 +1,30 @@
+# Caso A: Consulta legítima GET /vinos?tipo=tinto
+
+## Comando ejecutado (TestClient de FastAPI)
+cliente.get("/vinos", params={"tipo": "tinto"})
+
+## Respuesta HTTP 200 OK
+{
+  "items": [
+    {
+      "cod_vino": 1,
+      "nombre": "Malbec Clásico",
+      "tipo": "tinto",
+      "anada": 2022,
+      "volumen_ml": 750,
+      "graduacion": "13.50",
+      "precio": "4500.00",
+      "cuit_bodega": "30555408710",
+      "bodega": "Bodega Lopez S.R.L."
+    },
+    ...
+  ],
+  "limite": 20,
+  "desplazamiento": 0,
+  "total": 45
+}
+
+## Verificación
+- status_code == 200
+- todos los items tienen tipo == "tinto"
+- total > 0 (45 vinos tintos en la carga ESCALA=0.1)

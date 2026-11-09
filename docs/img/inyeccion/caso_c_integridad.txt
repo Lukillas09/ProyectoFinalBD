@@ -1,0 +1,41 @@
+# Caso C: Verificación de integridad de bodegas.vino después de intentos de inyección
+
+## Estado ANTES de las pruebas
+```sql
+SELECT count(*) FROM bodegas.vino;
+-- Resultado: 600 (carga ESCALA=0.1)
+```
+
+## Intentos de inyección ejecutados
+1. GET /vinos?tipo=tinto' OR '1'=1
+2. GET /vinos?tipo=tinto'; DROP TABLE vino; --
+3. GET /vinos?tipo=' UNION SELECT * FROM bodega; --
+4. GET /vinos?id_cepa=999999
+5. GET /vinos?cuit_bodega=99999999999
+6. GET /vinos?anada=2100
+
+## Estado DESPUÉS de las pruebas
+```sql
+SELECT count(*) FROM bodegas.vino;
+-- Resultado: 600 (sin cambios)
+```
+
+## Muestra de datos (primeros 5 vinos) - ANTES y DESPUÉS idénticos
+```sql
+SELECT cod_vino, nombre, tipo, anada FROM bodegas.vino ORDER BY cod_vino LIMIT 5;
+-- Resultado:
+--  cod_vino |       nombre       |  tipo  | anada
+-- ----------+--------------------+--------+-------
+--         1 | Malbec Clásico     | tinto  |  2022
+--         2 | Chardonnay Joven   | blanco |  2023
+--         3 | Cabernet Reserva   | tinto  |  2021
+--         4 | Merlot Selección   | tinto  |  2022
+--         5 | Syrah Gran Reserva | tinto  |  2020
+```
+
+## Conclusión
+- ✅ La tabla `bodegas.vino` existe
+- ✅ La cantidad de registros no cambió (600 → 600)
+- ✅ Los datos no se modificaron
+- ✅ No se ejecutaron instrucciones SQL adicionales (DROP, DELETE, UPDATE, INSERT)
+- ✅ Todas las respuestas fueron 422 (validación) o 200 (lista vacía), nunca 500

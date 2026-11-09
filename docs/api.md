@@ -648,6 +648,210 @@ Implementado en `api/app/errores.py` (issue #24) y probado contra PostgreSQL 16 
   - nunca va el texto completo de la excepción, que en errores de conexión incluye servidor y usuario.
 - **Al log:** SQLSTATE, mensaje primario y nombres de tabla o restricción, nunca datos de conexión. Lo verifica `test_permiso_denegado_500_sin_detalles_y_al_log`.
 
+## Prevención de SQL Injection — GET /vinos
+
+### Objetivo de la prueba
+
+Demostrar que el endpoint `GET /vinos` es resistente a SQL Injection porque PostgreSQL recibe los valores proporcionados por el usuario como **parámetros**, sin incorporarlos directamente al texto de la consulta SQL.
+
+### Riesgo de SQL Injection
+
+Una inyección SQL ocurre cuando la entrada del usuario se concatena directamente en el texto de una consulta SQL, permitiendo alterar su estructura. Por ejemplo:
+
+```sql
+-- Consulta vulnerable (NO USAR)
+sql = f"SELECT * FROM vino WHERE tipo = '{tipo_usuario}'"
+```
+
+Si `tipo_usuario` es `tinto' OR '1'='1`, la consulta resultante sería:
+
+```sql
+SELECT * FROM vino WHERE tipo = 'tinto' OR '1'='1'
+```
+
+Esto devolvería **todos** los vinos, omitiendo el filtro. Peor aún, un atacante podría inyectar `tinto'; DROP TABLE vino; --` y ejecutar sentencias destructivas.
+
+### Consulta legítima (Caso A)
+
+**Solicitud:**
+
+```http
+GET /vinos?tipo=tinto
+```
+
+**Respuesta HTTP 200:**
+
+```json
+{
+  "items": [
+    {"cod_vino": 1, "nombre": "Malbec Clásico", "tipo": "tinto", "anada": 2022, ...},
+    {"cod_vino": 3, "nombre": "Cabernet Reserva", "tipo": "tinto", "anada": 2021, ...}
+  ],
+  "limite": 20,
+  "desplazamiento": 0,
+  "total": 45
+}
+```
+
+El filtro `tipo=tinto` funciona correctamente y devuelve solo los vinos tintos.
+
+### Payload utilizado (Caso B)
+
+**Solicitud con intento de inyección:**
+
+```http
+GET /vinos?tipo=tinto'%20OR%20'1'%3D'1
+```
+
+(URL-encoded: `tinto' OR '1'='1`)
+
+**Respuesta HTTP 422 (validación):**
+
+```json
+{
+  "detail": "Datos de entrada inválidos.",
+  "codigo": "validacion",
+  "errores": [
+    {
+      "campo": "query.tipo",
+      "mensaje": "Input should be 'tinto', 'blanco', 'rosado' or 'espumante'"
+    }
+  ]
+}
+```
+
+La API rechaza el valor **antes de llegar a PostgreSQL**, porque el parámetro `tipo` está tipado como `Literal["tinto", "blanco", "rosado", "espumante"]` en Pydantic. Cualquier valor fuera de ese dominio responde 422 con `codigo="validacion"`.
+
+### Explicación de la parametrización
+
+Aunque la validación de Pydantic es la primera barrera, la **parametrización en la capa de datos** es la defensa en profundidad. En `api/app/datos/vinos.py`, la consulta `LISTAR` usa placeholders:
+
+```sql
+SELECT v.cod_vino, v.nombre, v.tipo, v.anada, v.volumen_ml, v.graduacion, v.precio,
+       v.cuit_bodega, b.razon_social AS bodega,
+       count(*) OVER () AS total
+FROM vino AS v
+JOIN bodega AS b ON b.cuit = v.cuit_bodega
+WHERE (%(tipo)s::varchar IS NULL OR v.tipo = %(tipo)s)
+  AND (%(cuit_bodega)s::varchar IS NULL OR v.cuit_bodega = %(cuit_bodega)s)
+  AND (%(anada)s::smallint IS NULL OR v.anada = %(anada)s)
+  AND (%(id_cepa)s::integer IS NULL OR EXISTS (
+        SELECT 1 FROM composicion_vino AS c
+        WHERE c.cod_vino = v.cod_vino AND c.id_cepa = %(id_cepa)s))
+ORDER BY v.cod_vino
+LIMIT %(limite)s OFFSET %(desplazamiento)s
+```
+
+Los parámetros se pasan como diccionario **separado del texto SQL**:
+
+```python
+parametros = {
+    "tipo": filtros.tipo,
+    "cuit_bodega": filtros.cuit_bodega,
+    "anada": filtros.anada,
+    "id_cepa": filtros.id_cepa,
+    "limite": pagina.limite,
+    "desplazamiento": pagina.desplazamiento,
+}
+with conn.cursor(row_factory=dict_row) as cur:
+    filas = cur.execute(LISTAR, parametros).fetchall()
+```
+
+Psycopg 3 envía el texto SQL y los parámetros **por separado** a PostgreSQL (protocolo extendido). El servidor prepara la sentencia, vincula los parámetros y la ejecuta. El valor nunca se interpola en el SQL.
+
+### Ejemplo vulnerable con f-string (NO EJECUTAR)
+
+```python
+# ❌ INSEGURO: concatenación directa — permite inyección
+tipo = "tinto' OR '1'='1"  # valor que viene del usuario
+sql = f"SELECT * FROM vino WHERE tipo = '{tipo}'"
+cursor.execute(sql)  # ¡Ejecuta: SELECT * FROM vino WHERE tipo = 'tinto' OR '1'='1'!
+```
+
+**Por qué es vulnerable:** El valor del usuario se convierte en parte del texto SQL. Comillas, comentarios (`--`), punto y coma (`;`) y palabras clave (`OR`, `UNION`, `DROP`) cambian la estructura de la consulta.
+
+### Ejemplo seguro con Psycopg 3
+
+```python
+# ✅ SEGURO: parámetros separados — previene inyección
+tipo = "tinto' OR '1'='1"  # mismo valor malicioso
+sql = "SELECT * FROM vino WHERE tipo = %s"
+cursor.execute(sql, (tipo,))  # PostgreSQL recibe el valor como parámetro
+# Resultado: busca vinos cuyo tipo sea LITERALMENTE "tinto' OR '1'='1"
+# (no existe ninguno, devuelve lista vacía)
+```
+
+**Por qué es seguro:** El valor viaja como dato, no como código. PostgreSQL lo compara como texto literal. Los metacaracteres SQL (`'`, `;`, `--`, `OR`) pierden su significado especial.
+
+> **Nota:** Los parámetros protegen **valores**. Identificadores dinámicos (nombres de tablas, columnas) requieren composición segura con `psycopg.sql.Identifier` o `psycopg.sql.SQL`, no simples placeholders.
+
+### Comprobación de que la tabla permanece intacta (Caso C)
+
+La prueba `test_verificacion_integridad_tabla_vino` en `api/tests/test_sql_injection.py` verifica:
+
+1. **Estado antes:** Cuenta de registros en `bodegas.vino`
+2. **Ejecución:** Múltiples intentos de inyección en distintos filtros (`tipo`, `id_cepa`, `cuit_bodega`, `anada`)
+3. **Estado después:** Cuenta de registros y muestra de datos
+4. **Resultado:** La cuenta y los datos son **idénticos** antes y después
+
+```python
+# Evidencia real de la prueba
+count_antes = consultar("SELECT count(*) FROM vino")  # ej. 600
+# ... intentos de inyección ...
+count_despues = consultar("SELECT count(*) FROM vino")  # 600
+assert count_despues == count_antes
+```
+
+No se ejecutaron `DROP`, `DELETE`, `UPDATE` ni `INSERT` adicionales. La tabla permanece intacta.
+
+### Referencias a las capturas
+
+Las capturas de evidencia real se encuentran en `docs/img/inyeccion/`:
+
+| Archivo | Descripción |
+|---|---|
+| `01_consulta_legitima.png` | Solicitud legítima `GET /vinos?tipo=tinto` y respuesta 200 |
+| `02_inyeccion_rechazada.png` | Solicitud con `tipo=tinto' OR '1'='1` y respuesta 422 |
+| `03_integridad_tabla.png` | Verificación de `count(*)` antes y después de los intentos |
+| `04_consulta_parametrizada.png` | Fragmento de `api/app/datos/vinos.py` mostrando placeholders y `execute(sql, params)` |
+| `05_resultados_pruebas.png` | Resultado completo de la suite de 14 pruebas automatizadas |
+
+### Resultado de la prueba automatizada
+
+Ejecutar la suite de inyección SQL:
+
+```bash
+api/tests/ejecutar.sh -k "test_sql_injection"
+```
+
+**Resultado:** 14 pruebas pasadas, 0 fallidas.
+
+```
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_a_consulta_legitima PASSED
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_b_entrada_maliciosa_rechazada_por_validacion[...] PASSED (6 casos)
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_b_valor_valido_pero_inexistente_no_inyecta[...] PASSED (3 casos)
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_c_intento_multiples_sentencias PASSED
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_verificacion_integridad_tabla_vino PASSED
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_evidencia_consulta_parametrizada PASSED
+tests/test_sql_injection.py::TestEvidenciaParametrosSQL::test_codigo_acceso_datos_usa_placeholders PASSED
+```
+
+### Conclusión técnica
+
+El endpoint `GET /vinos` previene SQL Injection mediante **dos capas**:
+
+1. **Validación de entrada (Pydantic/FastAPI):** Los filtros tienen dominios estrictos (`Literal`, rangos, patrones regex). Valores que alterarían la estructura SQL son rechazados con HTTP 422 antes de llegar a la base de datos.
+
+2. **Parametrización nativa (Psycopg 3 / PostgreSQL):** Los valores que pasan la validación se envían a PostgreSQL como **parámetros del protocolo extendido**, nunca como texto SQL. El servidor los trata como datos literales, imposibilitando la inyección.
+
+Esta defensa en profundidad garantiza que:
+- No se omite ningún filtro (no hay `OR '1'='1` efectivo)
+- No se ejecutan sentencias adicionales (no hay `; DROP TABLE`)
+- La tabla `bodegas.vino` permanece íntegra (misma cuenta, mismos datos)
+- El comportamiento es auditable: el código de acceso a datos muestra placeholders explícitos y paso de parámetros separado
+
+La demostración está automatizada en `api/tests/test_sql_injection.py` y forma parte de la suite oficial que se ejecuta con `api/tests/ejecutar.sh`.
+
 ## 4. Privilegios de `bodegas_api` frente a este contrato
 
 Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cada endpoint, dentro de `BEGIN … ROLLBACK` con `ON_ERROR_ROLLBACK`, sobre la base cargada. Las huellas de `hashes.sql` quedaron iguales.

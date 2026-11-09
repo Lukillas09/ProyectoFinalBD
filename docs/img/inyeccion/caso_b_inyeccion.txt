@@ -1,0 +1,33 @@
+# Caso B: Intento de SQL Injection en filtro tipo
+
+## Payloads probados (6 casos)
+
+| # | Payload (decodificado) | Descripción |
+|---|------------------------|-------------|
+| 1 | tinto' OR '1'='1 | Inyección clásica OR '1'='1 |
+| 2 | tinto'; DROP TABLE vino; -- | Intento de DROP TABLE |
+| 3 | tinto' UNION SELECT * FROM usuario; -- | Intento de UNION SELECT |
+| 4 | tinto' OR 1=1; -- | Inyección con comentario SQL |
+| 5 | ' OR '1'='1 | Inyección sin valor base |
+| 6 | tinto"; DELETE FROM vino; -- | Intento con comillas dobles |
+
+## Comando ejecutado (TestClient de FastAPI)
+cliente.get("/vinos", params={"tipo": "tinto' OR '1'='1"})
+
+## Respuesta HTTP 422 Unprocessable Entity (todos los casos)
+{
+  "detail": "Datos de entrada inválidos.",
+  "codigo": "validacion",
+  "errores": [
+    {
+      "campo": "query.tipo",
+      "mensaje": "Input should be 'tinto', 'blanco', 'rosado' or 'espumante'"
+    }
+  ]
+}
+
+## Análisis
+- El parámetro `tipo` es un `Literal["tinto", "blanco", "rosado", "espumante"]` en Pydantic
+- Cualquier valor fuera de ese dominio es rechazado ANTES de llegar a PostgreSQL
+- La inyección no llega a la capa de datos ni a la base
+- Respuesta 422 con `codigo="validacion"` confirma rechazo por validación de entrada

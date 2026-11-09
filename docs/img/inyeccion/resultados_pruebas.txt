@@ -1,0 +1,52 @@
+# Resultados de la suite de pruebas de SQL Injection
+
+## Ejecución: api/tests/ejecutar.sh -k "test_sql_injection"
+
+```
+============================= test session starts ==============================
+platform linux -- Python 3.12.16, pytest-8.3.5, pluggy-1.7.0 -- /usr/local/bin/python
+rootdir: /app
+plugins: anyio-4.16.0
+collecting ... collected 252 items / 238 deselected / 14 selected
+
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_a_consulta_legitima PASSED [  7%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_b_entrada_maliciosa_rechazada_por_validacion[tinto' OR '1'='1-Inyección clásica OR '1'='1] PASSED [ 14%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_b_entrada_maliciosa_rechazada_por_validacion[tinto'; DROP TABLE vino; --Intento de DROP TABLE] PASSED [ 21%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_b_entrada_maliciosa_rechazada_por_validacion[tinto' UNION SELECT * FROM usuario; --Intento de UNION SELECT] PASSED [ 28%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_b_entrada_maliciosa_rechazada_por_validacion[tinto' OR 1=1; --Inyección con comentario SQL] PASSED [ 35%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_b_entrada_maliciosa_rechazada_por_validacion[' OR '1'='1-Inyección sin valor base] PASSED [ 42%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_b_entrada_maliciosa_rechazada_por_validacion[tinto"; DELETE FROM vino; --Intento con comillas dobles] PASSED [ 50%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_b_valor_valido_pero_inexistente_no_inyecta[params0-id_cepa inexistente pero válido como entero] PASSED [ 57%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_b_valor_valido_pero_inexistente_no_inyecta[params1-cuit_bodega de 11 dígitos válido pero inexistente] PASSED [ 64%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_b_valor_valido_pero_inexistente_no_inyecta[params2-anada válida pero inexistente en los datos] PASSED [ 71%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_caso_c_intento_multiples_sentencias PASSED [ 78%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_verificacion_integridad_tabla_vino PASSED [ 85%]
+tests/test_sql_injection.py::TestSQLInjectionPrevencion::test_evidencia_consulta_parametrizada PASSED [ 92%]
+tests/test_sql_injection.py::TestEvidenciaParametrosSQL::test_codigo_acceso_datos_usa_placeholders PASSED [100%]
+
+=============================== warnings summary ===============================
+... (warning de starlette.testclient, irrelevante)
+
+================= 14 passed, 238 deselected, 1 warning in 0.74s =================
+```
+
+## Resumen de casos cubiertos
+
+| Categoría | Casos | Estado |
+|-----------|-------|--------|
+| Consulta legítima (Caso A) | 1 | ✅ PASSED |
+| Inyección rechazada por validación (Caso B) | 6 | ✅ PASSED |
+| Valores válidos inexistentes llegan como parámetros (Caso B bis) | 3 | ✅ PASSED |
+| Intento múltiples sentencias (Caso C) | 1 | ✅ PASSED |
+| Verificación integridad tabla | 1 | ✅ PASSED |
+| Evidencia consulta parametrizada | 1 | ✅ PASSED |
+| Evidencia código usa placeholders | 1 | ✅ PASSED |
+| **TOTAL** | **14** | **14 PASSED, 0 FAILED** |
+
+## Suite completa de la API (252 tests)
+
+```
+======================== 252 passed, 1 warning in 9.11s ========================
+```
+
+Todas las pruebas existentes siguen pasando — **no hay regresiones**.
