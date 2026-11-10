@@ -25,7 +25,7 @@ export const RUTAS = [
     patron: /^\/venta$/,
     titulo: "Nueva venta",
     issue: 53,
-    cargar: null,
+    cargar: () => import("./pantallas/venta.js"),
   },
   {
     patron: /^\/transferencias$/,
