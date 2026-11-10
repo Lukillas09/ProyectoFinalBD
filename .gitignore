@@ -22,6 +22,7 @@ Thumbs.db
 
 # Artefactos locales
 tmp/
+front/tests/salida/
 *.log
 *.dump
 *.backup
