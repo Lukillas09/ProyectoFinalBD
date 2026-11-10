@@ -20,7 +20,7 @@ Este informe cierra la Etapa 7 con los tres criterios de la consigna probados co
 | #53 | Pantalla 3: nueva venta | #62 | Integrado | Iniciada con Codex y terminada con Claude Opus 5.5 (lo dice el cuerpo del PR) |
 | #54 | Pantalla 4: transferencias | #64 | Integrado | Lucas, con Claude Sonnet 5.5 |
 | #55 | Pantalla 5: tablero | #63 | Integrado | Lucas, con Claude Sonnet 5.5 |
-| #56 | Verificación y cierre (este informe) | este PR | En revisión | Lucas, con Claude Sonnet 5.5 |
+| #56 | Verificación y cierre (este informe) | #65 | En revisión | Lucas, con Claude Sonnet 5.5 |
 
 Los issues #49 a #55 están cerrados. El #56 se cierra con el PR de este informe (`Closes #56`). Todos los commits están a nombre del usuario git `Lucas`: la columna "hecho por" sólo registra lo que consta en los PRs y en los trailers.
 
@@ -30,7 +30,7 @@ Los issues #49 a #55 están cerrados. El #56 se cierra con el PR de este informe
 
 | # | Criterio (`docs/front.md` §1) | Estado | Evidencia |
 |---|-------------------------------|--------|-----------|
-| 1 | Las cinco pantallas funcionan contra la API real | ✅ | 33 pruebas con Playwright (sección 3) que recorren las cinco pantallas, contra la API real a través de nginx, en un proyecto aislado desde un volumen vacío |
+| 1 | Las cinco pantallas funcionan contra la API real | ✅ | 25 pruebas con Playwright en el navegador (sección 3) que recorren las cinco pantallas, contra la API real a través de nginx, en un proyecto aislado desde un volumen vacío |
 | 2 | Una venta sin stock muestra el mensaje de la regla y no deja datos a medias | ✅ | `test_venta.py::test_una_venta_sin_stock_muestra_rn09_y_no_deja_datos_a_medias` (conteos abajo) |
 | 3 | El front no contiene lógica de cálculo de importes ni de stock | ✅ | `test_sin_calculos.py` (8 casos) y la auditoría de la sección 4 |
 
@@ -58,7 +58,7 @@ La pantalla mostró `409 · P0001` con *"RN-09: stock insuficiente del vino N en
 - **Diferencia con el issue.** El issue #56 decía "abren `http://localhost:<puerto>`". Se eligió el navegador dentro de la red porque no depende del navegador ni de los puertos del equipo de cada integrante: Edge 157 dejó de arrancar con `playwright-core` en la máquina donde se desarrolló el #54, y estas pruebas no se ven afectadas.
 - **Verificación en la base con un rol de sólo lectura.** El servicio usa `DB_REPORT_USER` (grupo `bodegas_ro`), nunca el propietario ni la cuenta de inicialización; la sesión además abre con `default_transaction_read_only`. No hizo falta cambiar privilegios ni crear una migración. Toda escritura pasa por el front y la API.
 - **Datos buscados con `SELECT`.** Cliente, sala, vino con stock, vino sin stock en la sala, vino de corte y depósito chico se buscan en la carga, nunca con ids fijos (la carga cambia con `FECHA_REFERENCIA`). Las pruebas que modifican stock los buscan dentro de la propia prueba, así que no dependen del orden: también pasan con los archivos en orden inverso y repetidas sobre la misma base.
-- **Capturas ante una falla** en `front/tests/salida/`, que está en `.gitignore`.
+- **Capturas ante una falla** en `front/tests/salida/`, que está en `.gitignore`. Se comprobó con una prueba temporal que falla a propósito (no versionada): dejó `test-failed-1.png`, una captura real de la pantalla, en `front/tests/salida/resultados/` del equipo.
 
 | Archivo | Pruebas | Qué verifica |
 |---|---|---|
@@ -69,13 +69,13 @@ La pantalla mostró `409 · P0001` con *"RN-09: stock insuficiente del vino N en
 | `test_transferencias.py` | 3 | Recorrido `en_confeccion → terminado → procesado` con los botones habilitados de cada estado; al procesar, `stock_sala` sube y `stock_deposito` baja 5; procesar con más botellas que el depósito: RN-11, sigue terminada y el stock no cambia; terminar sin renglones: RN-11 |
 | `test_tablero.py` | 4 | Top 10 igual a `reportes/top-vinos`; una barra por sala, la primera es la de `items[0]` y la de mayor ancho; vinos sin stock de una sala con las filas de la API; un 503 en `top-vinos` deja visibles las otras dos secciones |
 | `test_sin_calculos.py` | 5 funciones, 8 casos | Prueba estática del criterio 3 (sección 4) |
-| **Total** | **26 funciones, 33 casos** | |
+| **Total** | **26 funciones, 33 casos** | 25 casos en el navegador (Playwright) y 8 de la prueba estática |
 
 **Resultados** (desde un volumen vacío):
 
 | Suite | Resultado | Duración |
 |---|---|---|
-| `front/tests/ejecutar.sh` | **33 passed** | 1 min 10 s (pytest: 11 s) |
+| `front/tests/ejecutar.sh` | **33 passed** (25 en el navegador y 8 estáticas) | 1 min 10 s (pytest: 11 s) |
 | `api/tests/ejecutar.sh` | **261 passed** | 1 min 5 s |
 
 La suite de la API sigue completa: eran 252 al cerrar la Etapa 6 y 261 desde el issue #49 (las rutas de catálogo).
@@ -233,7 +233,7 @@ Se revisó que cada captura sea igual o posterior al último cambio de su pantal
 
 **La Etapa 7 (front) está completa y verificada.**
 
-- Las cinco pantallas funcionan contra la API real: 33 pruebas de punta a punta en un proyecto aislado desde un volumen vacío.
+- Las cinco pantallas funcionan contra la API real: 25 pruebas de punta a punta en el navegador, en un proyecto aislado desde un volumen vacío (más 8 estáticas: 33 en total).
 - Una venta sin stock muestra RN-09 y no deja datos a medias: 15045 → 15045 comprobantes, 54219 → 54219 renglones y el stock del vino sin cambios.
 - El front no calcula importes ni stock: toda operación aritmética está justificada y una prueba falla si aparece una nueva.
 - La API sigue completa: 261 pruebas.

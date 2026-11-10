@@ -94,7 +94,7 @@ Ya existen:
 - los índices de rendimiento (Etapa 4: `008_indices.sql`, medición en `db/perf/`, informe en `docs/rendimiento.md`);
 - las consultas de la Etapa 5, cerrada: S1-S12, U1-U6, I1-I6 y D1-D6 en `consultas/`, informe en `docs/consultas.md` y planes en `docs/consultas/planes/`;
 - **la API REST completa (Etapa 6): catálogo y ABM de vinos, CRUD de clientes (3 subtipos), venta y consulta de comprobantes, circuitos de transferencias e ingresos, reportes de solo lectura (S1, S8, S6, S7) y trazabilidad como supuesto; 252 pruebas automatizadas en entorno aislado; ver `docs/api.md` y `docs/cierre_etapa6.md`.**
-- **el front completo (Etapa 7): cinco pantallas (catálogo, alta y edición de vino, nueva venta, transferencias y tablero) en `front/`, con rutas `GET /catalogos/*` de sólo lectura en la API (261 pruebas de la API); 33 pruebas de punta a punta con Playwright en `front/tests/`; ver `docs/front.md` y `docs/cierre_etapa7.md`.**
+- **el front completo (Etapa 7): cinco pantallas (catálogo, alta y edición de vino, nueva venta, transferencias y tablero) en `front/`, con rutas `GET /catalogos/*` de sólo lectura en la API (261 pruebas de la API); 33 pruebas en `front/tests/` (25 de punta a punta con Playwright y 8 estáticas); ver `docs/front.md` y `docs/cierre_etapa7.md`.**
 
 Una vez integradas en `main`, las migraciones no se modifican: cualquier corrección va en una migración nueva. La Etapa 6 agregó `009_ingreso_bodega.sql` (RN-16, issue #30) y `010_privilegios_trazabilidad.sql` (lectura de la producción de uva, issue #32). La próxima migración es `011`; sólo se crea con una necesidad justificada y aprobada. El alcance de la trazabilidad es un supuesto documentado en `docs/requisitos.md` (sección 3.8) hasta que responda la cátedra.
 
