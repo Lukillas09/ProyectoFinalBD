@@ -14,6 +14,50 @@ migrate (tarea única, propietario) -- db/migrate.sh --> 001_esquema ... 007_rol
 
 El navegador nunca usa nombres internos de Docker: solicita `/api/salud` al mismo origen y Nginx lo reenvía a `api:8000` dentro de la red de Compose. FastAPI se conecta a `db:5432` con la cuenta limitada, no con el propietario.
 
+## Entrega final
+
+| | |
+|---|---|
+| **Versión en la nube (front)** | https://bodegas-front.onrender.com |
+| **API en la nube (Swagger)** | https://bodegas-api.onrender.com/docs |
+| **Informe final** | [`docs/informe_final.md`](docs/informe_final.md) |
+| **DER (notación de Chen)** | [`docs/der/chen/der_chen.pdf`](docs/der/chen/der_chen.pdf) |
+| **Trazabilidad regla → mecanismo → prueba** | [`docs/trazabilidad.md`](docs/trazabilidad.md) |
+| **Despliegue en la nube** | [`docs/nube.md`](docs/nube.md) |
+
+Integrantes: Lucas Martínez y Dai Galdeano.
+
+> La API del plan gratis de Render se duerme a los 15 minutos sin uso: el primer pedido puede tardar cerca de un minuto. El front muestra el estado de la API arriba a la derecha.
+
+## Despliegue en la nube (Etapa 8)
+
+Render (plan gratis): PostgreSQL 16 gestionado sin acceso externo, la API como servicio Docker que se conecta por la red privada con `bodegas_api` y `sslmode=require`, y el front como sitio estático con HTTPS. La comparación de proveedores y el diseño están en [`docs/nube.md`](docs/nube.md).
+
+Para reproducirlo desde cero:
+
+1. En Render: **New → Blueprint** sobre este repositorio. [`render.yaml`](render.yaml) crea la base, la API y el front. Cargar las variables secretas que pide:
+   - `DB_PASSWORD`, la contraseña de `bodegas_api`;
+   - `CORS_ORIGINS`, la URL exacta del front;
+   - `API_BASE_URL`, la URL exacta de la API.
+2. En la base, **Networking**: agregar la IP propia como `x.x.x.x/32`.
+3. Copiar [`db/nube/render.env.example`](db/nube/render.env.example) como `db/nube/render.env` (no se versiona) y completarlo con el host externo, el administrador de Render y las contraseñas de las tres cuentas. La de `bodegas_api` debe ser la misma del paso 1.
+4. Desde Git Bash o Linux:
+   ```bash
+   db/nube/render.sh verificar-admin
+   db/nube/render.sh bootstrap        # roles y esquema (bootstrap_render.sh)
+   db/nube/render.sh migrar           # 001..010 en orden
+   db/nube/render.sh cargar           # ESCALA de render.env
+   db/nube/render.sh controles
+   ```
+5. En Render, **Manual Deploy** de la API, que ahora encuentra sus roles. Después, quitar la IP de la lista: la base queda sin acceso externo.
+6. Backup y restauración:
+   ```bash
+   db/nube/render.sh backup
+   db/nube/render.sh restaurar db/nube/salida/<archivo>.dump
+   ```
+
+Detalle de cada paso en [`db/nube/README.md`](db/nube/README.md).
+
 ## Alcance actual
 
 Incluye:

@@ -36,6 +36,40 @@ def _positive_int(name: str, default: int, maximum: int | None = None) -> int:
     return value
 
 
+# Valores de sslmode que acepta libpq. En Render se usa "require" (Etapa 8, R4):
+# la conexión a la base va cifrada aunque viaje por la red privada.
+SSLMODES = ("disable", "allow", "prefer", "require", "verify-ca", "verify-full")
+
+
+def _sslmode() -> str:
+    value = environ.get("DB_SSLMODE", "prefer")
+    if value not in SSLMODES:
+        raise ConfigurationError(
+            f"DB_SSLMODE debe ser uno de: {', '.join(SSLMODES)}."
+        )
+    return value
+
+
+def cors_origins_desde_entorno() -> tuple[str, ...]:
+    """Orígenes permitidos por CORS (Etapa 8, R11), desde CORS_ORIGINS.
+
+    Vacía o ausente: sin CORS, como en local, donde el front y la API
+    comparten origen a través de nginx. Nunca se acepta "*": sólo el origen
+    público del front puede llamar a la API desde un navegador.
+    """
+
+    raw_value = environ.get("CORS_ORIGINS", "")
+    origins = tuple(o.strip() for o in raw_value.split(",") if o.strip())
+    for origin in origins:
+        valido = origin.startswith("https://") or origin.startswith("http://localhost")
+        if not valido or origin.endswith("/") or "*" in origin:
+            raise ConfigurationError(
+                "CORS_ORIGINS acepta orígenes https://... o http://localhost..., "
+                f"sin barra final ni comodines: {origin!r}."
+            )
+    return origins
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Configuración necesaria para crear el pool de PostgreSQL."""
@@ -49,6 +83,7 @@ class Settings:
     db_pool_max_size: int = 5
     db_pool_timeout_seconds: int = 3
     db_connect_timeout_seconds: int = 3
+    db_sslmode: str = "prefer"
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -66,6 +101,7 @@ class Settings:
             db_connect_timeout_seconds=_positive_int(
                 "DB_CONNECT_TIMEOUT_SECONDS", 3
             ),
+            db_sslmode=_sslmode(),
         )
 
         if settings.db_pool_min_size > settings.db_pool_max_size:
@@ -85,6 +121,7 @@ class Settings:
             "user": self.db_user,
             "password": self.db_password,
             "connect_timeout": self.db_connect_timeout_seconds,
+            "sslmode": self.db_sslmode,
             "application_name": "bodegas_api",
             "autocommit": True,
         }

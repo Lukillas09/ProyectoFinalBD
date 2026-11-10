@@ -1,0 +1,26 @@
+# Herramientas para preparar la base de Render desde la PC (Etapa 8).
+# No forman parte del sistema: se usan con db/nube/render.sh. A diferencia de
+# docker-compose.yml, la red NO es interna, porque tienen que salir a internet
+# para llegar a Render (siempre con TLS). Las credenciales vienen de
+# render.env, que no se versiona.
+name: bodegas_nube
+
+services:
+  herramientas:
+    image: bodegas_nube_herramientas
+    build:
+      context: ..
+      additional_contexts:
+        consultas: ../../consultas
+    env_file: render.env
+    entrypoint: ["sh", "/nube/paso.sh"]
+    volumes:
+      - ./:/nube
+
+  # El generador de la Etapa 3, apuntado a Render como propietario.
+  seed:
+    build:
+      context: ../seed
+    env_file: render.env
+    environment:
+      PGSSLMODE: require

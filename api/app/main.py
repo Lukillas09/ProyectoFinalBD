@@ -4,8 +4,9 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import Settings
+from app.config import Settings, cors_origins_desde_entorno
 from app.database import create_pool, database_is_available
 from app.errores import registrar_manejadores
 from app.esquemas import ErrorRespuesta
@@ -122,6 +123,18 @@ def crear_app() -> FastAPI:
         lifespan=lifespan,
     )
     application.add_middleware(PrefijoDelProxy)
+
+    # CORS sólo en la nube (Etapa 8, R11): el front es un static site en otro
+    # dominio. Se permite exactamente ese origen, con los métodos y el
+    # encabezado que usa front/js/api.js. Sin CORS_ORIGINS no hay CORS.
+    origenes = cors_origins_desde_entorno()
+    if origenes:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(origenes),
+            allow_methods=["GET", "POST", "PUT", "DELETE"],
+            allow_headers=["Content-Type", "Accept"],
+        )
     registrar_manejadores(application)
     application.include_router(router)
     application.include_router(vinos.router)
