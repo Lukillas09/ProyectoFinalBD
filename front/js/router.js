@@ -43,7 +43,7 @@ export const RUTAS = [
     patron: /^\/tablero$/,
     titulo: "Tablero",
     issue: 55,
-    cargar: null,
+    cargar: () => import("./pantallas/tablero.js"),
   },
 ];
 
