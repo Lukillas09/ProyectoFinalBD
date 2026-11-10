@@ -111,7 +111,7 @@ function mostrarComprobante(contenedor, comprobante, { cliente, sala }) {
         crear(
           "p",
           {},
-          `${formatoFechaHora(comprobante.fecha)} · Sala ${comprobante.id_sala}: ${sala}`,
+          `${formatoFechaHora(comprobante.fecha)} · Sala ${sala}`,
         ),
         crear("p", {}, `Cliente ${comprobante.id_cliente}: ${cliente}`),
         crear(
@@ -211,7 +211,8 @@ export async function montar(contenedor) {
     type: "number",
     min: "1",
     step: "1",
-    value: "1",
+    // defaultValue (y no value): formularioVino.reset() vuelve a 1 tras Agregar.
+    defaultValue: "1",
     required: true,
     inputMode: "numeric",
     autocomplete: "off",
@@ -493,13 +494,14 @@ export async function montar(contenedor) {
   try {
     const salas = await api.salas();
 
+    // replaceChildren no aplana arrays (a diferencia de crear): por eso el spread.
     selectorSala.replaceChildren(
       crear(
         "option",
         { value: "", selected: true, disabled: true },
         "Seleccione una sala",
       ),
-      salas.map((sala) =>
+      ...salas.map((sala) =>
         crear(
           "option",
           { value: String(sala.id_sala) },
