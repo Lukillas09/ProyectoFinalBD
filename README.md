@@ -20,7 +20,7 @@ Incluye:
 
 - PostgreSQL 16 persistente con cuentas separadas de bootstrap, propietario, API y reportes;
 - FastAPI con pool Psycopg 3 y `GET /salud` mediante `SELECT 1`;
-- base navegable del front de la Etapa 7, con URL de API configurable, capa HTTP única, ruteo por hash y estado real a través del proxy Nginx;
+- front de la Etapa 7: cinco pantallas (catálogo, alta y edición de vino, nueva venta, transferencias y tablero) con URL de API configurable, capa HTTP única, ruteo por hash y estado real a través del proxy Nginx; ver [Front — Etapa 7](#front--etapa-7);
 - modelo conceptual y relacional completo, normalización y diccionario (Etapa 1);
 - 30 tablas de negocio y una tabla técnica de migraciones;
 - 31 PK y 35 FK (varias compuestas), `NOT NULL`, 11 `UNIQUE`, 36 `CHECK` contando el dominio, 17 columnas con `DEFAULT`, dos ENUM y un DOMAIN;
@@ -35,7 +35,8 @@ Incluye:
 - carga masiva reproducible (Etapa 3): 6 años de historia, más de 150.000 ventas y 530.000 renglones, con catálogos reales, consultas de control y volcado; ver [Carga masiva](#carga-masiva-etapa-3);
 - índices y rendimiento (Etapa 4): 6 índices en `008_indices.sql` (48 en total en el esquema, contando los de PK y `UNIQUE`), medidos antes y después con `EXPLAIN (ANALYZE, BUFFERS)`; ver [Medir el rendimiento](#medir-el-rendimiento-etapa-4);
 - consultas SQL requeridas (Etapa 5): S1-S12, U1-U6, I1-I6 y D1-D6 en `consultas/`, ejecutables con `consultas/ejecutar.sh`, verificadas en `docs/consultas.md` y planes en `docs/consultas/planes/`;
-- **API REST completa (Etapa 6):** catálogo y ABM de vinos, CRUD de clientes (3 subtipos), venta y consulta de comprobantes, circuitos de transferencias e ingresos, reportes de solo lectura (S1, S8, S6, S7) y trazabilidad como supuesto; 252 pruebas automatizadas en entorno aislado; ver [API REST — Etapa 6](#api-rest--etapa-6).
+- **API REST completa (Etapa 6):** catálogo y ABM de vinos, CRUD de clientes (3 subtipos), venta y consulta de comprobantes, circuitos de transferencias e ingresos, reportes de solo lectura (S1, S8, S6, S7) y trazabilidad como supuesto, más las rutas `GET /catalogos/*` de la Etapa 7; 261 pruebas automatizadas en entorno aislado; ver [API REST — Etapa 6](#api-rest--etapa-6).
+- **Front completo (Etapa 7):** las tres condiciones de la consigna están probadas con 33 pruebas (25 de punta a punta con Playwright y 8 estáticas), desde un volumen vacío: las cinco pantallas contra la API real, una venta sin stock que muestra RN-09 y no deja datos a medias, y un front sin cálculos de importes ni stock; ver [Usar el front](#usar-el-front), [Ejecutar las pruebas del front](#ejecutar-las-pruebas-del-front) y el [informe de cierre](docs/cierre_etapa7.md).
 
 Todos los conteos se tomaron del catálogo (`pg_constraint`, `pg_attrdef`, `pg_proc`, `pg_trigger`, `pg_views`, `pg_indexes`).
 
@@ -53,6 +54,8 @@ Documentos académicos:
 - [Consultas SQL: informe de la Etapa 5](docs/consultas.md)
 - [Contrato de la API REST (Etapa 6)](docs/api.md)
 - [Informe de cierre de la Etapa 6](docs/cierre_etapa6.md)
+- [Front: plan, pantallas y contrato (Etapa 7)](docs/front.md)
+- [Informe de cierre de la Etapa 7](docs/cierre_etapa7.md)
 
 La consigna y los apuntes de la cátedra se guardan en `material/`, pero esa carpeta está ignorada por Git: es material docente y no se publica. Cada integrante debe copiar los PDF localmente.
 
@@ -267,8 +270,24 @@ front/
     ├── app.js      punto de entrada e indicador de salud
     ├── ui.js       mensajes, formatos y helpers del DOM
     ├── router.js   ruteo por hash y contrato de las pantallas
-    └── pantallas/  módulos que agregan los issues #51 a #55
+    └── pantallas/  catalogo.js, vino.js, venta.js, transferencias.js y tablero.js
 ```
+
+### Usar el front
+
+Con el entorno levantado (`docker compose up -d --build --wait`), abrir <http://localhost:8080>. Ese es el puerto por omisión; si está ocupado, `FRONT_PORT` en `.env` lo cambia. La barra de navegación tiene las cinco pantallas:
+
+| Pantalla | Ruta | Qué permite |
+|---|---|---|
+| Catálogo | `#/vinos` | Filtrar por tipo, cepa, bodega y añada, paginar, ver el detalle (composición, maridajes y stock total) y eliminar un vino |
+| Nuevo vino | `#/vinos/nuevo` y `#/vinos/{cod}/editar` | Alta y edición de un vino con su composición de cepas y sus maridajes |
+| Nueva venta | `#/venta` | Elegir cliente (por código), sala y vinos, y registrar la venta |
+| Transferencias | `#/transferencias` y `#/transferencias/{nro}` | Crear una transferencia a una sala, cargar renglones, terminarla y procesarla |
+| Tablero | `#/tablero` | Top 10 de vinos, ventas por sala del último trimestre (gráfico) y vinos sin stock en una sala |
+
+Los filtros, la página y el vino abierto del catálogo viven en la URL, así que *Atrás* y *recargar* funcionan. Los importes, descuentos y stock que se ven los calcula PostgreSQL, y las reglas de negocio se muestran con el mensaje que devuelve la API (por ejemplo, RN-05 si la composición no suma 100 %, o RN-09 si no hay stock).
+
+Estas pantallas **escriben** (altas, ventas, transferencias). Para probarlas sin tocar los datos de trabajo, usar un proyecto de Compose aparte, como hace `front/tests/ejecutar.sh`.
 
 La URL se cambia en un solo lugar, [`front/config.js`](front/config.js):
 
@@ -287,6 +306,24 @@ api/tests/ejecutar.sh
 ```
 
 Levanta un proyecto de Compose aislado (`bodegas_pruebas`) desde un volumen vacío, lo carga con `ESCALA=0.1`, corre pytest como `bodegas_api` y lo baja con `down -v`. Tarda alrededor de 60 s y no toca el entorno habitual. Opciones y reglas para escribir pruebas: [api/README.md](api/README.md#pruebas).
+
+## Ejecutar las pruebas del front
+
+```bash
+front/tests/ejecutar.sh                 # todas: 33 casos, 26 funciones
+front/tests/ejecutar.sh -k venta        # los argumentos van a pytest
+MANTENER=1 front/tests/ejecutar.sh      # deja el proyecto arriba para depurar
+```
+
+Es el mismo patrón que la API: levanta un proyecto de Compose aislado (`bodegas_front_pruebas`, puertos 18900 y 18980) desde un volumen vacío, lo carga con `ESCALA=0.1`, corre pytest con Playwright para Python y lo baja con `down -v`. Tarda alrededor de 70 s y **nunca toca el entorno habitual**: las pruebas crean vinos, ventas y transferencias.
+
+- El navegador (Chromium, en la imagen oficial de Playwright con versión fija) corre dentro de la red de Compose, abre `http://front` y llama a `/api` por nginx, como en producción. No depende del navegador instalado en el equipo.
+- La base se verifica con el rol de reportes, de sólo lectura. Las escrituras pasan por el front y la API.
+- Incluye una prueba estática de que `front/js` no calcula importes ni stock (`test_sin_calculos.py`).
+- Las capturas de las pruebas que fallan quedan en `front/tests/salida/`, que no se versiona.
+- La primera vez descarga la imagen de Playwright, que es grande (su capa principal pesa unos 750 MB).
+
+Detalle de cada prueba, evidencia de los tres criterios de la consigna y pendientes: [docs/cierre_etapa7.md](docs/cierre_etapa7.md).
 
 ## API REST — Etapa 6
 
@@ -509,7 +546,7 @@ api/tests/ejecutar.sh -m consigna
 api/tests/ejecutar.sh -k "test_sql_injection"
 ```
 
-- **252 pruebas** (148 funciones, 238 casos con parametrización).
+- **261 pruebas** (161 funciones, 261 casos con parametrización; las 9 últimas son de las rutas de catálogo de la Etapa 7).
 - **49 pruebas** provocan errores reales de PostgreSQL y verifican "sin datos a medias".
 - **3 pruebas `consigna`** obligatorias: RN-09 stock (409), RN-11 estado (409), CHECK precio (422).
 - **14 pruebas SQL Injection** (todas pasadas).
