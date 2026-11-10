@@ -7,7 +7,7 @@ export const RUTAS = [
     patron: /^\/vinos$/,
     titulo: "Catálogo de vinos",
     issue: 51,
-    cargar: null,
+    cargar: () => import("./pantallas/catalogo.js"),
   },
   {
     patron: /^\/vinos\/nuevo$/,

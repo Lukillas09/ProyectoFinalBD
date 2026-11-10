@@ -427,6 +427,76 @@ tbody tr:nth-child(even) {
   }
 }
 
+/* Pantalla 1: catálogo (#51) */
+.catalogo {
+  display: grid;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.catalogo__principal,
+.catalogo__listado {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+/* Ficha a la derecha en pantallas anchas; debajo del listado en las angostas. */
+@media (min-width: 64rem) {
+  .catalogo--con-detalle {
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem);
+  }
+
+  .detalle-vino {
+    position: sticky;
+    top: 1rem;
+  }
+}
+
+.filtros .acciones {
+  align-self: end;
+}
+
+/* Ancla el texto .solo-lectores del encabezado: sin un ancestro posicionado
+   escapa del contenedor con scroll y ensancha la página en pantallas angostas. */
+.catalogo .tabla-contenedor {
+  position: relative;
+}
+
+.paginador {
+  justify-content: space-between;
+}
+
+.fila--seleccionada,
+tbody tr.fila--seleccionada:nth-child(even) {
+  background: #f9eef0;
+}
+
+.detalle-vino h3 {
+  margin-block: 1.25rem 0.5rem;
+}
+
+.detalle-vino__cerrar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+.mensaje--confirmacion {
+  border-color: #d8b25c;
+  color: #5c4310;
+  background: #fff8e6;
+}
+
+.solo-lectores {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Pantalla 3: nueva venta (#53) */
 .venta {
   display: grid;
