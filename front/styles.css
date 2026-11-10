@@ -627,7 +627,7 @@ tbody tr.fila--seleccionada:nth-child(even) {
 
 @media (min-width: 64rem) {
   .transferencia {
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+    grid-template-columns: minmax(0, 1fr) minmax(19rem, 26rem);
   }
 }
 
@@ -664,21 +664,28 @@ tbody tr.fila--seleccionada:nth-child(even) {
 .estados {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.5rem 0.35rem;
   align-items: center;
   margin: 0 0 1rem;
   padding: 0;
   list-style: none;
 }
 
+.estados__item {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
 .estados__paso {
-  padding: 0.3rem 0.8rem;
+  padding: 0.25rem 0.6rem;
   border: 2px solid var(--bordo);
   border-radius: 999px;
   color: var(--bordo);
   background: var(--blanco);
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .estados__paso--actual {

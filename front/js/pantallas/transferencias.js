@@ -326,17 +326,21 @@ function armarFicha(nro) {
       crear(
         "ol",
         { className: "estados", "aria-label": "Estados de la transferencia" },
-        ETAPAS.flatMap(([valor, texto], indice) => [
-          indice > 0 ? crear("li", { className: "estados__flecha", "aria-hidden": "true" }, "→") : null,
+        // Cada flecha va con el paso que le sigue: si la fila se parte, la flecha
+        // no queda sola al final de la línea.
+        ETAPAS.map(([valor, texto], indice) => crear(
+          "li",
+          { className: "estados__item" },
+          indice > 0 ? crear("span", { className: "estados__flecha", "aria-hidden": "true" }, "→") : null,
           crear(
-            "li",
+            "span",
             {
               className: valor === transferencia.estado ? "estados__paso estados__paso--actual" : "estados__paso",
               "aria-current": valor === transferencia.estado ? "step" : null,
             },
             texto,
           ),
-        ]),
+        )),
       ),
       crear("div", { className: "acciones" }, terminar, procesar),
       crear(
