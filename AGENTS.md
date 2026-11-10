@@ -108,7 +108,12 @@ Una vez integradas en `main`, las migraciones no se modifican: cualquier correcc
 - Las pruebas de punta a punta corren en un proyecto de Compose aislado, nunca contra el entorno por defecto: `front/tests/ejecutar.sh`.
 - Toda operación aritmética nueva en `front/js` se justifica en `front/tests/test_sin_calculos.py`; esa prueba falla si aparece una sin listar.
 
-**La próxima etapa es la 8 (nube) y NO se empieza sin instrucción explícita del usuario:** los despliegues a la nube la requieren.
+**La Etapa 8 (nube) está en curso.** El usuario la autorizó explícitamente el 10/11/2026 y eligió **Render** (plan gratis). Comparación de proveedores, diseño y requisitos R1–R14 en `docs/nube.md`; issues con la etiqueta `etapa-8` (#66 a #71). Reglas de la etapa:
+- Cada paso que crea o modifica recursos en Render lo ejecuta el usuario desde su cuenta. Los agentes preparan código, scripts e instrucciones y nunca reciben ni escriben credenciales del administrador.
+- Ningún secreto en el repositorio: ni contraseñas, ni URLs de conexión, ni hosts completos de la base en capturas, ni volcados. `render.yaml` declara los secretos como `sync: false`.
+- El usuario administrador de Render sólo se usa para el bootstrap de roles. Las migraciones y la carga corren como propietario; la API, como `bodegas_api` con `sslmode=require`; las verificaciones de lectura, con el rol de reportes.
+- La base queda sin acceso externo (lista de IPs vacía). Se abre sólo la IP de quien ejecuta (`/32`), durante el paso que lo necesita; cada apertura y cierre se anota en `docs/nube.md`.
+- El entorno local no cambia: `DB_SSLMODE` y `CORS_ORIGINS` son opcionales y sus valores por omisión dejan todo como antes.
 
 Convenciones de las consultas (Etapa 5):
 - Se ejecutan con `docker compose exec db /opt/bodegas/consultas/ejecutar.sh <archivo>.sql` (propietario, `ON_ERROR_STOP=1`). Los `.sql` llegan a la imagen de `db` como contexto adicional: al cambiarlos, reconstruir con `docker compose up -d --build db`.

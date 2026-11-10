@@ -285,6 +285,8 @@ Antes de implementarlas deben realizarse bocetos simples de las cinco pantallas.
 
 La nube exige comparar dos proveedores, justificar uno, crear propietario/API/reportes, aplicar migraciones en orden, HTTPS, conexión PostgreSQL cifrada, puerto restringido, secretos externos, CORS limitado al origen público, rechazo comprobado de una conexión no autorizada y backup/restauración con conteos. Si el plan limita espacio, se acepta carga reducida con al menos 10.000 filas en una tabla, manteniendo el volumen local. Debe repetirse en nube una regla ejecutada por trigger.
 
+**Estado (Etapa 8, en curso):** proveedor elegido: Render, plan gratis. La comparación con Azure for Students, los descartes (Neon, Oracle), el diseño y la trazabilidad de los requisitos R1–R14 están en `docs/nube.md`. Como la base gratis de Render vence a los 30 días, se crea con la fecha anotada y se puede recrear con los mismos scripts.
+
 La entrega final incluye README reproducible, URL pública, informe, trazabilidad, demo de 10 a 15 minutos sobre la versión en nube y defensa individual. La demo debe recorrer una venta, mostrar su rechazo por falta de stock, procesar una transferencia y exhibir una consulta con su plan de ejecución. El informe sigue: alcance; modelo/3FN/diccionario; integridad/lógica/concurrencia; carga; índices; consultas; API/front e inyección fallida; nube/seguridad/backup; conclusiones. El PDF menciona un Anexo C de preguntas, pero el archivo disponible termina en la página 29 con el Anexo B.
 
 La rúbrica suma 100 puntos y la capa de datos representa 70 %:
