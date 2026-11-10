@@ -24,6 +24,7 @@
 | `POST /ingresos/{cod}/terminar` y `/procesar` (`CALL sp_*_ingreso`; la base suma al depósito) | #30 |
 | `GET /reportes/top-vinos`, `/ventas-por-sala`, `/vinos-sin-stock` y `/transportista-activo` (S1, S8, S6 y S7) | #31 |
 | `GET /reportes/trazabilidad/{cod_vino}` (lotes compatibles con el vino; supuesto a la espera de la cátedra) | #32 |
+| `GET /catalogos/tipos-vino`, `/cepas`, `/bodegas`, `/maridajes` y `/salas` (listas sin paginar para los selectores del front) | #49 |
 
 Todo se apoya en la **base común de la Etapa 6** (issue #24):
 
@@ -52,6 +53,8 @@ Están todos los endpoints del contrato de [docs/api.md](../docs/api.md). El alc
 | `app/routers/ingresos.py` | Lo mismo para `/ingresos` |
 | `app/datos/reportes.py` | SQL de S1, S8, S6 y S7 de la Etapa 5, parametrizado: `top_vinos()`, `periodo_ventas()`, `ventas_por_sala()`, `sala_existe()`, `vinos_sin_stock()`, `transportista_activo()` y `trazabilidad()` |
 | `app/routers/reportes.py` | Los cinco `GET /reportes/...` |
+| `app/datos/catalogos.py` | SQL de los catálogos, sin parámetros: `listar_cepas()`, `listar_bodegas()`, `listar_maridajes()` y `listar_salas()` |
+| `app/routers/catalogos.py` | Los cinco `GET /catalogos/...`; `tipos-vino` sale de `TipoVino` sin consultar la base |
 | `app/main.py` | `crear_app()`: ciclo de vida del pool, middleware del prefijo `/api`, manejadores de error, OpenAPI y `/salud` |
 | `tests/` | Pruebas con pytest, más `ejecutar.sh` (ver "Pruebas") |
 
@@ -168,8 +171,8 @@ Sólo se acepta exactamente `/api`. Swagger incrusta el prefijo en su HTML sin e
 
 ```
 app/
-  datos/      una función por consulta, SQL parametrizado y visible (vinos.py, clientes.py, documentos.py, reportes.py)
-  routers/    un router por recurso: valida, llama a datos/, responde (vinos.py, clientes.py, transferencias.py, ingresos.py, reportes.py)
+  datos/      una función por consulta, SQL parametrizado y visible (vinos.py, clientes.py, documentos.py, reportes.py, catalogos.py)
+  routers/    un router por recurso: valida, llama a datos/, responde (vinos.py, clientes.py, transferencias.py, ingresos.py, reportes.py, catalogos.py)
 ```
 
 - **SQL sólo en `app/datos/`.** Siempre parámetros (`%s` o `%(nombre)s`), nunca f-strings ni concatenación con datos del usuario. Columnas explícitas, nunca `SELECT *`.
@@ -185,7 +188,7 @@ app/
 ## Pruebas
 
 ```bash
-api/tests/ejecutar.sh                  # todas (unos 60 s): 238 casos
+api/tests/ejecutar.sh                  # todas (unos 60 s): 261 casos
 api/tests/ejecutar.sh -m consigna      # sólo las 3 reglas que nombra la consigna
 api/tests/ejecutar.sh -k paginacion    # los argumentos van a pytest
 MANTENER=1 api/tests/ejecutar.sh       # deja el proyecto arriba para depurar

@@ -1,6 +1,6 @@
 # Contrato de la API REST (Etapa 6) — borrador
 
-Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26), el CRUD de clientes de los tres tipos (`/clientes`, issue #27), la venta y consulta de comprobantes (`/comprobantes`, issue #28) y los circuitos de transferencias (`/transferencias`, issue #29) e ingresos (`/ingresos`, issue #30), y los reportes de sólo lectura (`/reportes/...`, issue #31; trazabilidad, issue #32, como supuesto). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
+Borrador del contrato HTTP de la Etapa 6, tomado de la consigna (`material/TPI_Bodegas_del_Atuel.pdf`, páginas 16 y 17: "Etapa 6. API REST"). **Implementado hasta ahora:** `GET /salud`, el catálogo de vinos (`GET /vinos` y `GET /vinos/{cod_vino}`, issue #25) y su alta, modificación y baja (`POST /vinos`, `PUT` y `DELETE /vinos/{cod_vino}`, issue #26), el CRUD de clientes de los tres tipos (`/clientes`, issue #27), la venta y consulta de comprobantes (`/comprobantes`, issue #28) y los circuitos de transferencias (`/transferencias`, issue #29) e ingresos (`/ingresos`, issue #30), y los reportes de sólo lectura (`/reportes/...`, issue #31; trazabilidad, issue #32, como supuesto). Para la Etapa 7 se agregaron los catálogos de sólo lectura de los selectores (`/catalogos/...`, issue #49). El resto sirve para repartir el trabajo y para revisar, antes de escribir código, si la base ya permite cada operación con el rol de la API.
 
 Principios que fija la consigna y `AGENTS.md`:
 
@@ -585,6 +585,46 @@ GET /reportes/vinos-sin-stock
 422  {"detail": "Datos de entrada inválidos.", "codigo": "validacion", "errores": [{"campo": "query.id_sala", "mensaje": "Field required"}]}
 ```
 
+### Catálogos (sólo lectura, issue #49)
+
+Listas para los selectores del front de la Etapa 7 (`docs/front.md`, sección 3). Sin ellas, el front tendría que escribir ids fijos en el código.
+
+| Método y ruta | Respuesta (200) | Orden | Para qué la usa el front |
+|---|---|---|---|
+| `GET /catalogos/tipos-vino` | `["tinto", "blanco", "rosado", "espumante"]` | El del `CHECK` | Filtro de tipo del catálogo y tipo en el alta y edición de un vino |
+| `GET /catalogos/cepas` | `[{id_cepa, nombre, tipo}]` | `nombre`, `id_cepa` | Filtro por cepa y composición del vino |
+| `GET /catalogos/bodegas` | `[{cuit, razon_social}]` | `razon_social`, `cuit` | Filtro por bodega y bodega del vino |
+| `GET /catalogos/maridajes` | `[{id_maridaje, nombre, temperatura_servicio_c}]` | `nombre`, `id_maridaje` | Maridajes del vino |
+| `GET /catalogos/salas` | `[{id_sala, calle, numero, localidad}]` | `id_sala` | Sala de la venta, de la transferencia y del tablero |
+
+Código: `api/app/datos/catalogos.py` (SQL), `api/app/routers/catalogos.py` (rutas) y los modelos `Cepa`, `Bodega`, `Maridaje` y `Sala` de `api/app/esquemas.py`. Pruebas: `api/tests/test_catalogos.py`.
+
+- **No se paginan.** Son tablas de referencia chicas, cuyo tamaño no depende de `ESCALA`: 15 cepas, 20 bodegas, 8 maridajes y 40 salas. Un selector necesita la lista entera, y paginarla obligaría al front a recorrer páginas para armar un `<select>`. Clientes (20.000) y vinos (600) sí se paginan y no tienen ruta de catálogo: el front los carga por código.
+- **Orden estable.** Cada `ORDER BY` termina en la clave primaria, así dos filas con el mismo nombre salen siempre en el mismo orden.
+- **`tipos-vino` no consulta la base.** Devuelve `typing.get_args(TipoVino)`: el mismo `Literal` que valida el filtro de `GET /vinos` y el alta, y que replica `ck_vino_tipo` (`CHECK (tipo IN ...)` de `002_constraints.sql`). Si el front escribiera la lista a mano, un cambio en el `CHECK` lo dejaría desalineado sin aviso. No hay tabla de tipos de vino: son un dominio de una columna, no una entidad.
+- **`temperatura_servicio_c` como string** (`"16.0"`), con la escala de `NUMERIC(4,1)`, igual que los importes.
+- **`localidad` es el nombre**, no el id: el front muestra la sala como "calle número (localidad)" sin un segundo pedido.
+- **Sin migración.** `007_roles.sql` ya otorga a `bodegas_rw` `SELECT` sobre `cepa`, `bodega`, `maridaje`, `sala_venta` y `localidad` (sección 4).
+
+Respuestas reales por `/api/...` (entorno por defecto, cargado; se muestran las primeras filas):
+
+```json
+GET /catalogos/tipos-vino
+200  ["tinto", "blanco", "rosado", "espumante"]
+
+GET /catalogos/cepas
+200  [{"id_cepa": 5, "nombre": "Bonarda", "tipo": "tinta"}, {"id_cepa": 2, "nombre": "Cabernet Sauvignon", "tipo": "tinta"}, ...]
+
+GET /catalogos/bodegas
+200  [{"cuit": "33530125721", "razon_social": "Bodega Alvarez S.A."}, {"cuit": "30526637581", "razon_social": "Bodega Alvarez S.R.L."}, ...]
+
+GET /catalogos/maridajes
+200  [{"id_maridaje": 4, "nombre": "Carnes blancas", "temperatura_servicio_c": "12.0"}, {"id_maridaje": 1, "nombre": "Carnes rojas", "temperatura_servicio_c": "17.0"}, ...]
+
+GET /catalogos/salas
+200  [{"id_sala": 1, "calle": "Av. 4", "numero": "218", "localidad": "San Rafael"}, ...]
+```
+
 ### Salud
 
 `GET /salud`: 200 `{"estado": "ok", "base_de_datos": "disponible"}` si `SELECT 1` responde; 503 si no. **Implementado y probado** (`api/tests/test_salud.py`).
@@ -868,6 +908,7 @@ Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cad
 | Transferencias e ingresos: alta, renglones, terminar, procesar | OK; los dos documentos llegan a `procesado` |
 | Reportes top-vinos, ventas-por-sala, vinos-sin-stock, transportista-activo | OK |
 | Reporte trazabilidad | Antes de `010`: 42501 (`permission denied for table parcela`). Con `010` (issue #32): OK |
+| `GET /catalogos/*` (cepas, bodegas, maridajes y salas con su localidad; issue #49) | OK con los `SELECT` de `007` sobre `cepa`, `bodega`, `maridaje`, `sala_venta` y `localidad`. No hizo falta migración (verificado el 2026-11-10 con `api/tests/ejecutar.sh`, como `bodegas_api`). `tipos-vino` no lee la base |
 | Escrituras prohibidas: `UPDATE`/`INSERT`/`DELETE` en `comprobante`, `UPDATE stock_sala`, `UPDATE ingreso.estado`, `INSERT auditoria_precio`, `fn_recalcular_comprobante` | 42501 en todos, como corresponde |
 
 **Faltante resuelto por `010_privilegios_trazabilidad.sql`** (issue #32): `SELECT` sobre `departamento`, `finca`, `parcela`, `lote_uva` y `analisis_calidad` para `bodegas_rw`, todas de sólo lectura. Se otorgaron con el supuesto de alcance de la sección 6, sin esperar la respuesta de la cátedra. `bodegas_rw` sigue sin leer `empleado`, que ningún endpoint usa.
@@ -896,7 +937,7 @@ Verificado el 2026-11-05: se ejecutaron como `bodegas_api` las sentencias de cad
 
 **Lo que pide la consigna, contado:**
 
-- **Al menos 8 pruebas:** hay 148 funciones de prueba, que con la parametrización son 238 casos.
+- **Al menos 8 pruebas:** hay 161 funciones de prueba, que con la parametrización son 261 casos (con las de catálogos, issue #49).
 - **Al menos 3 sobre reglas de la base:** las 49 funciones de la tabla de abajo provocan, por la API, un error real de PostgreSQL (una regla, una restricción o un SQLSTATE) y verifican el código HTTP.
 - **Las tres que nombra la consigna** llevan la marca `consigna`:
 
