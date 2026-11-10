@@ -507,6 +507,41 @@ class ReporteTransportistaActivo(BaseModel):
         description="Los transportistas con más ingresos: más de uno si empatan; vacío si no hubo ingresos.")
 
 
+# --- Catálogos para los selectores del front (issue #49) ----------------------
+# Sólo lectura, sin paginar: son tablas de referencia chicas.
+
+class Cepa(BaseModel):
+    """Una cepa (ck_cepa_tipo: tinta o blanca)."""
+
+    id_cepa: int
+    nombre: str
+    tipo: Literal["tinta", "blanca"]
+
+
+class Bodega(BaseModel):
+    """Una bodega, identificada por su CUIT."""
+
+    cuit: str
+    razon_social: str
+
+
+class Maridaje(BaseModel):
+    """Un maridaje con su temperatura de servicio (NUMERIC(4,1), como string)."""
+
+    id_maridaje: int
+    nombre: str
+    temperatura_servicio_c: Decimal = Field(examples=["16.0"])
+
+
+class Sala(BaseModel):
+    """Una sala de venta con el nombre de su localidad."""
+
+    id_sala: int
+    calle: str
+    numero: str
+    localidad: str = Field(description="Nombre de la localidad.")
+
+
 # --- Trazabilidad (issue #32) -------------------------------------------------
 
 class AnalisisDeLote(BaseModel):
