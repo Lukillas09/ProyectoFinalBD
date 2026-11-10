@@ -281,6 +281,8 @@ El front final tiene cinco pantallas mínimas:
 
 Antes de implementarlas deben realizarse bocetos simples de las cinco pantallas. El front debe centralizar llamadas a la API, usar URL base configurable, mostrar los mensajes reales de las reglas y no calcular importes ni stock.
 
+**Estado (Etapa 7, en curso):** bocetos de las cinco pantallas en `docs/bocetos/` (paso 1 cumplido). El plan, la tabla pantalla → rutas → errores y la estructura del front están en `docs/front.md`. Para los selectores hacen falta rutas de catálogo de sólo lectura (`GET /catalogos/*`), que no requieren migración porque `bodegas_rw` ya lee esas tablas. Clientes y vinos se eligen por código, por su volumen.
+
 La nube exige comparar dos proveedores, justificar uno, crear propietario/API/reportes, aplicar migraciones en orden, HTTPS, conexión PostgreSQL cifrada, puerto restringido, secretos externos, CORS limitado al origen público, rechazo comprobado de una conexión no autorizada y backup/restauración con conteos. Si el plan limita espacio, se acepta carga reducida con al menos 10.000 filas en una tabla, manteniendo el volumen local. Debe repetirse en nube una regla ejecutada por trigger.
 
 La entrega final incluye README reproducible, URL pública, informe, trazabilidad, demo de 10 a 15 minutos sobre la versión en nube y defensa individual. La demo debe recorrer una venta, mostrar su rechazo por falta de stock, procesar una transferencia y exhibir una consulta con su plan de ejecución. El informe sigue: alcance; modelo/3FN/diccionario; integridad/lógica/concurrencia; carga; índices; consultas; API/front e inyección fallida; nube/seguridad/backup; conclusiones. El PDF menciona un Anexo C de preguntas, pero el archivo disponible termina en la página 29 con el Anexo B.

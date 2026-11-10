@@ -99,6 +99,13 @@ Una vez integradas en `main`, las migraciones no se modifican: cualquier correcc
 
 **La Etapa 6 (API REST) está completada y verificada.** El contrato definitivo está en `docs/api.md`, la organización del código en `api/README.md`, y el informe de cierre en `docs/cierre_etapa6.md`. Cada endpoint tiene su función de acceso a datos en `api/app/datos/` y su prueba en `api/tests/`. Las pantallas del front son de la Etapa 7.
 
+**La Etapa 7 (front) está en curso.** Plan, contrato pantalla por pantalla y estructura en `docs/front.md`; bocetos en `docs/bocetos/`; issues con la etiqueta `etapa-7`. Reglas de la etapa:
+- Toda llamada HTTP pasa por `front/js/api.js`, con la URL base de `front/config.js`; las pantallas no usan `fetch` directamente.
+- Los errores se muestran con el `detail` y el `codigo` que devuelve la API, sin reemplazarlos por mensajes genéricos.
+- El front no suma porcentajes, no multiplica precio por cantidad, no aplica descuentos ni calcula stock: muestra lo que devuelve la base. Los botones habilitados según el estado son ayuda visual; la transición la decide PostgreSQL.
+- Los selectores se alimentan de `GET /catalogos/*` (sólo lectura, sin migración nueva); clientes y vinos se cargan por código.
+- Las pruebas de punta a punta corren en un proyecto de Compose aislado, nunca contra el entorno por defecto.
+
 Convenciones de las consultas (Etapa 5):
 - Se ejecutan con `docker compose exec db /opt/bodegas/consultas/ejecutar.sh <archivo>.sql` (propietario, `ON_ERROR_STOP=1`). Los `.sql` llegan a la imagen de `db` como contexto adicional: al cambiarlos, reconstruir con `docker compose up -d --build db`.
 - Cada archivo define sus parámetros al comienzo (`\if :{?x} \else \set x … \endif`), con valores de la carga. Lo que depende de la historia simulada (tipos de cliente, stock, transferencias recientes) se elige con `\gset`: cambia con `FECHA_REFERENCIA`.

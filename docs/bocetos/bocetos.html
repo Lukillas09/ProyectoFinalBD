@@ -1,0 +1,250 @@
+<!doctype html>
+<!--
+  Bocetos de la Etapa 7 (paso 1 de la consigna). No es el front: es un dibujo de
+  baja fidelidad de cada pantalla, anotado con la ruta de la API que alimenta cada
+  parte (notas en rojo) y con los mensajes reales que devuelve PostgreSQL.
+  Las imágenes se generan con: python3 docs/bocetos/generar.py
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Bocetos · Bodegas del Atuel</title>
+<style>
+  :root { --tinta: #222; --gris: #9a9a9a; --fondo: #f4f4f4; --nota: #b3261e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: #fff; color: var(--tinta);
+         font: 15px/1.35 "DejaVu Sans", Arial, sans-serif; }
+  .boceto { width: 1180px; border: 2px solid var(--tinta); border-radius: 6px;
+            padding: 0 0 18px; margin: 0 0 40px; background: #fff; }
+  .titulo { margin: 0; padding: 10px 16px; border-bottom: 2px dashed var(--tinta);
+            font-size: 20px; display: flex; justify-content: space-between; }
+  .titulo small { font-weight: normal; color: #555; font-size: 14px; }
+  nav { display: flex; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--gris);
+        align-items: center; }
+  nav span { border: 1.5px solid var(--tinta); padding: 3px 10px; border-radius: 4px; }
+  nav .activa { background: var(--tinta); color: #fff; }
+  nav .salud { margin-left: auto; border: none; }
+  .cuerpo { display: grid; gap: 16px; padding: 14px 16px 0; }
+  .dos { grid-template-columns: 1.6fr 1fr; }
+  .caja { border: 1.5px solid var(--tinta); border-radius: 4px; padding: 10px 12px; }
+  .caja h3 { margin: 0 0 8px; font-size: 16px; }
+  .fila { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  .campo { border: 1.5px solid var(--gris); background: var(--fondo); padding: 4px 8px;
+           min-width: 90px; border-radius: 3px; color: #555; }
+  .campo.sel::after { content: " ▾"; }
+  .ancho { min-width: 220px; }
+  .boton { border: 2px solid var(--tinta); padding: 4px 12px; border-radius: 4px; font-weight: bold; }
+  .boton.off { border-color: var(--gris); color: var(--gris); border-style: dashed; }
+  .boton.sec { font-weight: normal; }
+  table { border-collapse: collapse; width: 100%; margin: 6px 0; }
+  th, td { border: 1px solid var(--gris); padding: 3px 7px; text-align: left; }
+  th { background: var(--fondo); }
+  .num { text-align: right; white-space: nowrap; }
+  .nota { color: var(--nota); font-size: 13px; font-style: italic; margin: 4px 0; }
+  .nota::before { content: "✎ "; }
+  .error { border: 2px solid var(--nota); color: var(--nota); padding: 6px 10px; border-radius: 4px;
+           margin: 8px 0; background: #fdf1f0; }
+  .error b { display: block; }
+  .ok { border: 2px solid #2e6b30; padding: 6px 10px; border-radius: 4px; background: #eef6ee; }
+  .estado { display: inline-block; border: 2px solid var(--tinta); padding: 2px 8px; border-radius: 12px;
+            font-weight: bold; font-size: 13px; }
+  .pasos { display: flex; gap: 6px; align-items: center; }
+  .pasos .hecho { background: var(--tinta); color: #fff; }
+  .barra { display: grid; grid-template-columns: 210px 1fr 110px; gap: 8px; align-items: center; margin: 3px 0; }
+  .barra i { display: block; height: 14px; background: repeating-linear-gradient(45deg,#666 0 4px,#999 4px 8px); }
+  ul { margin: 4px 0 4px 18px; padding: 0; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ 1 -->
+<section class="boceto" id="b1-catalogo">
+  <h2 class="titulo">1 · Catálogo de vinos <small>#/vinos</small></h2>
+  <nav><span class="activa">Catálogo</span><span>Nuevo vino</span><span>Nueva venta</span>
+       <span>Transferencias</span><span>Tablero</span><span class="salud">● API y base disponibles</span></nav>
+  <div class="cuerpo dos">
+    <div>
+      <div class="caja">
+        <h3>Filtros</h3>
+        <div class="fila">
+          Tipo <span class="campo sel">todos</span>
+          Cepa <span class="campo sel">Malbec</span>
+          Bodega <span class="campo sel ancho">todas</span>
+          Añada <span class="campo">2021</span>
+          <span class="boton">Filtrar</span><span class="boton sec">Limpiar</span>
+        </div>
+        <p class="nota">Opciones de los selectores: GET /catalogos/tipos-vino, /catalogos/cepas, /catalogos/bodegas (issue de catálogos)</p>
+      </div>
+      <table>
+        <tr><th>Cód.</th><th>Nombre</th><th>Tipo</th><th>Añada</th><th>Vol.</th><th>Grad.</th><th class="num">Precio</th><th>Bodega</th><th></th></tr>
+        <tr><td>12</td><td>Reserva del Atuel</td><td>tinto</td><td>2021</td><td>750</td><td>13,5</td><td class="num">$ 4.500,00</td><td>Bodega Gómez S.A.</td><td><span class="boton sec">Ver</span></td></tr>
+        <tr><td>47</td><td>Cerro Nevado</td><td>tinto</td><td>2021</td><td>750</td><td>14,0</td><td class="num">$ 6.200,00</td><td>Bodega Ruiz Hnos.</td><td><span class="boton sec">Ver</span></td></tr>
+        <tr><td>…</td><td>…</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      </table>
+      <div class="fila"><span class="boton sec">« Anterior</span> Página 2 de 4 · 73 vinos <span class="boton sec">Siguiente »</span></div>
+      <p class="nota">GET /vinos?tipo&amp;id_cepa&amp;cuit_bodega&amp;anada&amp;limite=20&amp;desplazamiento=20 → {items, total}. Los filtros quedan en la URL (#/vinos?id_cepa=1&amp;pagina=2).</p>
+      <p class="nota">El precio se muestra tal cual llega (string con 2 decimales); sólo se le da formato.</p>
+    </div>
+    <div class="caja">
+      <h3>Reserva del Atuel · 2021</h3>
+      <div>Bodega Gómez S.A. · tinto · 750 ml · 13,5 %</div>
+      <div>Precio: <b>$ 4.500,00</b> · Stock total: <b>318</b></div>
+      <h3 style="margin-top:10px">Composición</h3>
+      <table><tr><th>Cepa</th><th class="num">%</th></tr>
+        <tr><td>Malbec (tinta)</td><td class="num">85,00</td></tr>
+        <tr><td>Cabernet Sauvignon (tinta)</td><td class="num">15,00</td></tr></table>
+      <h3>Maridajes</h3>
+      <ul><li>Carnes rojas · servir a 16–18 °C</li><li>Quesos duros · 16 °C</li></ul>
+      <div class="fila"><span class="boton">Editar</span><span class="boton sec">Eliminar</span></div>
+      <p class="nota">GET /vinos/{cod}: composición, maridajes y stock_total vienen de la base.</p>
+      <div class="error"><b>409 · 23503</b>el mensaje que devuelve la API (por ejemplo, el vino tiene ventas o historia de precios)</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 2 -->
+<section class="boceto" id="b2-vino">
+  <h2 class="titulo">2 · Alta y edición de vino <small>#/vinos/nuevo · #/vinos/{cod}/editar</small></h2>
+  <nav><span>Catálogo</span><span class="activa">Nuevo vino</span><span>Nueva venta</span>
+       <span>Transferencias</span><span>Tablero</span><span class="salud">● API y base disponibles</span></nav>
+  <div class="cuerpo dos">
+    <div class="caja">
+      <h3>Datos del vino</h3>
+      <div class="fila">Nombre <span class="campo ancho">Reserva del Atuel</span> Tipo <span class="campo sel">tinto</span></div>
+      <div class="fila">Añada <span class="campo">2021</span> Volumen (ml) <span class="campo">750</span> Graduación <span class="campo">13,5</span></div>
+      <div class="fila">Precio <span class="campo">4500.00</span> Bodega <span class="campo sel ancho">Bodega Gómez S.A.</span></div>
+      <h3 style="margin-top:12px">Composición de cepas</h3>
+      <div class="fila"><span class="campo sel ancho">Malbec</span><span class="campo">85</span> % <span class="boton sec">✕</span></div>
+      <div class="fila"><span class="campo sel ancho">Cabernet Sauvignon</span><span class="campo">5</span> % <span class="boton sec">✕</span></div>
+      <div class="fila"><span class="boton sec">+ Agregar cepa</span></div>
+      <p class="nota">El front NO suma los porcentajes ni avisa antes de enviar: la regla la valida PostgreSQL (RN-05, trigger diferido) y el error se muestra tal cual.</p>
+      <div class="fila"><span class="boton">Guardar</span><span class="boton sec">Cancelar</span></div>
+      <div class="error"><b>409 · P0001</b>RN-05: la composición del vino 601 suma 90.00 %; debe sumar exactamente 100 %.</div>
+      <p class="nota">Nada queda guardado: el POST/PUT es una sola transacción en la API.</p>
+    </div>
+    <div>
+      <div class="caja">
+        <h3>Maridajes</h3>
+        <div>☑ Carnes rojas (16–18 °C)</div><div>☑ Quesos duros (16 °C)</div>
+        <div>☐ Pescados (8–10 °C)</div><div>☐ Pastas</div><div>☐ …</div>
+        <p class="nota">GET /catalogos/maridajes · cepas y bodegas: /catalogos/cepas, /catalogos/bodegas</p>
+      </div>
+      <div class="caja" style="margin-top:14px">
+        <h3>Envío</h3>
+        <ul>
+          <li>Alta: POST /vinos → 201 y vuelve a la ficha</li>
+          <li>Edición: PUT /vinos/{cod} (reemplazo completo). Si cambia el precio, la base registra la auditoría (RN-13)</li>
+          <li>Errores de forma (422 validacion) se muestran por campo si la API indica cuál</li>
+        </ul>
+        <div class="error"><b>422 · 23514</b>el mensaje de la API, p. ej. precio ≤ 0 o graduación fuera de 5–20</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 3 -->
+<section class="boceto" id="b3-venta">
+  <h2 class="titulo">3 · Nueva venta <small>#/venta</small></h2>
+  <nav><span>Catálogo</span><span>Nuevo vino</span><span class="activa">Nueva venta</span>
+       <span>Transferencias</span><span>Tablero</span><span class="salud">● API y base disponibles</span></nav>
+  <div class="cuerpo dos">
+    <div class="caja">
+      <h3>Cliente y sala</h3>
+      <div class="fila">Cliente (cód.) <span class="campo">1520</span><span class="boton sec">Buscar</span>
+        → <b>Juan Pérez · distribuidor · descuento 20 %</b></div>
+      <p class="nota">GET /clientes/{id}: el descuento lo calcula fn_descuento_cliente; sólo se muestra.</p>
+      <div class="fila">Sala <span class="campo sel ancho">3 · Av. San Martín 450 (San Rafael)</span></div>
+      <p class="nota">GET /catalogos/salas</p>
+      <h3 style="margin-top:10px">Vinos</h3>
+      <div class="fila">Cód. vino <span class="campo">12</span> Cantidad <span class="campo">6</span><span class="boton sec">Agregar</span></div>
+      <table><tr><th>Cód.</th><th>Vino</th><th class="num">Cantidad</th><th></th></tr>
+        <tr><td>12</td><td>Reserva del Atuel 2021</td><td class="num">6</td><td>✕</td></tr>
+        <tr><td>47</td><td>Cerro Nevado 2021</td><td class="num">2</td><td>✕</td></tr></table>
+      <p class="nota">El nombre sale de GET /vinos/{cod}. Antes de vender NO se muestran precios ni totales: no hay importe en el front.</p>
+      <div class="fila"><span class="boton">Registrar venta</span></div>
+      <div class="error"><b>409 · P0001</b>RN-09: stock insuficiente del vino 47 en la sala 3.<br>No se registró ningún comprobante.</div>
+      <p class="nota">POST /comprobantes {id_cliente, id_sala, renglones} → fn_registrar_venta en una transacción.</p>
+    </div>
+    <div class="caja">
+      <h3>Comprobante emitido</h3>
+      <div class="ok">Comprobante Nº 50231 · 10/11/2026 12:40 · sala 3 · cliente 1520</div>
+      <table><tr><th>Vino</th><th class="num">Cant.</th><th class="num">P. unit.</th><th class="num">Desc.</th><th class="num">Parcial</th></tr>
+        <tr><td>Reserva del Atuel</td><td class="num">6</td><td class="num">4.500,00</td><td class="num">20 %</td><td class="num">21.600,00</td></tr>
+        <tr><td>Cerro Nevado</td><td class="num">2</td><td class="num">6.200,00</td><td class="num">20 %</td><td class="num">9.920,00</td></tr></table>
+      <div>Subtotal: <b>$ 39.400,00</b></div>
+      <div>Descuento: <b>$ 7.880,00</b></div>
+      <div>Total: <b>$ 31.520,00</b></div>
+      <p class="nota">Todos los importes se leen de la respuesta del POST (guardados por la base, RN-08). El front no multiplica ni suma.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 4 -->
+<section class="boceto" id="b4-transferencias">
+  <h2 class="titulo">4 · Transferencias <small>#/transferencias · #/transferencias/{nro}</small></h2>
+  <nav><span>Catálogo</span><span>Nuevo vino</span><span>Nueva venta</span>
+       <span class="activa">Transferencias</span><span>Tablero</span><span class="salud">● API y base disponibles</span></nav>
+  <div class="cuerpo dos">
+    <div class="caja">
+      <div class="fila">Nueva: Sala <span class="campo sel ancho">3 · Av. San Martín 450</span><span class="boton">Crear transferencia</span>
+        &nbsp;|&nbsp; Abrir Nº <span class="campo">812</span><span class="boton sec">Abrir</span></div>
+      <p class="nota">POST /transferencias {id_sala} · GET /transferencias/{nro}</p>
+      <h3 style="margin-top:8px">Transferencia Nº 812 · depósito → sala 3 · 10/11/2026 &nbsp; <span class="estado">EN CONFECCIÓN</span></h3>
+      <table><tr><th>Cód.</th><th>Vino</th><th class="num">Cantidad</th></tr>
+        <tr><td>12</td><td>Reserva del Atuel 2021</td><td class="num">24</td></tr>
+        <tr><td>47</td><td>Cerro Nevado 2021</td><td class="num">12</td></tr></table>
+      <div class="fila">Cód. vino <span class="campo">90</span> Cantidad <span class="campo">6</span><span class="boton">Agregar renglón</span></div>
+      <p class="nota">POST /transferencias/{nro}/renglones. Habilitado sólo en confección.</p>
+    </div>
+    <div class="caja">
+      <h3>Estado</h3>
+      <div class="pasos"><span class="estado hecho">en confección</span> → <span class="estado">terminado</span> → <span class="estado">procesado</span></div>
+      <div class="fila" style="margin-top:12px"><span class="boton">Terminar</span><span class="boton off">Procesar</span></div>
+      <ul>
+        <li>en confección: Agregar renglón y Terminar habilitados</li>
+        <li>terminado: sólo Procesar</li>
+        <li>procesado: todo deshabilitado (sólo lectura)</li>
+      </ul>
+      <p class="nota">Los botones sólo reflejan el estado que devolvió la API. Quien decide la transición es la base (sp_terminar_transferencia, sp_procesar_transferencia, RN-11 y RN-12).</p>
+      <div class="error"><b>409 · P0001</b>RN-11: no se puede terminar la transferencia 813 sin renglones.</div>
+      <div class="error"><b>409 · P0001</b>RN-11: el depósito no tiene stock suficiente para la transferencia 812.<br>La transferencia sigue terminada; no se movió stock.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 5 -->
+<section class="boceto" id="b5-tablero">
+  <h2 class="titulo">5 · Tablero <small>#/tablero</small></h2>
+  <nav><span>Catálogo</span><span>Nuevo vino</span><span>Nueva venta</span>
+       <span>Transferencias</span><span class="activa">Tablero</span><span class="salud">● API y base disponibles</span></nav>
+  <div class="cuerpo" style="grid-template-columns: 1fr 1.3fr;">
+    <div class="caja">
+      <h3>Top 10 vinos más vendidos</h3>
+      <table><tr><th>#</th><th>Vino</th><th>Bodega</th><th class="num">Botellas</th></tr>
+        <tr><td>1</td><td>Reserva del Atuel</td><td>Bodega Gómez</td><td class="num">1.284</td></tr>
+        <tr><td>2</td><td>Cerro Nevado</td><td>Bodega Ruiz</td><td class="num">1.190</td></tr>
+        <tr><td>…</td><td>…</td><td></td><td></td></tr>
+        <tr><td>10</td><td>Valle Grande</td><td>Bodega Sosa</td><td class="num">802</td></tr></table>
+      <p class="nota">GET /reportes/top-vinos?limite=10 (S1)</p>
+    </div>
+    <div class="caja">
+      <h3>Ventas por sala · último trimestre (01/08/2026 – 31/10/2026)</h3>
+      <div class="barra"><span>Sala 3 · San Rafael</span><i style="width:100%"></i><span class="num">$ 2.310.400</span></div>
+      <div class="barra"><span>Sala 7 · Mendoza</span><i style="width:83%"></i><span class="num">$ 1.918.000</span></div>
+      <div class="barra"><span>Sala 1 · General Alvear</span><i style="width:61%"></i><span class="num">$ 1.402.250</span></div>
+      <div class="barra"><span>…</span><i style="width:30%"></i><span class="num">…</span></div>
+      <p class="nota">GET /reportes/ventas-por-sala (S8); el período lo informa la API. Gráfico de barras propio en SVG/CSS, sin librerías: el largo de cada barra es escala visual del total que manda la base, no un cálculo de negocio.</p>
+    </div>
+    <div class="caja" style="grid-column: 1 / -1;">
+      <h3>Vinos sin stock en una sala</h3>
+      <div class="fila">Sala <span class="campo sel ancho">3 · Av. San Martín 450</span><span class="boton">Consultar</span></div>
+      <table><tr><th>Cód.</th><th>Vino</th><th>Tipo</th><th class="num">Precio</th><th class="num">Stock sala</th><th class="num">Stock depósito</th></tr>
+        <tr><td>90</td><td>Brisa del Sur</td><td>blanco</td><td class="num">3.100,00</td><td class="num">0</td><td class="num">140</td></tr>
+        <tr><td>…</td><td>…</td><td></td><td></td><td></td><td></td></tr></table>
+      <p class="nota">GET /reportes/vinos-sin-stock?id_sala= (S6) · salas: GET /catalogos/salas</p>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
