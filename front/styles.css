@@ -607,3 +607,96 @@ tbody tr.fila--seleccionada:nth-child(even) {
   border-top: 1px solid var(--borde);
   font-size: 1.1rem;
 }
+
+/* Pantalla 4: transferencias (#54) */
+.transferencias {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.transferencias .acciones {
+  align-items: end;
+}
+
+/* Ficha a la izquierda y estado a la derecha en pantallas anchas, como en el boceto. */
+.transferencia {
+  display: grid;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (min-width: 64rem) {
+  .transferencia {
+    grid-template-columns: minmax(0, 1fr) minmax(19rem, 26rem);
+  }
+}
+
+.transferencia__principal,
+.transferencia__lateral {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.transferencia__titulo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.transferencia__titulo h2 {
+  margin: 0;
+}
+
+.insignia {
+  padding: 0.2rem 0.75rem;
+  border: 2px solid var(--bordo);
+  border-radius: 999px;
+  color: var(--bordo);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.estados {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.35rem;
+  align-items: center;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.estados__item {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.estados__paso {
+  padding: 0.25rem 0.6rem;
+  border: 2px solid var(--bordo);
+  border-radius: 999px;
+  color: var(--bordo);
+  background: var(--blanco);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.estados__paso--actual {
+  color: var(--blanco);
+  background: var(--bordo);
+}
+
+.estados__flecha {
+  color: var(--texto-secundario);
+}
+
+.transferencia .nota {
+  margin: 1rem 0 0;
+}
