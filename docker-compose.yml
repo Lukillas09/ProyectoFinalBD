@@ -145,6 +145,43 @@ services:
       - web
     restart: "no"
 
+  # Pruebas de punta a punta del front (Etapa 7). Perfil "test": no corre con un
+  # `up` normal; se usa con front/tests/ejecutar.sh, que levanta un proyecto
+  # aislado y cargado. El navegador (Chromium de Playwright) corre DENTRO de la
+  # red, abre http://front y llama a /api por el mismo origen, a través de nginx,
+  # como en producción. Las verificaciones en la base usan el rol de REPORTES
+  # (sólo lectura): ni el propietario ni la cuenta de inicialización. Las
+  # escrituras de las pruebas pasan siempre por el front y la API.
+  front-test:
+    build:
+      context: ./front/tests
+    profiles: ["test"]
+    environment:
+      FRONT_URL: http://front
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:?Defina POSTGRES_DB en .env}
+      DB_USER: ${DB_REPORT_USER:?Defina DB_REPORT_USER en .env}
+      DB_PASSWORD: ${DB_REPORT_PASSWORD:?Defina DB_REPORT_PASSWORD en .env}
+    volumes:
+      # El código del front, en sólo lectura, para la prueba estática de "sin cálculos".
+      - ./front:/front:ro
+      # Capturas de las pruebas que fallan (no se versiona).
+      - ./front/tests/salida:/tests/salida
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+      front:
+        condition: service_healthy
+    networks:
+      - datos
+      - web
+    restart: "no"
+
   front:
     build:
       context: ./front
