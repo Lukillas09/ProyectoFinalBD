@@ -426,3 +426,43 @@ tbody tr:nth-child(even) {
     max-width: 8rem;
   }
 }
+
+/* Pantalla 3: nueva venta (#53) */
+.venta {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.venta__seccion {
+  display: grid;
+  gap: 1rem;
+}
+
+.venta__cliente-confirmado {
+  margin: 0;
+  font-weight: 700;
+}
+
+.venta__totales {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 1.5rem;
+  width: min(100%, 24rem);
+  margin: 1rem 0 0 auto;
+}
+
+.venta__totales dt,
+.venta__totales dd {
+  margin: 0;
+}
+
+.venta__totales dd {
+  text-align: right;
+  font-weight: 700;
+}
+
+.venta__total {
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--borde);
+  font-size: 1.1rem;
+}
