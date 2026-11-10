@@ -17,9 +17,11 @@ Pasos:
 
 Criterios de aceptación:
 
-- [ ] Las cinco pantallas funcionan contra la API real.
-- [ ] Una venta sin stock muestra el mensaje de la regla y no deja datos a medias.
-- [ ] El front no contiene lógica de cálculo de importes ni de stock.
+- [x] Las cinco pantallas funcionan contra la API real.
+- [x] Una venta sin stock muestra el mensaje de la regla y no deja datos a medias.
+- [x] El front no contiene lógica de cálculo de importes ni de stock.
+
+Verificados con pruebas automáticas y con su evidencia en el [informe de cierre](cierre_etapa7.md).
 
 Rúbrica: 5 puntos. *Pantallas mínimas funcionando, errores de reglas visibles, sin lógica de cálculo en el cliente.*
 
@@ -92,7 +94,7 @@ Verificación: revisión del código buscando operaciones aritméticas sobre imp
 
 ## 6. Verificación de la etapa
 
-- Pruebas de punta a punta con Playwright para Python contra un proyecto de Compose aislado, como `api/tests/ejecutar.sh`: volumen vacío, `ESCALA=0.1`, `down -v` al terminar. **Nunca contra el entorno por defecto.**
+- Pruebas de punta a punta con Playwright para Python contra un proyecto de Compose aislado, como `api/tests/ejecutar.sh`: volumen vacío, `ESCALA=0.1`, `down -v` al terminar. **Nunca contra el entorno por defecto.** Se corren con `front/tests/ejecutar.sh`. El navegador corre dentro de la red de Compose y abre `http://front`, en lugar de `http://localhost:<puerto>`: no depende del navegador ni de los puertos de cada equipo.
 - Un recorrido por pantalla. Como mínimo:
   - el catálogo filtra y pagina;
   - alta con composición al 90 % muestra RN-05 y no crea el vino;

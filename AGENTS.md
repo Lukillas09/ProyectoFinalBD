@@ -94,17 +94,21 @@ Ya existen:
 - los índices de rendimiento (Etapa 4: `008_indices.sql`, medición en `db/perf/`, informe en `docs/rendimiento.md`);
 - las consultas de la Etapa 5, cerrada: S1-S12, U1-U6, I1-I6 y D1-D6 en `consultas/`, informe en `docs/consultas.md` y planes en `docs/consultas/planes/`;
 - **la API REST completa (Etapa 6): catálogo y ABM de vinos, CRUD de clientes (3 subtipos), venta y consulta de comprobantes, circuitos de transferencias e ingresos, reportes de solo lectura (S1, S8, S6, S7) y trazabilidad como supuesto; 252 pruebas automatizadas en entorno aislado; ver `docs/api.md` y `docs/cierre_etapa6.md`.**
+- **el front completo (Etapa 7): cinco pantallas (catálogo, alta y edición de vino, nueva venta, transferencias y tablero) en `front/`, con rutas `GET /catalogos/*` de sólo lectura en la API (261 pruebas de la API); 33 pruebas de punta a punta con Playwright en `front/tests/`; ver `docs/front.md` y `docs/cierre_etapa7.md`.**
 
 Una vez integradas en `main`, las migraciones no se modifican: cualquier corrección va en una migración nueva. La Etapa 6 agregó `009_ingreso_bodega.sql` (RN-16, issue #30) y `010_privilegios_trazabilidad.sql` (lectura de la producción de uva, issue #32). La próxima migración es `011`; sólo se crea con una necesidad justificada y aprobada. El alcance de la trazabilidad es un supuesto documentado en `docs/requisitos.md` (sección 3.8) hasta que responda la cátedra.
 
 **La Etapa 6 (API REST) está completada y verificada.** El contrato definitivo está en `docs/api.md`, la organización del código en `api/README.md`, y el informe de cierre en `docs/cierre_etapa6.md`. Cada endpoint tiene su función de acceso a datos en `api/app/datos/` y su prueba en `api/tests/`. Las pantallas del front son de la Etapa 7.
 
-**La Etapa 7 (front) está en curso.** Plan, contrato pantalla por pantalla y estructura en `docs/front.md`; bocetos en `docs/bocetos/`; issues con la etiqueta `etapa-7`. Reglas de la etapa:
+**La Etapa 7 (front) está completada y verificada.** Plan, contrato pantalla por pantalla y estructura en `docs/front.md`; bocetos en `docs/bocetos/`; informe de cierre con los tres criterios de la consigna y su evidencia en `docs/cierre_etapa7.md`. Las reglas de la etapa siguen vigentes para cualquier cambio del front:
 - Toda llamada HTTP pasa por `front/js/api.js`, con la URL base de `front/config.js`; las pantallas no usan `fetch` directamente.
 - Los errores se muestran con el `detail` y el `codigo` que devuelve la API, sin reemplazarlos por mensajes genéricos.
 - El front no suma porcentajes, no multiplica precio por cantidad, no aplica descuentos ni calcula stock: muestra lo que devuelve la base. Los botones habilitados según el estado son ayuda visual; la transición la decide PostgreSQL.
 - Los selectores se alimentan de `GET /catalogos/*` (sólo lectura, sin migración nueva); clientes y vinos se cargan por código.
-- Las pruebas de punta a punta corren en un proyecto de Compose aislado, nunca contra el entorno por defecto.
+- Las pruebas de punta a punta corren en un proyecto de Compose aislado, nunca contra el entorno por defecto: `front/tests/ejecutar.sh`.
+- Toda operación aritmética nueva en `front/js` se justifica en `front/tests/test_sin_calculos.py`; esa prueba falla si aparece una sin listar.
+
+**La próxima etapa es la 8 (nube) y NO se empieza sin instrucción explícita del usuario:** los despliegues a la nube la requieren.
 
 Convenciones de las consultas (Etapa 5):
 - Se ejecutan con `docker compose exec db /opt/bodegas/consultas/ejecutar.sh <archivo>.sql` (propietario, `ON_ERROR_STOP=1`). Los `.sql` llegan a la imagen de `db` como contexto adicional: al cambiarlos, reconstruir con `docker compose up -d --build db`.
@@ -117,6 +121,8 @@ Un índice nuevo se justifica con una consulta medida antes y después con `db/p
 La carga masiva se conecta como propietario y deshabilita sólo los triggers que chocan con una historia, dentro de una única transacción. Cualquier cambio en el generador debe mantener la reproducibilidad (misma `SEMILLA`, `FECHA_REFERENCIA` y `ESCALA` producen las mismas huellas de `hashes.sql`) y hacer pasar `controles.sql` y `post_carga.sql`. Debe probarse con una carga completa desde un volumen vacío antes de integrarlo: el PR #22 se integró sin haber completado una carga (`docs/carga_masiva.md`, sección 11). No versionar datos generados ni volcados.
 
 La API se prueba con `api/tests/ejecutar.sh`: proyecto de Compose aislado desde un volumen vacío, carga `ESCALA=0.1`, pytest con el rol de la API y `down -v`. Las pruebas no se corren contra el entorno por defecto, porque las que escriben modificarían sus datos. Los errores de PostgreSQL los traduce sólo `api/app/errores.py`; los endpoints no los capturan. Las operaciones de varias sentencias usan `with conn.transaction():` dentro del endpoint. Las versiones de `api/requirements*.txt` se fijan con `==`.
+
+El front se prueba con `front/tests/ejecutar.sh`, con el mismo patrón: proyecto aislado (`bodegas_front_pruebas`) desde un volumen vacío, carga `ESCALA=0.1` y `down -v`. Usa Playwright para Python en la imagen oficial de Playwright (versión fija); el navegador corre dentro de la red, abre `http://front` y llama a `/api` por nginx. La base se verifica con el rol de reportes (sólo lectura): las escrituras de las pruebas pasan por el front y la API. Los datos de prueba se buscan con `SELECT`, nunca con ids fijos. Las versiones de `front/tests/requirements.txt` se fijan con `==`.
 
 Las escrituras de stock, importes, estados y auditoría pertenecen a triggers y procedimientos. Una etapa posterior no debe otorgar a la API privilegios directos sobre esas columnas ni duplicar esos cálculos fuera de PostgreSQL.
 
