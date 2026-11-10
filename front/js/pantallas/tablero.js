@@ -108,7 +108,7 @@ async function cargarTopVinos({ mensajes, cargando, contenido }) {
       { className: "tabla-contenedor" },
       tabla(
         "Los 10 vinos con más botellas vendidas",
-        ["#N.º", "Vino", "Tipo", "Bodega", "#Precio", "#Botellas"],
+        ["##", "Vino", "Tipo", "Bodega", "#Precio", "#Botellas"],
         filas,
       ),
     ));
@@ -244,7 +244,10 @@ async function cargarVinosSinStock({ mensajes, cargando, contenido }) {
   // Dos zonas de error: el de las salas (que deja el selector inutilizable) no
   // debe borrarse con el de una consulta, y al revés.
   const mensajesConsulta = crear("div", { "aria-live": "polite" });
-  const resultado = crear("div", { "aria-live": "polite" });
+  // El conteo (o el aviso de lista vacía) es la única región viva: anunciar la
+  // tabla de unas 500 filas completa sería inutilizable con un lector de pantalla.
+  const resumen = crear("div", { "aria-live": "polite" });
+  const resultado = crear("div");
   let solicitud = 0;
 
   const selectorSala = crear(
@@ -263,7 +266,7 @@ async function cargarVinosSinStock({ mensajes, cargando, contenido }) {
     crear("label", { htmlFor: "tablero-sala" }, "Sala", selectorSala),
     botonConsultar,
   );
-  contenido.replaceChildren(formulario, mensajesConsulta, resultado);
+  contenido.replaceChildren(formulario, mensajesConsulta, resumen, resultado);
 
   selectorSala.addEventListener("change", () => {
     botonConsultar.disabled = selectorSala.value === "";
@@ -279,6 +282,7 @@ async function cargarVinosSinStock({ mensajes, cargando, contenido }) {
     botonConsultar.disabled = true;
     botonConsultar.textContent = "Consultando…";
     limpiarMensajes(mensajesConsulta);
+    resumen.replaceChildren();
     resultado.replaceChildren();
 
     try {
@@ -286,13 +290,13 @@ async function cargarVinosSinStock({ mensajes, cargando, contenido }) {
       if (actual !== solicitud) return;
 
       if (items.length === 0) {
-        resultado.replaceChildren(crear("p", {}, "No hay vinos sin stock en esta sala."));
+        resumen.replaceChildren(crear("p", {}, "No hay vinos sin stock en esta sala."));
         return;
       }
-      resultado.replaceChildren(
+      resumen.replaceChildren(
         crear("p", {}, `${items.length} ${items.length === 1 ? "vino" : "vinos"}`),
-        tablaSinStock(items),
       );
+      resultado.replaceChildren(tablaSinStock(items));
     } catch (error) {
       if (actual !== solicitud) return;
       // El 404 de una sala inexistente se muestra tal como llega.
