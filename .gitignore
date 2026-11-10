@@ -30,3 +30,10 @@ front/tests/salida/
 
 # Material de la cátedra: se usa localmente, no se publica
 material/
+
+# Build del static site de Render (Etapa 8)
+front/dist/
+
+# Herramientas de la nube: credenciales y volcados (Etapa 8)
+db/nube/render.env
+db/nube/salida/

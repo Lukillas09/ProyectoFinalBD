@@ -1,0 +1,63 @@
+# Blueprint de Render (Etapa 8): base, API y front en una sola declaración.
+# Ver docs/nube.md. Ningún secreto vive en este archivo: las variables con
+# `sync: false` las carga a mano quien despliega, en el dashboard de Render.
+
+databases:
+  - name: bodegas-db
+    databaseName: bodegas
+    # Usuario administrador que crea Render: SÓLO para el bootstrap de roles
+    # (db/nube/). La API y las migraciones usan nuestras propias cuentas.
+    user: bodegas_admin
+    plan: free
+    region: virginia
+    postgresMajorVersion: "16"
+    # Lista vacía = sin acceso externo (R5). La API entra por la red privada.
+    # Para el bootstrap, las migraciones y el backup se agrega a mano la IP
+    # de quien ejecuta (/32) y se vuelve a quitar al terminar.
+    ipAllowList: []
+
+services:
+  - type: web
+    name: bodegas-api
+    runtime: docker
+    plan: free
+    region: virginia            # misma región que la base: URL interna
+    dockerContext: ./api
+    dockerfilePath: ./api/Dockerfile
+    healthCheckPath: /salud
+    envVars:
+      - key: PORT                 # uvicorn escucha en 8000 (api/Dockerfile)
+        value: "8000"
+      - key: DB_HOST              # host INTERNO de la base (red privada)
+        fromDatabase:
+          name: bodegas-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: bodegas-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: bodegas-db
+          property: database
+      - key: DB_USER              # rol de privilegios mínimos (R7), no el admin
+        value: bodegas_api
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_SSLMODE           # conexión cifrada aun en la red privada (R4)
+        value: require
+      - key: CORS_ORIGINS         # URL exacta del static site, sin barra final (R11)
+        sync: false
+
+  - type: web
+    name: bodegas-front
+    runtime: static
+    buildCommand: sh front/generar_config.sh
+    staticPublishPath: ./front/dist
+    headers:
+      - path: /config.js
+        name: Cache-Control
+        value: no-cache
+    envVars:
+      - key: API_BASE_URL         # URL pública de la API, https://...
+        sync: false
