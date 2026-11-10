@@ -31,13 +31,13 @@ export const RUTAS = [
     patron: /^\/transferencias$/,
     titulo: "Transferencias",
     issue: 54,
-    cargar: null,
+    cargar: () => import("./pantallas/transferencias.js"),
   },
   {
     patron: /^\/transferencias\/(?<nro>[^/]+)$/,
     titulo: "Transferencia",
     issue: 54,
-    cargar: null,
+    cargar: () => import("./pantallas/transferencias.js"),
   },
   {
     patron: /^\/tablero$/,
