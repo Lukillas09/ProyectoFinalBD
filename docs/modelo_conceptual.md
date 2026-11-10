@@ -4,9 +4,32 @@
 
 Este modelo deriva del escenario, las entidades mínimas y RN-01 a RN-15 de la consigna. Separa requisitos explícitos de supuestos necesarios para avanzar. No incorpora funciones, procedimientos ni triggers: cuando una cardinalidad o regla no puede protegerse con el DDL de esta etapa, se indica expresamente.
 
-Los diagramas usan Mermaid `erDiagram` con notación pata de gallo. Como un único gráfico con treinta entidades resulta ilegible, el DER se presenta en cuatro vistas del mismo modelo; las entidades repetidas son puntos de unión, no copias.
+El modelo se dibuja de dos formas, cada una con su propósito:
 
-Archivos del DER:
+1. **DER conceptual en notación de Chen** (sección 4.0, `docs/der/chen/`). Es el DER que pide la consigna, en la notación de los apuntes de la cátedra (*BD – Modelo conceptual*). Muestra lo que la pata de gallo no puede expresar: la entidad débil `Parcela` con su relación identificadora, la jerarquía de `Cliente` total y exclusiva, las relaciones N:M con sus atributos, los atributos compuestos y derivados, y las cardinalidades (mín,máx) de cada extremo. No dibuja claves foráneas: en el modelo conceptual las representan las relaciones.
+2. **Vista física en pata de gallo** (secciones 4.1 a 4.4, `docs/der/*.mmd`). Es el paso al esquema relacional: tablas, tipos, PK, FK y candidatas de una columna, tal como quedaron en `001_esquema.sql`. Sirve para leer el esquema físico; no reemplaza al DER conceptual.
+
+### DER de Chen
+
+- Fuente única: `docs/der/chen/generar.py`. Declara una sola vez entidades, atributos, relaciones y cardinalidades (las de la sección 5) y genera todas las vistas, así no pueden contradecirse.
+- Fuente Graphviz de cada vista: `docs/der/chen/*.dot`.
+- Imágenes: `docs/der/chen/*.png` y `*.svg`. Todas las vistas juntas en `docs/der/chen/der_chen.pdf`, para el informe.
+
+Para regenerarlo (requiere Graphviz y `pdfunite`, de poppler-utils):
+
+```bash
+python3 docs/der/chen/generar.py
+```
+
+Se verificó contra la base real que cada atributo dibujado existe como columna y que cada tabla de negocio está representada: como entidad, como relación N:M o, en el caso de `stock_deposito`, como atributo de `Vino`. Las únicas columnas sin dibujar son:
+
+- las FK;
+- el discriminador `tipo` que repiten los subtipos para la FK compuesta;
+- la columna técnica `comprobante.xact_alta`.
+
+### Vista física en pata de gallo
+
+Como un único gráfico con treinta tablas resulta ilegible, se presenta en cuatro vistas del mismo esquema; las tablas repetidas son puntos de unión, no copias.
 
 - fuente editable: `docs/der/*.mmd`;
 - imagen exportada: `docs/der/*.png`, enlazada en cada vista;
@@ -25,7 +48,7 @@ Convenciones de cardinalidad:
 - `|{`: uno o más;
 - `o{`: cero o más.
 
-Mermaid no expresa que tres especializaciones sean simultáneamente totales y exclusivas, ni cardinalidades condicionadas por un estado. Tampoco agrupa visualmente los componentes de una clave candidata compuesta; por eso `UK` sólo marca candidatas de una columna y las compuestas se enumeran en las tablas del documento. Esas restricciones se explican debajo de los diagramas.
+Mermaid no expresa que tres especializaciones sean simultáneamente totales y exclusivas, ni cardinalidades condicionadas por un estado; por eso el DER conceptual se dibuja en Chen. Tampoco agrupa visualmente los componentes de una clave candidata compuesta; por eso `UK` sólo marca candidatas de una columna y las compuestas se enumeran en las tablas del documento.
 
 ## 2. Decisiones principales y supuestos
 
@@ -94,6 +117,39 @@ Las claves candidatas alternativas se muestran además de la PK. Una clave subro
 `schema_migration` no aparece en el DER porque es metadato técnico del mecanismo de despliegue, no una entidad del dominio.
 
 ## 4. DER editable y visualizable
+
+### 4.0 DER conceptual (notación de Chen)
+
+Todas las vistas, con la leyenda primero, en un solo archivo: [der_chen.pdf](der/chen/der_chen.pdf).
+
+**Notación:**
+
+![Leyenda](der/chen/99_leyenda.png)
+
+**Vista general.** Todas las entidades y relaciones, sólo con sus claves:
+
+![DER general](der/chen/00_der_general.png)
+
+**Vistas por área, con todos los atributos.** Las entidades en gris se detallan en otra vista; aparecen sólo para mostrar la relación.
+
+| Vista | Imagen | Fuente |
+|---|---|---|
+| Producción de uva y red comercial (incluye la débil `Parcela`) | [01_produccion_y_red_comercial.png](der/chen/01_produccion_y_red_comercial.png) | [.dot](der/chen/01_produccion_y_red_comercial.dot) |
+| Vinos, composición, maridajes y auditoría | [02_vinos.png](der/chen/02_vinos.png) | [.dot](der/chen/02_vinos.dot) |
+| Clientes y ventas (incluye la jerarquía) | [03_clientes_y_ventas.png](der/chen/03_clientes_y_ventas.png) | [.dot](der/chen/03_clientes_y_ventas.dot) |
+| Logística y stock | [04_logistica_y_stock.png](der/chen/04_logistica_y_stock.png) | [.dot](der/chen/04_logistica_y_stock.dot) |
+
+Decisiones de representación para la defensa:
+
+- **`Parcela` es débil.** Su clave parcial `nro_parcela` sólo identifica dentro de la finca. Se une a `Finca` por la relación identificadora *se divide en* (rombo doble), con participación total de la parcela (línea doble). En el relacional, su PK es `(id_finca, nro_parcela)`.
+- **Jerarquía de `Cliente`.** El *ES UN* es total (línea doble: todo cliente es de algún tipo) y exclusivo (de uno solo); `tipo` es el discriminador. `Socio del club` no tiene atributos propios en la consigna, pero es un tipo distinto y se dibuja.
+- **N:M con atributos.** *se compone de* (`porcentaje`), *incluye* (renglones del comprobante), *ingresa* y *transfiere* (renglones), *tiene en stock* (`cantidad` por sala). Cada una pasa al relacional como tabla con PK compuesta.
+- **Atributos derivados** (elipse punteada).
+  - `antiguedad` del empleado y `descuento` del cliente se calculan con funciones y no se guardan.
+  - Los importes del comprobante y el subtotal del renglón se derivan de los renglones, pero **se almacenan** porque la consigna los pide; la base los mantiene (RN-08).
+- **Atributos compuestos.** `direccion` de la sala (calle, número) y `documento` del cliente (tipo, número; el par es clave candidata).
+- **`stock_deposito` es atributo de `Vino`** porque el depósito es único y no tiene datos propios. En el relacional es la tabla `stock_deposito` (0..1 fila por vino), para bloquear el stock sin bloquear el vino.
+- **`(0,N)*` en ingresos y transferencias.** En confección pueden no tener renglones; para pasar a *terminado* necesitan al menos uno (RN-10, RN-11). Esa condición la controla un trigger, no el DER.
 
 ### 4.1 Red comercial y producción de uva
 

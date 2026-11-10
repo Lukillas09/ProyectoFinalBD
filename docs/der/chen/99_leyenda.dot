@@ -1,0 +1,28 @@
+graph Leyenda {
+  graph [layout=dot, rankdir=LR, fontname="DejaVu Sans", fontsize=20, labelloc=t,
+         label="Notación (Chen, apuntes de la cátedra)", pad=0.4, nodesep=0.35];
+  node [fontname="DejaVu Sans", fontsize=11];
+  edge [fontname="DejaVu Sans", fontsize=10];
+  subgraph c1 { rank=same;
+    e  [shape=box, style=filled, fillcolor="#dde6f7", penwidth=1.6, label="Entidad"];
+    d  [shape=box, style=filled, fillcolor="#dde6f7", penwidth=1.6, peripheries=2, label="Entidad débil"];
+    r  [shape=diamond, style=filled, fillcolor="#fbeccf", label="Relación"];
+    ri [shape=diamond, style=filled, fillcolor="#fbeccf", peripheries=2, label="Relación\nidentificadora"];
+    h  [shape=triangle, style=filled, fillcolor="#e3f1df", label=<ES UN<BR/><FONT POINT-SIZE="8">total, exclusiva</FONT>>];
+  }
+  subgraph c2 { rank=same;
+    a  [shape=ellipse, label="atributo"];
+    k  [shape=ellipse, label=<<U>clave primaria</U>>];
+    p  [shape=ellipse, label=<<U>clave parcial</U><BR/><FONT POINT-SIZE="8">de la entidad débil</FONT>>];
+    v  [shape=ellipse, style=dashed, label="derivado"];
+    c  [shape=ellipse, label="compuesto"];
+  }
+  ref [shape=box, style=filled, fillcolor="#eeeeee", color=gray55, fontcolor=gray35,
+       label="Entidad detallada en otra vista"];
+  card [shape=plaintext, label=<<B>(mín,máx)</B> junto a una entidad: en cuántas ocurrencias de la relación<BR/>participa cada ocurrencia de esa entidad. N = muchos.<BR/><B>(0,N)*</B>: un ingreso o transferencia en confección puede no tener renglones;<BR/>para terminarlo necesita al menos uno, (1,N) (RN-10, RN-11).<BR/><B>Línea doble</B>: participación total (débil en su identificadora; jerarquía total).<BR/>Las claves foráneas no se dibujan: las representan las relaciones.>];
+  e -- a [style=invis]; d -- p [style=invis]; r -- v [style=invis];
+  h -- c [style=invis]; ri -- k [style=invis];
+  c1 [shape=ellipse, label="parte 1"]; c2 [shape=ellipse, label="parte 2"];
+  c -- c1; c -- c2;
+  k -- ref [style=invis]; ref -- card [style=invis];
+}

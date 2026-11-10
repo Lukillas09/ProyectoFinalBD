@@ -379,7 +379,7 @@ La temperatura de servicio no queda pendiente: el PDF la asigna al catálogo `Ma
 
 ### 8.1 Entregables implementados
 
-- DER Mermaid editable, entidades, atributos, identificadores y cardinalidades en `docs/modelo_conceptual.md`; fuente `.mmd` e imágenes PNG en `docs/der/`.
+- DER conceptual en notación de Chen (la de los apuntes de la cátedra), con entidad débil, jerarquía total y exclusiva, N:M con atributos y cardinalidades (mín,máx): fuente `docs/der/chen/generar.py` y `.dot`, imágenes PNG/SVG y `der_chen.pdf`. Vista física en pata de gallo (Mermaid) en `docs/der/*.mmd` y `.png`. Ambos explicados en `docs/modelo_conceptual.md`, sección 4.
 - Relaciones, PK, candidatas, FK, jerarquía y acciones referenciales en `docs/modelo_relacional.md`.
 - Metodología de 1FN/2FN/3FN y desnormalizaciones declaradas en `docs/normalizacion.md`.
 - Diccionario en `docs/diccionario_datos.md`, contrastado contra el catálogo de PostgreSQL: coinciden tablas, columnas, tipos, nulabilidad, defaults y el nombre de cada constraint en las columnas que abarca.
