@@ -496,3 +496,74 @@ tbody tr.fila--seleccionada:nth-child(even) {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* Pantalla 2: alta y edición de vino (#52) */
+.vino-formulario {
+  align-items: start;
+}
+
+/* Maridajes a la derecha en pantallas anchas, como en el boceto. */
+@media (min-width: 64rem) {
+  .vino-formulario {
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
+  }
+}
+
+.composicion {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.composicion__filas {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.fila-cepa {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6.5rem auto auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* En un celular, la cepa ocupa su propia línea y no se corta el nombre. */
+@media (max-width: 34rem) {
+  .fila-cepa {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .fila-cepa select {
+    grid-column: 1 / -1;
+  }
+}
+
+.nota {
+  margin: 0;
+  color: var(--texto-secundario);
+  font-size: 0.85rem;
+}
+
+.casillas {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0;
+  border: 0;
+}
+
+.casilla {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-weight: 400;
+}
+
+.casilla input {
+  width: auto;
+  min-height: auto;
+}
+
+.vino-formulario [aria-invalid="true"] {
+  border-color: #b03a3a;
+  box-shadow: 0 0 0 2px rgb(176 58 58 / 25%);
+}
