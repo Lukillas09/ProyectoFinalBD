@@ -427,6 +427,63 @@ tbody tr:nth-child(even) {
   }
 }
 
+/* Pantalla 5: tablero (#55) */
+/* Una sola columna: la tabla de ventas tiene seis columnas y el gráfico una
+   fila por sala (unas 40), así que en media pantalla se cortaban los importes. */
+.tablero {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.tablero__seccion,
+.tablero__contenido {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.tablero__subtitulo {
+  margin: 0;
+  color: var(--texto-secundario);
+}
+
+/* El SVG se escala al ancho del panel; el viewBox fija las proporciones. */
+.tablero__grafico {
+  display: block;
+  width: 100%;
+  max-width: 56rem;
+  height: auto;
+}
+
+.tablero__etiqueta,
+.tablero__importe {
+  fill: #2a211c;
+  font-size: 14px;
+}
+
+.tablero__importe {
+  font-weight: 700;
+}
+
+.tablero__barra {
+  fill: var(--bordo);
+}
+
+.tablero__barra:hover {
+  fill: var(--bordo-oscuro);
+}
+
+/* Lista larga (unos 500 vinos): scroll vertical con el encabezado a la vista. */
+.tablero__scroll {
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+.tablero__scroll th {
+  position: sticky;
+  top: 0;
+}
+
 /* Pantalla 1: catálogo (#51) */
 .catalogo {
   display: grid;
