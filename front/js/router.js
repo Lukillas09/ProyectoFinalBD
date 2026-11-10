@@ -13,13 +13,13 @@ export const RUTAS = [
     patron: /^\/vinos\/nuevo$/,
     titulo: "Nuevo vino",
     issue: 52,
-    cargar: null,
+    cargar: () => import("./pantallas/vino.js"),
   },
   {
     patron: /^\/vinos\/(?<cod>[^/]+)\/editar$/,
     titulo: "Editar vino",
     issue: 52,
-    cargar: null,
+    cargar: () => import("./pantallas/vino.js"),
   },
   {
     patron: /^\/venta$/,
