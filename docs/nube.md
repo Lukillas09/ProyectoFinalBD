@@ -4,6 +4,8 @@ Plan, comparación de proveedores y diseño del despliegue. Las evidencias (capt
 
 > **Autorización.** `AGENTS.md` exige una instrucción explícita para desplegar. El 10/11/2026 Lucas pidió empezar la Etapa 8 y eligió Render. Cada paso que crea o cambia recursos en Render lo ejecuta él desde su cuenta. Las credenciales nunca pasan por el repositorio.
 
+> **Operación por API, autorizada sólo el 10/11/2026.** Ese día, y hasta las 23:59 (hora de Argentina), Lucas autorizó a un agente a operar Render por su API con la clave de `db/nube/render.env` (`RENDER_API_KEY`), en lugar de ejecutar él cada paso. **No se llegó a usar**: ese archivo no existía en la PC (sección 6). Si la clave se usa, se recomienda **revocarla** (Account Settings → API Keys) al terminar la entrega.
+
 ## 1. Qué pide la consigna
 
 > Objetivo: que el sistema funcione en un servidor que no es la computadora del grupo, con las medidas básicas de seguridad y operación que se esperan de cualquier sistema real.
@@ -126,6 +128,33 @@ Ninguno requiere una migración nueva.
 ## 5. Verificaciones planificadas
 
 Ver los issues #69 (seguridad y regla en la nube) y #70 (backup y restauración). Cada una deja un comando, su resultado y, cuando corresponde, una captura en `docs/img/nube/`.
+
+## 6. Resultados del despliegue
+
+**Estado al 10/11/2026 (alrededor de las 20:40, hora de Argentina): el despliegue en Render NO se ejecutó.** El plan, el código y las herramientas están integrados (#66, PR #72); lo que falta es correrlos contra Render.
+
+**Motivo.** La operación por API necesitaba la clave de Render en `db/nube/render.env`, y ese archivo no existía en la PC: no está en la carpeta del proyecto ni en sus copias de trabajo, y `RENDER_API_KEY` no figura en ningún archivo del proyecto ni en `.env`. No se buscó la clave por otros medios. Sin ella no se creó ni se cambió nada en Render: el único pedido fue un `GET` sin credenciales a la API, que respondió 401.
+
+| Dato | Estado |
+|---|---|
+| Región y fecha de creación de la base (y su vencimiento a los 30 días) | Sin dato: no se pudo consultar Render. `render.yaml` declara la región `virginia` |
+| URLs públicas | Sin dato (ver el hallazgo de abajo) |
+| Tamaño usado | Sin dato: no se cargó nada |
+| Verificaciones de la base, de seguridad y de backup (secciones 2, 4 y 5 del plan) | **No ejecutadas** |
+| Bitácora de aperturas y cierres de IP | **Ninguna**: no se abrió ninguna IP ni se tocó la lista de acceso |
+| Operación por la API de Render | Autorizada y **no usada** |
+
+**Hallazgo: las URLs que figuraban en el README no son de este proyecto.** Se comprobó con pedidos públicos sin credenciales:
+- `https://bodegas-front.onrender.com` responde, pero sirve otro `index.html` (con `css/estilos.css`; este front usa `styles.css`) y no tiene `config.js` (404), que este front sí publica;
+- `https://bodegas-api.onrender.com/salud` y `/docs` dan 404, y la respuesta viene de gunicorn; esta API corre con uvicorn.
+
+Probablemente esos nombres ya estaban ocupados: en Render el subdominio es único y, si el nombre está tomado, se agrega un sufijo. La URL real de cada servicio sale del dashboard (el servicio → su URL). Hasta entonces, el README y el informe final dicen "pendiente" en lugar de esas URLs.
+
+**Cómo completarlo.**
+- *Con un agente:* crear `db/nube/render.env` con una sola línea, `RENDER_API_KEY=<clave>`, y repetir el pedido de despliegue.
+- *A mano:* los pasos 1 a 6 de "Despliegue en la nube" del README y el "Orden de uso" de `db/nube/README.md`.
+
+Al terminar, cada resultado de esta sección se reemplaza por su evidencia (sin secretos: el host se escribe `dpg-…render.com`).
 
 ## Fuentes
 

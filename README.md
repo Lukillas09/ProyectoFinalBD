@@ -18,8 +18,7 @@ El navegador nunca usa nombres internos de Docker: solicita `/api/salud` al mism
 
 | | |
 |---|---|
-| **Versión en la nube (front)** | https://bodegas-front.onrender.com |
-| **API en la nube (Swagger)** | https://bodegas-api.onrender.com/docs |
+| **Versión en la nube** | **Pendiente de despliegue** (ver [`docs/cierre_etapa8.md`](docs/cierre_etapa8.md)). Las URLs que figuraban acá no eran de este proyecto |
 | **Informe final** | [`docs/informe_final.md`](docs/informe_final.md) |
 | **DER (notación de Chen)** | [`docs/der/chen/der_chen.pdf`](docs/der/chen/der_chen.pdf) |
 | **Trazabilidad regla → mecanismo → prueba** | [`docs/trazabilidad.md`](docs/trazabilidad.md) |
@@ -100,6 +99,7 @@ Documentos académicos:
 - [Informe de cierre de la Etapa 6](docs/cierre_etapa6.md)
 - [Front: plan, pantallas y contrato (Etapa 7)](docs/front.md)
 - [Informe de cierre de la Etapa 7](docs/cierre_etapa7.md)
+- [Estado de la Etapa 8 (despliegue pendiente)](docs/cierre_etapa8.md)
 
 La consigna y los apuntes de la cátedra se guardan en `material/`, pero esa carpeta está ignorada por Git: es material docente y no se publica. Cada integrante debe copiar los PDF localmente.
 
