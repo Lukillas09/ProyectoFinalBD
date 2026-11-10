@@ -3,4 +3,6 @@
 !nginx.conf
 !index.html
 !styles.css
-!app.js
+!config.js
+!js/
+!js/**

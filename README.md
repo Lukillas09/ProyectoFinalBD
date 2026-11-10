@@ -20,7 +20,7 @@ Incluye:
 
 - PostgreSQL 16 persistente con cuentas separadas de bootstrap, propietario, API y reportes;
 - FastAPI con pool Psycopg 3 y `GET /salud` mediante `SELECT 1`;
-- front mínimo que muestra el estado real a través del proxy Nginx;
+- base navegable del front de la Etapa 7, con URL de API configurable, capa HTTP única, ruteo por hash y estado real a través del proxy Nginx;
 - modelo conceptual y relacional completo, normalización y diccionario (Etapa 1);
 - 30 tablas de negocio y una tabla técnica de migraciones;
 - 31 PK y 35 FK (varias compuestas), `NOT NULL`, 11 `UNIQUE`, 36 `CHECK` contando el dominio, 17 columnas con `DEFAULT`, dos ENUM y un DOMAIN;
@@ -252,6 +252,33 @@ docker compose start db
 ```
 
 Mientras la base está detenida, la API debe responder `503` sin credenciales ni detalles internos y el front debe mostrar indisponibilidad. El pool reintenta y vuelve a 200 cuando PostgreSQL acepta conexiones.
+
+## Front — Etapa 7
+
+El front usa HTML, CSS y módulos JavaScript nativos, sin frameworks, npm ni paso de compilación. Su estructura común es:
+
+```text
+front/
+├── config.js       única URL base de la API
+├── index.html      encabezado, navegación, salud y contenedor de vistas
+├── styles.css
+└── js/
+    ├── api.js      única capa que realiza pedidos HTTP
+    ├── app.js      punto de entrada e indicador de salud
+    ├── ui.js       mensajes, formatos y helpers del DOM
+    ├── router.js   ruteo por hash y contrato de las pantallas
+    └── pantallas/  módulos que agregan los issues #51 a #55
+```
+
+La URL se cambia en un solo lugar, [`front/config.js`](front/config.js):
+
+```js
+window.BODEGAS_CONFIG = { apiBase: "/api" };
+```
+
+`index.html` carga ese archivo antes de los módulos. En local se conserva `/api` para que Nginx reenvíe los pedidos al servicio interno sin exponer su nombre ni requerir CORS.
+
+Las pantallas no usan `fetch` directamente: invocan las funciones de [`front/js/api.js`](front/js/api.js). Esa capa arma las rutas, conserva los importes decimales como strings y traduce las respuestas fallidas a `ErrorApi`; la interfaz muestra el `detail` y el `codigo` recibidos sin reemplazarlos.
 
 ## Ejecutar las pruebas de la API
 

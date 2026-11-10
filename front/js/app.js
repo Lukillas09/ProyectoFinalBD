@@ -1,6 +1,5 @@
-"use strict";
-
-const RUTA_SALUD = "/api/salud";
+import { ErrorApi, api } from "./api.js";
+import { iniciarRouter } from "./router.js";
 
 const estado = document.querySelector("#estado");
 const estadoTexto = document.querySelector("#estado-texto");
@@ -29,33 +28,27 @@ async function comprobarSalud() {
   mostrarEstado(
     "comprobando",
     "Comprobando conexión…",
-    "Consultando el estado real de PostgreSQL.",
+    "Consultando PostgreSQL.",
   );
 
   try {
-    const respuesta = await fetch(RUTA_SALUD, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-
-    if (respuesta.ok) {
-      mostrarEstado(
-        "disponible",
-        "Base de datos disponible",
-        "La API respondió correctamente después de consultar PostgreSQL.",
-      );
-    } else {
-      mostrarEstado(
-        "no-disponible",
-        "Base de datos no disponible",
-        "La comprobación no respondió correctamente. Podés volver a intentarlo.",
-      );
+    await api.salud();
+    mostrarEstado(
+      "disponible",
+      "Sistema disponible",
+      "La API y PostgreSQL respondieron correctamente.",
+    );
+  } catch (error) {
+    if (!(error instanceof ErrorApi)) {
+      console.error(error);
     }
-  } catch {
+
     mostrarEstado(
       "no-disponible",
-      "No fue posible comprobar la conexión",
-      "La API no está disponible en este momento. Podés volver a intentarlo.",
+      "Sistema no disponible",
+      error instanceof ErrorApi
+        ? `${error.status} · ${error.codigo} — ${error.detail}`
+        : "Ocurrió un error inesperado al comprobar la conexión.",
     );
   } finally {
     estado.setAttribute("aria-busy", "false");
@@ -65,4 +58,5 @@ async function comprobarSalud() {
 }
 
 botonReintentar.addEventListener("click", comprobarSalud);
-comprobarSalud();
+iniciarRouter();
+void comprobarSalud();

@@ -3,24 +3,22 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Estado del entorno de Bodegas del Atuel">
+    <meta
+      name="description"
+      content="Gestión de vinos, ventas, transferencias y reportes de Bodegas del Atuel"
+    >
     <title>Bodegas del Atuel</title>
     <link rel="stylesheet" href="/styles.css">
-    <script src="/app.js" defer></script>
+    <script src="/config.js"></script>
   </head>
   <body>
-    <main class="contenedor">
-      <header class="encabezado">
-        <p class="etiqueta">Trabajo Práctico Integrador</p>
-        <h1>Bodegas del Atuel</h1>
-        <p class="introduccion">
-          Verificación del circuito entre el navegador, la API y PostgreSQL.
-        </p>
-      </header>
+    <header class="encabezado-aplicacion">
+      <a class="marca" href="#/vinos" aria-label="Ir al catálogo de Bodegas del Atuel">
+        <span class="marca__etiqueta">Trabajo Práctico Integrador</span>
+        <span class="marca__nombre">Bodegas del Atuel</span>
+      </a>
 
-      <section class="tarjeta" aria-labelledby="titulo-estado">
-        <h2 id="titulo-estado">Estado de la base de datos</h2>
-
+      <section class="salud" aria-label="Estado del sistema">
         <div
           id="estado"
           class="estado estado--comprobando"
@@ -30,19 +28,33 @@
           aria-busy="true"
         >
           <span class="estado__indicador" aria-hidden="true"></span>
-          <div>
+          <span class="estado__contenido">
             <strong id="estado-texto">Comprobando conexión…</strong>
-            <p id="estado-detalle">Consultando el estado real de PostgreSQL.</p>
-          </div>
+            <span id="estado-detalle">Consultando PostgreSQL.</span>
+            <span class="estado__hora">
+              Última comprobación:
+              <time id="hora-comprobacion">pendiente</time>
+            </span>
+          </span>
         </div>
-
-        <p class="ultima-comprobacion">
-          Última comprobación:
-          <time id="hora-comprobacion">pendiente</time>
-        </p>
-
-        <button id="reintentar" type="button">Comprobar nuevamente</button>
+        <button id="reintentar" class="boton boton--secundario boton--compacto" type="button">
+          Reintentar
+        </button>
       </section>
-    </main>
+    </header>
+
+    <nav class="navegacion" aria-label="Secciones principales">
+      <div class="navegacion__interior">
+        <a href="#/vinos" data-ruta="/vinos">Catálogo</a>
+        <a href="#/vinos/nuevo" data-ruta="/vinos/nuevo">Nuevo vino</a>
+        <a href="#/venta" data-ruta="/venta">Nueva venta</a>
+        <a href="#/transferencias" data-ruta="/transferencias">Transferencias</a>
+        <a href="#/tablero" data-ruta="/tablero">Tablero</a>
+      </div>
+    </nav>
+
+    <main id="vista" class="contenedor" tabindex="-1"></main>
+
+    <script type="module" src="/js/app.js"></script>
   </body>
 </html>
