@@ -46,7 +46,7 @@ Tres estados: ✅ cumplido y verificado; 🟡 preparado y verificado **en local 
 | # | Requisito | Estado | Evidencia o motivo |
 |---|-----------|--------|--------------------|
 | R1 | PostgreSQL en la nube | ❌ **FALTA** | `render.yaml` declara `bodegas-db` (PostgreSQL 16, plan gratis, región `virginia`). No se pudo consultar ni crear nada en Render: sin credencial |
-| R2 | API y front con URL pública y HTTPS | ❌ **FALTA** | No hay URL pública verificada. Las que figuraban en el README **no eran de este proyecto** (sección 4) |
+| R2 | API y front con URL pública y HTTPS | 🟡 | Front publicado con HTTPS: `https://bodegas-front-cq6q.onrender.com` (200, sirve este front y su `config.js`), pero ese `config.js` aún apunta a una API ajena hasta un nuevo deploy. API: `https://bodegas-api-srvr.onrender.com` existe pero no atiende (su deploy falló, esperable sin roles en la base) |
 | R3 | Migraciones aplicadas en orden desde los SQL del repositorio | 🟡 | `db/migrate.sh` aplica las 10 (001 a 010) desde un volumen vacío en local: las suites de hoy arrancan así y pasan. Contra Render: no ejecutado |
 | R4 | Conexión cifrada (`sslmode=require`) | 🟡 | `DB_SSLMODE` implementado y probado sin red en `api/tests/test_nube.py` (dentro de las 272 pruebas de la API). La comprobación con `pg_stat_ssl` y el rechazo de una conexión sin TLS en Render: no ejecutadas |
 | R5 | Puerto de la base no expuesto a todo internet | 🟡 | `render.yaml` declara `ipAllowList: []`. La comprobación (una conexión externa con la lista vacía debe fallar): no ejecutada |
@@ -60,7 +60,7 @@ Tres estados: ✅ cumplido y verificado; 🟡 preparado y verificado **en local 
 | R13 | Repetir en la nube una regla ejecutada por trigger | ❌ **FALTA** | La venta sin stock (RN-09) desde el front público no se hizo: no hay front público. En local la verifica `front/tests/test_venta.py` |
 | R14 | README con URL pública y pasos para reproducir | 🟡 | Los pasos están (README, "Despliegue en la nube", y `db/nube/README.md`) junto con `render.yaml`. **Falta la URL pública**: el README ahora dice "pendiente" |
 
-**Resumen:** 1 cumplido (R10), 7 preparados sin verificar en Render (R3, R4, R5, R6, R7, R11, R14) y 6 que faltan (R1, R2, R8, R9, R12, R13).
+**Resumen:** 1 cumplido (R10), 8 preparados o parciales (R2, R3, R4, R5, R6, R7, R11, R14) y 5 que faltan (R1, R8, R9, R12, R13).
 
 ---
 
@@ -75,6 +75,8 @@ El README y el informe final publicaban `https://bodegas-front.onrender.com` y `
 | `GET https://bodegas-api.onrender.com/salud` y `/docs` | 404, con `x-render-origin-server: gunicorn` | Esta API corre con uvicorn y responde en `/salud` y `/docs` |
 
 Probablemente esos nombres ya estaban ocupados por otras cuentas: en Render el subdominio es único y, si el nombre está tomado, se agrega un sufijo. **La URL real de cada servicio sale del dashboard** (el servicio → su URL). Mientras tanto, el README y el informe final dicen "pendiente". La cadena `https://bodegas-front.onrender.com` queda en `api/tests/test_nube.py` sólo como origen de ejemplo de una prueba sin red.
+
+**URLs reales** (tomadas del dashboard de Render por Lucas): front `https://bodegas-front-cq6q.onrender.com` y API `https://bodegas-api-srvr.onrender.com`. El front es el de este proyecto (sirve `/styles.css` y `/js/app.js`). Para la API, Render responde al instante `404 no-server` a un nombre que no existe y esa URL no responde en 30 s: el servicio existe pero no está atendiendo. **Estado al 10/11, 23:15:** `verificar-admin` falla porque Render corta el handshake TLS aunque la IP `132.255.114.196/32` figura en la lista de la base, así que no hay bootstrap, migraciones ni carga; y el `config.js` del front todavía apunta a la API ajena.
 
 ---
 

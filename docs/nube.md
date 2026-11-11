@@ -138,7 +138,7 @@ Ver los issues #69 (seguridad y regla en la nube) y #70 (backup y restauración)
 | Dato | Estado |
 |---|---|
 | Región y fecha de creación de la base (y su vencimiento a los 30 días) | Sin dato: no se pudo consultar Render. `render.yaml` declara la región `virginia` |
-| URLs públicas | Sin dato (ver el hallazgo de abajo) |
+| URLs públicas | Front: `https://bodegas-front-cq6q.onrender.com` (publicado: responde 200 y publica su `config.js`). API: `https://bodegas-api-srvr.onrender.com` (el servicio existe pero no atiende: su único deploy falló, esperable sin los roles en la base) |
 | Tamaño usado | Sin dato: no se cargó nada |
 | Verificaciones de la base, de seguridad y de backup (secciones 2, 4 y 5 del plan) | **No ejecutadas** |
 | Bitácora de aperturas y cierres de IP | **Ninguna**: no se abrió ninguna IP ni se tocó la lista de acceso |
@@ -149,6 +149,8 @@ Ver los issues #69 (seguridad y regla en la nube) y #70 (backup y restauración)
 - `https://bodegas-api.onrender.com/salud` y `/docs` dan 404, y la respuesta viene de gunicorn; esta API corre con uvicorn.
 
 Probablemente esos nombres ya estaban ocupados: en Render el subdominio es único y, si el nombre está tomado, se agrega un sufijo. La URL real de cada servicio sale del dashboard (el servicio → su URL). Hasta entonces, el README y el informe final dicen "pendiente" en lugar de esas URLs.
+
+**Actualización (10/11, 23:15).** Lucas completó `render.env`, habilitó su IP y cargó las variables en Render, y autorizó a un agente a ejecutar los pasos de `render.sh`. `verificar-admin` **falla**: Render corta el handshake TLS (con `sslmode=disable` responde `SSL/TLS required` y sin SNI, `No SNI information found`), aunque la IP de salida de la PC, `132.255.114.196/32`, figura en la lista de la base. Sin conexión no hay bootstrap, migraciones ni carga. Además, el `config.js` del front todavía apunta a la API ajena (`bodegas-api.onrender.com`) porque se generó antes de cargar `API_BASE_URL`: hace falta un Manual Deploy del front.
 
 **Cómo completarlo.**
 - *Con un agente:* crear `db/nube/render.env` con una sola línea, `RENDER_API_KEY=<clave>`, y repetir el pedido de despliegue.
