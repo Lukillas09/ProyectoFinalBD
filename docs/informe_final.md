@@ -4,7 +4,7 @@
 
 **Integrantes:** Lucas Martínez y Dai Galdeano · **Repositorio:** https://github.com/Lukillas09/ProyectoFinalBD
 
-**Versión en la nube:** en curso (ver la sección 8 y [`cierre_etapa8.md`](cierre_etapa8.md)). Front publicado: `https://bodegas-front-cq6q.onrender.com`. API: `https://bodegas-api-srvr.onrender.com`, **todavía sin atender** (su deploy falló hasta crear los roles en la base).
+**Versión en la nube:** front `https://bodegas-front-cq6q.onrender.com` · API y Swagger `https://bodegas-api-srvr.onrender.com/docs` (ver la sección 8 y [`cierre_etapa8.md`](cierre_etapa8.md)).
 
 Este informe sigue la estructura de la consigna (§10.2) y reúne los informes parciales de cada etapa. Cada sección resume decisiones y resultados, y enlaza al documento con el detalle completo.
 
@@ -23,7 +23,7 @@ Bodegas del Atuel es una red de salas de venta de vinos de San Rafael que compra
 - **48 consultas SQL** de la sección 8: S1–S12, U1–U6, I1–I6 y D1–D6.
 - **API REST** en Python con FastAPI y Psycopg 3, sin ORM y con SQL parametrizado.
 - **Front** en HTML, CSS y JavaScript sin frameworks, con cinco pantallas.
-- **Despliegue en la nube** (Render): plan, código y herramientas listos (`render.yaml`, `db/nube/`); la ejecución contra Render está **pendiente** (sección 8).
+- **Despliegue en la nube** (Render), con HTTPS, conexión cifrada, acceso restringido y backup probado (sección 8).
 
 **Principio rector del proyecto:** *las reglas, los importes y el stock pertenecen a PostgreSQL*. La API sólo invoca funciones y procedimientos y traduce sus errores; el front sólo muestra lo que devuelve la base. Así una regla se cumple igual si el dato llega por la API, por `psql` o por una carga masiva.
 
@@ -329,7 +329,7 @@ Cinco pantallas en HTML, CSS y JS sin frameworks:
 
 Documento: [`nube.md`](nube.md). Herramientas en [`db/nube/`](../db/nube/). Blueprint: [`render.yaml`](../render.yaml).
 
-> **Estado al 10/11/2026: no desplegado.** El plan, el código y las herramientas están integrados; el despliegue en Render no se ejecutó porque faltaba la credencial para operarlo. Esta sección describe el diseño y marca, requisito por requisito, qué está verificado y qué queda pendiente. Detalle y pendientes en [`cierre_etapa8.md`](cierre_etapa8.md).
+> **Estado al 10/11/2026: desplegado y verificado.** Todos los requisitos R1 a R14 están cumplidos; la evidencia (salidas, conteos y capturas) está en [`nube.md`](nube.md) §6 y en [`cierre_etapa8.md`](cierre_etapa8.md).
 
 ### 8.1 Proveedor elegido y por qué
 
@@ -350,16 +350,16 @@ Navegador ─HTTPS─▶ static site (front) ── config.js con la URL públic
                         └─ red privada ─▶ PostgreSQL 16 (sin acceso externo)
 ```
 
-| Requisito | Diseño | Estado |
+| Requisito | Diseño | Resultado en Render |
 |---|---|---|
-| Migraciones en orden desde el repositorio | `db/migrate.sh` como `bodegas_owner`, con checksums: las 10, en orden | Verificado en local (el servicio `migrate` las aplica desde un volumen vacío). **En Render: pendiente** |
-| Roles de privilegios mínimos | Mismos roles que en local. Como el administrador de Render no es superusuario, se escribió `bootstrap_render.sh`, que reordena los pasos para PostgreSQL 16 y al final le quita al administrador la membresía al propietario | Probado el 10/11 en un PostgreSQL 16 con un administrador del mismo perfil (`db/nube/README.md`). **En Render: pendiente** |
-| Conexión cifrada | La API se conecta con `DB_SSLMODE=require`; Render rechaza una conexión externa sin TLS | Implementado y probado sin red (`api/tests/test_nube.py`). **La comprobación con `pg_stat_ssl` y el rechazo sin TLS en Render: pendientes** |
-| Puerto restringido | Lista de IPs de la base vacía (`render.yaml`). Se abre sólo la IP de quien ejecuta cada paso, con `/32`, y se cierra al terminar | **No ejecutado**: no se abrió ninguna IP |
-| Secretos | Variables de Render (`sync: false` en el blueprint); ninguno en el repositorio | Declarado en `render.yaml`. El historial (172 commits) no contiene contraseñas, claves de Render ni URLs de conexión con credenciales: barrido del 10/11 |
-| CORS | `CORS_ORIGINS` con el origen exacto del front; se rechazan `*` y orígenes `http` | Probado sin red (`api/tests/test_nube.py`). **En Render: pendiente** |
-| Regla por trigger en la nube | Venta sin stock desde el front público → RN-09 | **Pendiente.** En local ya la verifica `front/tests/test_venta.py` |
-| Datos | Carga `ESCALA=0.1`: 15.044 comprobantes y 54.218 renglones (cifras de la carga local; más de 10.000 filas). Se reduce por plazo; la completa entraría en el 1 GB del plan | **En Render: pendiente** |
+| Migraciones en orden desde el repositorio | `db/migrate.sh` como `bodegas_owner`, con checksums: las 10, en orden | Las 10 migraciones aplicadas (001 a 010) |
+| Roles de privilegios mínimos | Mismos roles que en local. Como el administrador de Render no es superusuario, se escribió `bootstrap_render.sh`, que reordena los pasos para PostgreSQL 16 y al final le quita al administrador la membresía al propietario | Bootstrap correcto. El administrador queda sin `CONNECT` a la base; `bodegas_api` no puede crear tablas, actualizar stock directamente ni crear roles |
+| Conexión cifrada | La API se conecta con `DB_SSLMODE=require`; Render rechaza una conexión externa sin TLS | `ssl = t`, TLS 1.3 en una sesión de `bodegas_api`; la conexión sin TLS falla con `SSL/TLS required`. La sesión de la propia API no es observable desde nuestras cuentas |
+| Puerto restringido | Lista de IPs de la base vacía (`render.yaml`). Se abre sólo la IP de quien ejecuta cada paso y se cierra al terminar | La lista terminó vacía: una conexión externa falla y la API sigue respondiendo por la red privada. Hubo que abrir un bloque `/24` temporal porque el proveedor de internet cambia la IP por conexión |
+| Secretos | Variables de Render (`sync: false` en el blueprint); ninguno en el repositorio | Variables cargadas en el dashboard. El historial (172 commits) no contiene contraseñas, claves ni URLs de conexión con credenciales |
+| CORS | `CORS_ORIGINS` con el origen exacto del front; se rechazan `*` y orígenes `http` | Origen ajeno y origen `http`: 400 sin cabecera; origen del front: 200 con `access-control-allow-origin` |
+| Regla por trigger en la nube | Venta sin stock desde el front público → RN-09 | `409 · RN-09: stock insuficiente del vino 12 en la sala 1.` desde el front público y desde la API; conteos de las 31 tablas idénticos antes y después |
+| Datos | Carga `ESCALA=0.1`: 15.044 comprobantes y 54.218 renglones (más de 10.000 filas). Se reduce por plazo; la completa entraría en el 1 GB del plan | 15.044 y 54.218 en Render; la base ocupa 24 MB |
 
 ### 8.3 Backup y restauración
 
@@ -368,7 +368,9 @@ Navegador ─HTTPS─▶ static site (front) ── config.js con la URL públic
 2. restaura con `pg_restore` como propietario;
 3. compara el conteo de **todas** las tablas entre Render y la restaurada.
 
-Los volcados no se versionan. **Todavía no se ejecutó contra Render**: no hay volcado ni conteos que comparar. Los resultados se agregarán en `docs/nube.md` §6 y en `cierre_etapa8.md`.
+Los volcados no se versionan.
+
+**Resultado (10/11/2026):** el volcado pesó 1,3 MB. La base restaurada tiene **conteos idénticos en las 31 tablas** y **huellas de contenido idénticas** en las 30 tablas con huella (`db/seed/hashes.sql`). Salidas y detalle en `docs/nube.md` §6.5.
 
 ---
 

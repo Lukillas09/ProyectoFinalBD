@@ -18,8 +18,8 @@ El navegador nunca usa nombres internos de Docker: solicita `/api/salud` al mism
 
 | | |
 |---|---|
-| **Versión en la nube (front)** | https://bodegas-front-cq6q.onrender.com (publicado; estado del despliegue en [`docs/cierre_etapa8.md`](docs/cierre_etapa8.md)) |
-| **API en la nube** | https://bodegas-api-srvr.onrender.com (**todavía no atiende**: su deploy falló hasta crear los roles en la base) |
+| **Versión en la nube (front)** | https://bodegas-front-cq6q.onrender.com |
+| **API en la nube (Swagger)** | https://bodegas-api-srvr.onrender.com/docs |
 | **Informe final** | [`docs/informe_final.md`](docs/informe_final.md) |
 | **DER (notación de Chen)** | [`docs/der/chen/der_chen.pdf`](docs/der/chen/der_chen.pdf) |
 | **Trazabilidad regla → mecanismo → prueba** | [`docs/trazabilidad.md`](docs/trazabilidad.md) |
@@ -39,8 +39,8 @@ Para reproducirlo desde cero:
    - `DB_PASSWORD`, la contraseña de `bodegas_api`;
    - `CORS_ORIGINS`, la URL exacta del front;
    - `API_BASE_URL`, la URL exacta de la API.
-2. En la base, **Networking**: agregar la IP propia como `x.x.x.x/32`.
-3. Copiar [`db/nube/render.env.example`](db/nube/render.env.example) como `db/nube/render.env` (no se versiona) y completarlo con el host externo, el administrador de Render y las contraseñas de las tres cuentas. La de `bodegas_api` debe ser la misma del paso 1.
+2. En la base, **Networking**: agregar la IP propia como `x.x.x.x/32`. Si el proveedor de internet cambia la IP por conexión (se nota con `curl https://checkip.amazonaws.com` repetido), agregar el bloque `/24` y quitarlo al terminar.
+3. Copiar [`db/nube/render.env.example`](db/nube/render.env.example) como `db/nube/render.env` (no se versiona) y completarlo con el host externo, el administrador de Render y las contraseñas de las tres cuentas. La de `bodegas_api` debe ser la misma del paso 1. `POSTGRES_DB` lleva el nombre real de la base, que Render escribe con un sufijo, y `RENDER_ADMIN_PASSWORD` es la contraseña de Connections (no la URL).
 4. Desde Git Bash o Linux:
    ```bash
    db/nube/render.sh verificar-admin
@@ -49,7 +49,7 @@ Para reproducirlo desde cero:
    db/nube/render.sh cargar           # ESCALA de render.env
    db/nube/render.sh controles
    ```
-5. En Render, **Manual Deploy** de la API, que ahora encuentra sus roles. Después, quitar la IP de la lista: la base queda sin acceso externo.
+5. En Render, **Manual Deploy** de la API, que ahora encuentra sus roles, y del front, para que su `config.js` tome la URL de la API (las variables nuevas necesitan un deploy). Después, quitar la IP de la lista: la base queda sin acceso externo.
 6. Backup y restauración:
    ```bash
    db/nube/render.sh backup
@@ -100,7 +100,7 @@ Documentos académicos:
 - [Informe de cierre de la Etapa 6](docs/cierre_etapa6.md)
 - [Front: plan, pantallas y contrato (Etapa 7)](docs/front.md)
 - [Informe de cierre de la Etapa 7](docs/cierre_etapa7.md)
-- [Estado de la Etapa 8 (despliegue pendiente)](docs/cierre_etapa8.md)
+- [Informe de cierre de la Etapa 8](docs/cierre_etapa8.md)
 
 La consigna y los apuntes de la cátedra se guardan en `material/`, pero esa carpeta está ignorada por Git: es material docente y no se publica. Cada integrante debe copiar los PDF localmente.
 
@@ -740,15 +740,14 @@ Detalle de parámetros: [consultas/README.md](consultas/README.md). El informe, 
 - Pantallas mínimas: catálogo paginado con filtros, alta/edición de vino, venta con error de stock, transferencias con botones según estado, tablero (top 10, gráfico ventas trimestrales, vinos sin stock).
 - Centralizar llamadas a la API, URL base configurable, mostrar mensajes reales de reglas, no calcular importes ni stock en el front.
 
-### Pendientes reales (Etapa 8 - Nube)
-- Comparar dos proveedores, justificar uno, crear cuentas propietario/API/reportes, aplicar migraciones, HTTPS, PostgreSQL cifrado, puerto restringido, secretos externos, CORS limitado, rechazo comprobado de conexión no autorizada, backup/restauración con conteos.
-- Demo de 10-15 minutos en nube: venta, rechazo por stock, procesar transferencia, consulta con plan de ejecución.
+### Etapa 8 (nube): completada
+Desplegada en Render el 10/11/2026 y verificada: PostgreSQL 16 con las 10 migraciones y la carga reducida, API y front con HTTPS, conexión cifrada, lista de IPs vacía, CORS limitado, RN-09 desde el front público y backup restaurado con conteos y huellas idénticos. Evidencia en [docs/nube.md](docs/nube.md) §6 y [docs/cierre_etapa8.md](docs/cierre_etapa8.md).
 
 ### Decisiones de diseño documentadas (no obligatorias, pero registradas)
 - **U1 (recalcular comprobantes):** se resolvió con `fn_recalcular_comprobante` y descuento congelado en cada renglón (RN-12). Reaplicar descuento actual a ventas históricas contradiría RN-12. Ver `consultas/update.sql` y `docs/consultas.md`.
 - **Trazabilidad (`/reportes/trazabilidad/{cod}`):** el modelo no vincula vino-lotes; se implementó como supuesto (lotes de la bodega, campaña=añada, cepas del corte). Pendiente respuesta de cátedra. Ver `docs/api.md` sección 6 y `docs/requisitos.md` 3.8.
 - **`POST /ingresos/{cod}/terminar`:** no listado en PDF pero RN-10 exige estado `terminado`; implementado para que ingresos creados por API puedan procesarse. Pendiente confirmación. Ver `docs/api.md` sección 6.
-- **Zona horaria:** fechas en UTC (`CURRENT_DATE`/`CURRENT_TIMESTAMP` del servidor BD). Corregir exige fijar `timezone` de la base; decisión pendiente para Etapa 8.
+- **Zona horaria:** fechas en UTC (`CURRENT_DATE`/`CURRENT_TIMESTAMP` del servidor BD). Corregir exige fijar `timezone` de la base; decisión pendiente (no se resolvió en la Etapa 8).
 
 ### Aclaraciones académicas
 - La diferencia entre obligaciones del PDF y aclaración docente sobre temas no vistos (transacciones como ejemplo opcional) permanece registrada en [docs/requisitos.md](docs/requisitos.md) §4; no se eliminó ningún requisito silenciosamente.
