@@ -18,7 +18,8 @@ El navegador nunca usa nombres internos de Docker: solicita `/api/salud` al mism
 
 | | |
 |---|---|
-| **Versión en la nube** | **Pendiente de despliegue** (ver [`docs/cierre_etapa8.md`](docs/cierre_etapa8.md)). Las URLs que figuraban acá no eran de este proyecto |
+| **Versión en la nube (front)** | https://bodegas-front-cq6q.onrender.com (publicado; estado del despliegue en [`docs/cierre_etapa8.md`](docs/cierre_etapa8.md)) |
+| **API en la nube** | https://bodegas-api-srvr.onrender.com (**todavía no atiende**: su deploy falló hasta crear los roles en la base) |
 | **Informe final** | [`docs/informe_final.md`](docs/informe_final.md) |
 | **DER (notación de Chen)** | [`docs/der/chen/der_chen.pdf`](docs/der/chen/der_chen.pdf) |
 | **Trazabilidad regla → mecanismo → prueba** | [`docs/trazabilidad.md`](docs/trazabilidad.md) |

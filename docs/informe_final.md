@@ -4,7 +4,7 @@
 
 **Integrantes:** Lucas Martínez y Dai Galdeano · **Repositorio:** https://github.com/Lukillas09/ProyectoFinalBD
 
-**Versión en la nube:** pendiente de despliegue (ver la sección 8 y [`cierre_etapa8.md`](cierre_etapa8.md)). Las URLs se agregan cuando existan: las que figuraban acá no eran de este proyecto.
+**Versión en la nube:** en curso (ver la sección 8 y [`cierre_etapa8.md`](cierre_etapa8.md)). Front publicado: `https://bodegas-front-cq6q.onrender.com`. API: `https://bodegas-api-srvr.onrender.com`, **todavía sin atender** (su deploy falló hasta crear los roles en la base).
 
 Este informe sigue la estructura de la consigna (§10.2) y reúne los informes parciales de cada etapa. Cada sección resume decisiones y resultados, y enlaza al documento con el detalle completo.
 
