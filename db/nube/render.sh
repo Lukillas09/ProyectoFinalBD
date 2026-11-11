@@ -38,8 +38,13 @@ case "${1:-}" in
     until docker logs bodegas_restaurada 2>&1 | grep -q "PostgreSQL init process complete"; do sleep 2; done
     until docker exec bodegas_restaurada pg_isready -q -h 127.0.0.1; do sleep 1; done
     echo "== pg_restore en la base nueva (como propietario)"
-    # --clean --if-exists: el bootstrap ya creó el esquema bodegas vacío.
-    docker exec bodegas_restaurada sh -c 'pg_restore -U "$DB_OWNER_USER" -d "$POSTGRES_DB" --clean --if-exists "/salida/'"$nombre"'"'
+    # El bootstrap ya creó el esquema bodegas, vacío, y el volcado lo crea de nuevo:
+    # se lo borra antes. No se usa --clean: sobre una base nueva, pg_restore intenta
+    # primero desarmar la vista v_documentos_pendientes con un esqueleto que usa el
+    # tipo estado_documento, que todavía no existe, y falla. El error era inofensivo
+    # pero cortaba el script. Con --exit-on-error, cualquier error que quede es real.
+    docker exec bodegas_restaurada sh -c 'psql -X -q -v ON_ERROR_STOP=1 -U "$DB_OWNER_USER" -d "$POSTGRES_DB" -c "DROP SCHEMA bodegas"'
+    docker exec bodegas_restaurada sh -c 'pg_restore --exit-on-error -U "$DB_OWNER_USER" -d "$POSTGRES_DB" "/salida/'"$nombre"'"'
     echo "== Conteos: Render vs restaurada"
     compose run --rm herramientas conteos > "$aqui/salida/conteos_render.txt"
     docker exec -i bodegas_restaurada sh -c 'psql -X -U "$DB_OWNER_USER" -d "$POSTGRES_DB"' < "$aqui/conteos.sql" > "$aqui/salida/conteos_restaurada.txt"

@@ -27,6 +27,8 @@ Los roles, atributos y permisos resultantes son los mismos que en local.
 - el administrador termina sin `SET` ni herencia sobre `bodegas_owner`;
 - 261 pruebas de la API pasan contra esa base. Fallan sólo las 11 que necesitan los contenedores o nginx.
 
+**Ejecutado contra Render el 10/11/2026:** los pasos de abajo, de `verificar-admin` a `restaurar`, corrieron sin errores sobre una base real de Render. Resultados en `docs/nube.md` §6.
+
 ## Orden de uso
 
 Antes de empezar:
@@ -54,3 +56,11 @@ db/nube/render.sh psql-api -c "CREATE TABLE x (i int)"     # debe fallar: permis
 db/nube/render.sh sin-ssl                                   # debe fallar: Render exige TLS
 # con la IP quitada, cualquier paso debe fallar al conectar
 ```
+
+## Si algo falla
+
+- **`SSL connection has been closed unexpectedly`**: Render corta el TLS cuando la IP de origen no está en la lista. Si el proveedor de internet cambia la IP por conexión, una regla `/32` no alcanza: comprobarlo con `curl https://checkip.amazonaws.com` repetido y, si cambia, agregar el bloque `/24` mientras dure el paso. Con la lista vacía, este error es lo esperado.
+- **`password authentication failed`**: `RENDER_ADMIN_PASSWORD` tiene que ser la contraseña de *Connections* (32 caracteres), no la URL ni un valor propio.
+- **`permission denied for database … CONNECT`** para el administrador: es correcto después del bootstrap (el administrador deja de entrar a los datos).
+- **`POSTGRES_DB`** lleva el nombre real de la base, que Render escribe con un sufijo (`bodegas_xxxx`).
+- **`render.env` con finales de línea CRLF** rompe las contraseñas (Docker las lee con un `\r`): guardarlo con LF.
