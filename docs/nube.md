@@ -4,7 +4,7 @@ Plan, comparación de proveedores y diseño del despliegue. Las evidencias (capt
 
 > **Autorización.** `AGENTS.md` exige una instrucción explícita para desplegar. El 10/11/2026 Lucas pidió empezar la Etapa 8 y eligió Render. Cada paso que crea o cambia recursos en Render lo ejecuta él desde su cuenta. Las credenciales nunca pasan por el repositorio.
 
-> **Operación por API, autorizada sólo el 10/11/2026.** Ese día, y hasta las 23:59 (hora de Argentina), Lucas autorizó a un agente a operar Render por su API con la clave de `db/nube/render.env` (`RENDER_API_KEY`), en lugar de ejecutar él cada paso. **No se llegó a usar**: ese archivo no existía en la PC (sección 6). Si la clave se usa, se recomienda **revocarla** (Account Settings → API Keys) al terminar la entrega.
+> **Cómo se operó.** El 10/11/2026 Lucas autorizó a un agente a ejecutar los pasos de `db/nube/render.sh` con su `db/nube/render.env` y a integrar el PR de cierre; los clics en el dashboard de Render (servicios, variables, lista de IPs y deploys) los hizo él. Esa autorización venció ese día. La clave de la API de Render (`RENDER_API_KEY`) **nunca se usó**: no se llegó a crear.
 
 ## 1. Qué pide la consigna
 
@@ -131,32 +131,75 @@ Ver los issues #69 (seguridad y regla en la nube) y #70 (backup y restauración)
 
 ## 6. Resultados del despliegue
 
-**Estado al 10/11/2026 (alrededor de las 20:40, hora de Argentina): el despliegue en Render NO se ejecutó.** El plan, el código y las herramientas están integrados (#66, PR #72); lo que falta es correrlos contra Render.
+**Estado al 10/11/2026 (23:50, hora de Argentina): desplegado y verificado.** Las salidas completas de cada paso están en `db/nube/salida/` (no se versiona). Acá se resumen sin secretos: el host de la base se escribe `dpg-…render.com`.
 
-**Motivo.** La operación por API necesitaba la clave de Render en `db/nube/render.env`, y ese archivo no existía en la PC: no está en la carpeta del proyecto ni en sus copias de trabajo, y `RENDER_API_KEY` no figura en ningún archivo del proyecto ni en `.env`. No se buscó la clave por otros medios. Sin ella no se creó ni se cambió nada en Render: el único pedido fue un `GET` sin credenciales a la API, que respondió 401.
+### 6.1 Recursos
 
-| Dato | Estado |
+| Recurso | Dato |
 |---|---|
-| Región y fecha de creación de la base (y su vencimiento a los 30 días) | Sin dato: no se pudo consultar Render. `render.yaml` declara la región `virginia` |
-| URLs públicas | Front: `https://bodegas-front-cq6q.onrender.com` (publicado: responde 200 y publica su `config.js`). API: `https://bodegas-api-srvr.onrender.com` (el servicio existe pero no atiende: su único deploy falló, esperable sin los roles en la base) |
-| Tamaño usado | Sin dato: no se cargó nada |
-| Verificaciones de la base, de seguridad y de backup (secciones 2, 4 y 5 del plan) | **No ejecutadas** |
-| Bitácora de aperturas y cierres de IP | **Ninguna**: no se abrió ninguna IP ni se tocó la lista de acceso |
-| Operación por la API de Render | Autorizada y **no usada** |
+| Proveedor y plan | Render, plan gratis |
+| Base | `bodegas-db`, PostgreSQL 16.15, región Virginia (EE. UU. este). Creada el 10/11/2026 (alrededor de las 21:00, según el dashboard). **La base gratis vence a los 30 días** (alrededor del 10/12/2026; la fecha exacta está en el dashboard): se puede recrear con los mismos scripts |
+| Front | `https://bodegas-front-cq6q.onrender.com` (static site, HTTPS) |
+| API | `https://bodegas-api-srvr.onrender.com` (web service Docker, HTTPS; Swagger en `/docs`) |
+| Tamaño usado | 24 MB de 1 GB |
+| Datos | Carga reducida `ESCALA=0.1` (R9): 15.044 comprobantes y 54.218 renglones, los mismos de la carga local |
 
-**Hallazgo: las URLs que figuraban en el README no son de este proyecto.** Se comprobó con pedidos públicos sin credenciales:
-- `https://bodegas-front.onrender.com` responde, pero sirve otro `index.html` (con `css/estilos.css`; este front usa `styles.css`) y no tiene `config.js` (404), que este front sí publica;
-- `https://bodegas-api.onrender.com/salud` y `/docs` dan 404, y la respuesta viene de gunicorn; esta API corre con uvicorn.
+### 6.2 Base (#67)
 
-Probablemente esos nombres ya estaban ocupados: en Render el subdominio es único y, si el nombre está tomado, se agrega un sufijo. La URL real de cada servicio sale del dashboard (el servicio → su URL). Hasta entonces, el README y el informe final dicen "pendiente" en lugar de esas URLs.
+| Paso | Resultado |
+|---|---|
+| `verificar-admin` | `bodegas_admin`: `rolcreaterole = t`, `rolsuper = f`; PostgreSQL 16.15; `ssl = t`, TLS 1.3 |
+| `bootstrap` | Roles, grupos y esquema creados; el administrador queda sin `CONNECT` a la base (traspaso a `bodegas_owner`) |
+| `migrar` | Las 10 migraciones (001 a 010), en orden y con checksums |
+| `cargar` | 1 min 12 s por internet. 31 tablas; `comprobante` 15.044 y `renglon_comprobante` 54.218 |
+| `controles` | Pasan `controles.sql` y `post_carga.sql`: RN-09, RN-10, RN-11, RN-12 y RN-13 funcionan en la base real, y las verificaciones se revierten |
+| `huellas` | 30 tablas con huella de contenido (se comparan con la base restaurada en 6.5) |
+| `tamano` | 24 MB |
 
-**Actualización (10/11, 23:15).** Lucas completó `render.env`, habilitó su IP y cargó las variables en Render, y autorizó a un agente a ejecutar los pasos de `render.sh`. `verificar-admin` **falla**: Render corta el handshake TLS (con `sslmode=disable` responde `SSL/TLS required` y sin SNI, `No SNI information found`), aunque la IP de salida de la PC, `132.255.114.196/32`, figura en la lista de la base. Sin conexión no hay bootstrap, migraciones ni carga. Además, el `config.js` del front todavía apunta a la API ajena (`bodegas-api.onrender.com`) porque se generó antes de cargar `API_BASE_URL`: hace falta un Manual Deploy del front.
+### 6.3 API y front (#68)
 
-**Cómo completarlo.**
-- *Con un agente:* crear `db/nube/render.env` con una sola línea, `RENDER_API_KEY=<clave>`, y repetir el pedido de despliegue.
-- *A mano:* los pasos 1 a 6 de "Despliegue en la nube" del README y el "Orden de uso" de `db/nube/README.md`.
+- `GET /salud` → 200 `{"estado":"ok","base_de_datos":"disponible"}`; `/docs`, `/vinos?limite=1` (600 vinos), `/catalogos/salas` y `/reportes/top-vinos` → 200.
+- El front responde 200, es el de este proyecto (`/styles.css`, `/js/app.js`) y su `config.js` apunta a la API real: `apiBase: "https://bodegas-api-srvr.onrender.com"`.
+- En un navegador real (Chrome, `docs/img/nube/`): el catálogo carga los 600 vinos, el indicador dice "Sistema disponible" y el front sólo llama a `bodegas-api-srvr.onrender.com`, sin errores de CORS en la consola. En las capturas se anota la URL `https://bodegas-front-cq6q.onrender.com/` (HTTPS), porque un navegador sin ventana no dibuja la barra de direcciones.
 
-Al terminar, cada resultado de esta sección se reemplaza por su evidencia (sin secretos: el host se escribe `dpg-…render.com`).
+### 6.4 Seguridad (#69)
+
+| Verificación | Resultado |
+|---|---|
+| Conexión cifrada | Una sesión de `bodegas_api` desde la PC: `ssl = t`, TLS 1.3, `TLS_AES_256_GCM_SHA384`. La API se conecta con `DB_SSLMODE=require` (`render.yaml`). *Salvedad:* la sesión de la propia API no se puede observar en `pg_stat_ssl` desde ninguna de nuestras cuentas (ni el rol de reportes ni el administrador tienen permiso para ver sesiones ajenas) |
+| Conexión sin TLS | `render.sh sin-ssl` **falla**: `FATAL: SSL/TLS required` |
+| Privilegios de `bodegas_api` | `CREATE TABLE` → `permission denied for schema bodegas`; `UPDATE stock_sala` → `permission denied for table stock_sala`; `CREATE ROLE` → `permission denied to create role` |
+| El administrador no entra a los datos | Después del bootstrap, `bodegas_admin` recibe `permission denied for database … User does not have CONNECT privilege` |
+| CORS, origen ajeno (`https://ejemplo-malicioso.com`) | 400, sin `access-control-allow-origin` |
+| CORS, origen del front | 200, con `access-control-allow-origin: https://bodegas-front-cq6q.onrender.com` |
+| CORS, el mismo origen en `http` | 400 (se rechaza) |
+| **RN-09 desde la API pública** | `POST /comprobantes` con un vino sin stock → `409 · RN-09: stock insuficiente del vino 12 en la sala 1.`; los conteos de las 31 tablas, antes y después, **idénticos** |
+| **RN-09 desde el front público** (R13) | La pantalla de venta muestra `409 · P0001`, `RN-09: stock insuficiente del vino 12 en la sala 1.` y `No se registró ningún comprobante.`; conteos idénticos. Captura: `docs/img/nube/venta_sin_stock_rn09.png` |
+| Acceso externo con la lista de IPs vacía (R5, R12) | `render.sh tamano` **falla** (`SSL connection has been closed unexpectedly`) y la API y el front siguen en 200: la API entra por la red privada |
+
+### 6.5 Backup y restauración (#70)
+
+- `render.sh backup`: `pg_dump -Fc` del esquema `bodegas`, 1,3 MB.
+- `render.sh restaurar`: base nueva local con los mismos roles, `pg_restore` como propietario y comparación con Render: **"Conteos IDÉNTICOS" en las 31 tablas**. Además, las **huellas de contenido** de `db/seed/hashes.sql` son idénticas en las 30 tablas que tienen huella.
+
+### 6.6 Bitácora de la lista de IPs de la base
+
+La lista de IPs de `bodegas-db` empezó y terminó **vacía**. Horas aproximadas, de Argentina, del 10/11/2026:
+
+| Hora | Acción |
+|---|---|
+| Antes de las 23:01 | Lucas agrega `132.255.114.196/32`, la IP que informa `ifconfig.me` |
+| Alrededor de las 23:21 | Agrega `132.255.114.0/24` (ver 6.7): con la `/32` Render cortaba el handshake TLS |
+| Antes de las 23:49 | Borra las dos reglas: la lista queda vacía. A las 23:49 `render.sh tamano` falla y la API y el front siguen respondiendo |
+
+### 6.7 Qué se encontró y cómo se resolvió
+
+- **La IP de la PC cambia por conexión.** El proveedor de internet reparte salida entre varias IPs públicas: en pocos segundos la misma PC se vio como `132.255.114.196`, `.82`, `.168`, `.108` y `.142`. Una regla `/32` casi nunca coincidía con la IP que veía Render, que cortaba el TLS. Se resolvió con el bloque `/24`, temporal. **Cómo notarlo:** `curl https://checkip.amazonaws.com` varias veces; Amazon es el proveedor de Render.
+- **Nombre real de la base.** Render escribe `POSTGRES_DB` con un sufijo (`bodegas_xxxx`); `render.env` lleva el nombre que muestra Connections, no `bodegas`.
+- **`RENDER_ADMIN_PASSWORD` es la contraseña del dashboard**, no la URL ni un valor propio. La primera era de 10 caracteres y fue rechazada; la de Render tiene 32.
+- **Las variables nuevas necesitan un deploy.** El `config.js` del front se genera al construirlo, y el CORS de la API se lee al arrancar: tras cambiar `API_BASE_URL` y `CORS_ORIGINS` hubo que redesplegar los dos servicios.
+- **Las URLs que publicaba el README no eran de este proyecto.** `bodegas-front.onrender.com` y `bodegas-api.onrender.com` pertenecen a otras cuentas: el nombre de un servicio de Render es único y, si está tomado, se agrega un sufijo. Las URLs reales salen del dashboard.
+- **`render.sh restaurar` fallaba en una base nueva.** Con `--clean`, `pg_restore` intenta desarmar una vista antes de crear el tipo que usa (`estado_documento`) y falla. El error era inofensivo pero cortaba el script. Ahora borra el esquema vacío y restaura con `--exit-on-error`.
 
 ## Fuentes
 
